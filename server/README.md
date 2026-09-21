@@ -12,9 +12,13 @@ num único `docker compose`:
 Pré-requisitos: Docker + Docker Compose.
 
 ```bash
-cp .env.example .env     # edite e troque TODOS os segredos
+./gen-env.sh             # gera .env com segredos aleatórios (ou: cp .env.example .env)
 docker compose up --build
 ```
+
+`gen-env.sh` cria o `.env` com `LIVEKIT_API_SECRET`/`ORG_SECRET` aleatórios e
+permissões `600`. Recusa sobrescrever um `.env` existente (use `--force`). Depois,
+se for usar o bot de presença, preencha `DISCORD_BOT_TOKEN`.
 
 Endpoints:
 
