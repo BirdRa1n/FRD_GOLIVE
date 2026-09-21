@@ -1,0 +1,15 @@
+{
+  "name": "frd-golive-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Userplugin do Vencord — cliente do FRD GoLive.",
+  "scripts": {
+    "typecheck:rtc": "tsc -p tsconfig.check.json"
+  },
+  "dependencies": {
+    "livekit-client": "^2.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
