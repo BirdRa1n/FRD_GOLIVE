@@ -33,11 +33,15 @@ Marcos incrementais — cada fase é utilizável/testável antes de seguir.
 - [ ] Trocar fonte/janela; indicador visual de "transmitindo".
 - **Teste:** A compartilha tela+áudio; B vê e ouve; voz do Discord segue normal.
 
-## Fase 4 — Robustez
-- [ ] Reconexão, tratamento de saída/entrada de participantes.
-- [ ] Simulcast/qualidade adaptativa (LiveKit).
-- [ ] Múltiplos publicadores simultâneos no painel.
-- [ ] Mensagens de erro claras (servidor offline, secret errado, TURN falhando).
+## Fase 4 — Robustez ✅
+- [x] Reconexão automática (auto-reconnect do LiveKit + backoff próprio com token novo).
+- [x] Tratamento de saída/entrada de participantes (limpa streams na queda).
+- [x] Simulcast + qualidade adaptativa (`adaptiveStream`, `dynacast`, `simulcast`).
+- [x] Múltiplos publicadores simultâneos no painel.
+- [x] Mensagens de erro claras (servidor offline, segredo inválido, cancelamento
+      de captura), com botão de "Tentar de novo".
+- **Teste:** derrubar o servidor no meio da sessão e ver a reconexão/erro no painel.
+  _(pendente: exercício fim-a-fim no ambiente do dev)_
 
 ## Fase 5 — Segurança avançada (opcional)
 - [ ] Bot Discord que valida presença no canal de voz antes de emitir token.

@@ -68,8 +68,17 @@ preencha `serverUrl`, `tokenServiceUrl` e `orgSecret` (os mesmos do servidor).
 
 > Todos os participantes precisam do plugin com a **mesma** config para se verem.
 
-## Limitações da Fase 2
+## Estado atual (Fases 2–4)
 
-- Painel próprio (não o tile nativo do Discord) — por design.
-- Sem reconexão automática robusta nem seleção de fonte/janela na UI (Fase 4).
-- Botão de câmera existe no controller (`startCameraShare`) mas ainda não na UI.
+Implementado:
+- Conexão/assinatura por canal de voz, publicação de tela com áudio do sistema.
+- Reconexão automática: auto-reconnect do LiveKit para quedas transitórias +
+  backoff próprio (busca token novo) quando o LiveKit desiste.
+- Simulcast + qualidade adaptativa (`adaptiveStream`, `dynacast`).
+- Painel com estados de conexão e erros acionáveis (offline, segredo inválido)
+  e botão "Tentar de novo".
+
+Pendente (próximas fases):
+- Painel próprio, não o tile nativo do Discord — por design.
+- Seleção de fonte/janela e indicador visual de "transmitindo" na UI.
+- Botão de câmera na UI (`startCameraShare` já existe no controller).

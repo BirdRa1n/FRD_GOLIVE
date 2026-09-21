@@ -3,13 +3,21 @@
 
 import type { RemoteStreamInfo } from "../rtc/session";
 
+export type ConnectionStatus =
+    | "idle" // fora de call / desligado
+    | "connecting" // primeira conexão em andamento
+    | "connected" // conectado ao servidor privado
+    | "reconnecting" // caiu e está tentando religar
+    | "error"; // falhou; ver errorMessage
+
 type Listener = () => void;
 
 class StreamStore {
     private readonly streams = new Map<string, RemoteStreamInfo>();
     private readonly listeners = new Set<Listener>();
 
-    connected = false;
+    status: ConnectionStatus = "idle";
+    errorMessage: string | null = null;
     sharing = false;
 
     subscribe(listener: Listener): () => void {
@@ -32,9 +40,31 @@ class StreamStore {
         if (this.streams.delete(id)) this.emit();
     }
 
-    setConnected(value: boolean): void {
-        this.connected = value;
+    /** Remove só os streams remotos (ex.: numa queda), preservando status. */
+    clearStreams(): void {
+        if (this.streams.size > 0) {
+            this.streams.clear();
+            this.emit();
+        }
+    }
+
+    setStatus(status: ConnectionStatus): void {
+        this.status = status;
+        if (status !== "error") this.errorMessage = null;
         this.emit();
+    }
+
+    setError(message: string): void {
+        this.status = "error";
+        this.errorMessage = message;
+        this.emit();
+    }
+
+    clearError(): void {
+        if (this.errorMessage !== null) {
+            this.errorMessage = null;
+            this.emit();
+        }
     }
 
     setSharing(value: boolean): void {
@@ -44,7 +74,8 @@ class StreamStore {
 
     reset(): void {
         this.streams.clear();
-        this.connected = false;
+        this.status = "idle";
+        this.errorMessage = null;
         this.sharing = false;
         this.emit();
     }

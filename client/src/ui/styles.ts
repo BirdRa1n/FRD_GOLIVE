@@ -39,6 +39,30 @@ const CSS = `
 #frd-golive-root .frd-btn-stop {
     background: var(--status-danger, #da373c);
 }
+#frd-golive-root .frd-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+#frd-golive-root .frd-status {
+    padding: 6px 12px;
+    font-size: 13px;
+    background: var(--background-tertiary, #1e1f22);
+    color: var(--text-muted, #949ba4);
+}
+#frd-golive-root .frd-status-warn {
+    color: var(--text-warning, #f0b232);
+}
+#frd-golive-root .frd-status-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--text-danger, #f23f43);
+}
+#frd-golive-root .frd-retry {
+    background: var(--brand-500, #5865f2);
+    flex-shrink: 0;
+}
 #frd-golive-root .frd-grid {
     display: flex;
     flex-direction: column;

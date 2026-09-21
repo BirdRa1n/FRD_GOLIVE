@@ -31,6 +31,11 @@ export interface RtcSessionCallbacks {
     onStreamUpdated(info: RemoteStreamInfo): void;
     onStreamRemoved(id: string): void;
     onConnected?(): void;
+    /** LiveKit perdeu a conexão e está tentando religar sozinho (queda transitória). */
+    onReconnecting?(): void;
+    /** LiveKit religou sozinho após uma queda transitória. */
+    onReconnected?(): void;
+    /** Conexão encerrada de vez (LiveKit desistiu ou desconexão explícita). */
     onDisconnected?(): void;
 }
 
@@ -59,13 +64,21 @@ export class RtcSession {
     async connect(serverUrl: string, token: string): Promise<void> {
         if (this.room) await this.disconnect();
 
-        const room = new Room({ adaptiveStream: true, dynacast: true });
+        const room = new Room({
+            adaptiveStream: true, // ajusta a resolução recebida ao tamanho do <video>
+            dynacast: true, // para de enviar camadas que ninguém consome
+            publishDefaults: {
+                simulcast: true, // múltiplas camadas de qualidade por publicação
+            },
+        });
         this.room = room;
 
         room
             .on(RoomEvent.TrackSubscribed, this.handleSubscribed)
             .on(RoomEvent.TrackUnsubscribed, this.handleUnsubscribed)
             .on(RoomEvent.ParticipantDisconnected, this.handleParticipantLeft)
+            .on(RoomEvent.Reconnecting, this.handleReconnecting)
+            .on(RoomEvent.Reconnected, this.handleReconnected)
             .on(RoomEvent.Disconnected, this.handleDisconnected);
 
         await room.connect(serverUrl, token);
@@ -157,6 +170,14 @@ export class RtcSession {
         if (this.streams.delete(participant.identity)) {
             this.cb.onStreamRemoved(participant.identity);
         }
+    };
+
+    private readonly handleReconnecting = (): void => {
+        this.cb.onReconnecting?.();
+    };
+
+    private readonly handleReconnected = (): void => {
+        this.cb.onReconnected?.();
     };
 
     private readonly handleDisconnected = (): void => {
