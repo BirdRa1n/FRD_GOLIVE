@@ -1,0 +1,29 @@
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml
+    restart: unless-stopped
+    # As chaves são passadas por env (formato "chave: segredo"), sobrepondo o arquivo.
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"                  # HTTP/WebSocket (signaling)
+      - "7881:7881"                  # RTC sobre TCP (fallback)
+      - "50000-60000:50000-60000/udp" # RTC sobre UDP
+      # - "5349:5349"                # TURN/TLS (habilite junto com turn.enabled)
+
+  token-service:
+    build: ./token-service
+    restart: unless-stopped
+    environment:
+      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY}"
+      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET}"
+      ORG_SECRET: "${ORG_SECRET}"
+      PORT: "8080"
+      TOKEN_TTL: "${TOKEN_TTL:-10m}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - livekit

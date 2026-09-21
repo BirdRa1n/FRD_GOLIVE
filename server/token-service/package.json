@@ -1,0 +1,22 @@
+{
+  "name": "frd-golive-token-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Emite tokens JWT do LiveKit validando o segredo da organização.",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "livekit-server-sdk": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
