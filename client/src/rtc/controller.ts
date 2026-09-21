@@ -177,7 +177,7 @@ export async function startScreenShare(): Promise<void> {
             maxHeight: Number(settings.store.maxHeight),
             fps: Number(settings.store.fps),
         });
-        streamStore.setSharing(true);
+        streamStore.setSharing("screen");
     } catch (e) {
         // Cancelar o seletor de tela do navegador não é um erro real.
         if (e instanceof Error && e.name === "NotAllowedError") return;
@@ -189,7 +189,7 @@ export async function startCameraShare(): Promise<void> {
     if (!session) throw new Error("Conecte-se a um canal de voz primeiro.");
     try {
         await session.shareCamera();
-        streamStore.setSharing(true);
+        streamStore.setSharing("camera");
     } catch (e) {
         if (e instanceof Error && e.name === "NotAllowedError") return;
         streamStore.setError(describeError(e));
@@ -199,7 +199,7 @@ export async function startCameraShare(): Promise<void> {
 export async function stopSharing(): Promise<void> {
     if (!session) return;
     await session.stopSharing();
-    streamStore.setSharing(false);
+    streamStore.setSharing(null);
 }
 
 /** Chamado quando o canal de voz selecionado muda (ou fica null ao sair). */

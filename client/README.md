@@ -78,7 +78,9 @@ Implementado:
 - Painel com estados de conexão e erros acionáveis (offline, segredo inválido)
   e botão "Tentar de novo".
 
+- Botões de **compartilhar tela** e **câmera**, com indicador de "🔴 Transmitindo"
+  (tela/câmera) no painel.
+
 Pendente (próximas fases):
 - Painel próprio, não o tile nativo do Discord — por design.
-- Seleção de fonte/janela e indicador visual de "transmitindo" na UI.
-- Botão de câmera na UI (`startCameraShare` já existe no controller).
+- Seleção de fonte/janela específica pela UI.

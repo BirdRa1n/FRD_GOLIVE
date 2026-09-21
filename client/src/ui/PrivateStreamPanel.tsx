@@ -1,6 +1,11 @@
 import { React } from "@webpack/common";
 
-import { reconnectNow, startScreenShare, stopSharing } from "../rtc/controller";
+import {
+    reconnectNow,
+    startCameraShare,
+    startScreenShare,
+    stopSharing,
+} from "../rtc/controller";
 import type { RemoteStreamInfo } from "../rtc/session";
 import { streamStore } from "../state/streamStore";
 
@@ -51,27 +56,46 @@ export function PrivateStreamPanel() {
 
     const streams = streamStore.getStreams();
     const canShare = streamStore.status === "connected";
+    const { sharingKind } = streamStore;
 
     return (
         <div className="frd-panel">
             <div className="frd-header">
                 <span className="frd-title">Transmissão privada</span>
-                {streamStore.sharing ? (
-                    <button className="frd-btn frd-btn-stop" onClick={() => void stopSharing()}>
-                        Parar
-                    </button>
-                ) : (
-                    <button
-                        className="frd-btn"
-                        disabled={!canShare}
-                        onClick={() => void startScreenShare()}
-                    >
-                        Compartilhar tela
-                    </button>
+                {sharingKind && (
+                    <span className="frd-live" title="Você está transmitindo">
+                        <span className="frd-live-dot" />
+                        {sharingKind === "screen" ? "Transmitindo tela" : "Transmitindo câmera"}
+                    </span>
                 )}
             </div>
 
             <StatusBanner />
+
+            <div className="frd-actions">
+                {sharingKind ? (
+                    <button className="frd-btn frd-btn-stop" onClick={() => void stopSharing()}>
+                        Parar de transmitir
+                    </button>
+                ) : (
+                    <>
+                        <button
+                            className="frd-btn"
+                            disabled={!canShare}
+                            onClick={() => void startScreenShare()}
+                        >
+                            Compartilhar tela
+                        </button>
+                        <button
+                            className="frd-btn frd-btn-secondary"
+                            disabled={!canShare}
+                            onClick={() => void startCameraShare()}
+                        >
+                            Câmera
+                        </button>
+                    </>
+                )}
+            </div>
 
             <div className="frd-grid">
                 {streams.length === 0 ? (

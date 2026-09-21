@@ -39,9 +39,39 @@ const CSS = `
 #frd-golive-root .frd-btn-stop {
     background: var(--status-danger, #da373c);
 }
+#frd-golive-root .frd-btn-secondary {
+    background: var(--background-modifier-selected, #4e5058);
+}
 #frd-golive-root .frd-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+#frd-golive-root .frd-actions {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px 0;
+}
+#frd-golive-root .frd-actions .frd-btn {
+    flex: 1;
+}
+#frd-golive-root .frd-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--status-danger, #f23f43);
+}
+#frd-golive-root .frd-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-danger, #f23f43);
+    animation: frd-pulse 1.4s ease-in-out infinite;
+}
+@keyframes frd-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
 }
 #frd-golive-root .frd-status {
     padding: 6px 12px;

@@ -29,8 +29,9 @@ Marcos incrementais — cada fase é utilizável/testável antes de seguir.
 - [x] `capture`: `createLocalScreenTracks` com resolução/fps das settings.
 - [x] Publicar tracks; incluir áudio do sistema (opção `includeSystemAudio`).
 - [x] Parar de transmitir (`stopSharing`).
-- [ ] Botão de câmera na UI (lógica `startCameraShare` já existe).
-- [ ] Trocar fonte/janela; indicador visual de "transmitindo".
+- [x] Botão de câmera na UI.
+- [x] Indicador visual de "transmitindo" (tela/câmera) no painel.
+- [ ] Trocar fonte/janela específica pela UI.
 - **Teste:** A compartilha tela+áudio; B vê e ouve; voz do Discord segue normal.
 
 ## Fase 4 — Robustez ✅

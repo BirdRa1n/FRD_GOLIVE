@@ -10,6 +10,9 @@ export type ConnectionStatus =
     | "reconnecting" // caiu e está tentando religar
     | "error"; // falhou; ver errorMessage
 
+/** O que o usuário local está transmitindo agora (null = nada). */
+export type SharingKind = "screen" | "camera" | null;
+
 type Listener = () => void;
 
 class StreamStore {
@@ -18,7 +21,7 @@ class StreamStore {
 
     status: ConnectionStatus = "idle";
     errorMessage: string | null = null;
-    sharing = false;
+    sharingKind: SharingKind = null;
 
     subscribe(listener: Listener): () => void {
         this.listeners.add(listener);
@@ -67,8 +70,8 @@ class StreamStore {
         }
     }
 
-    setSharing(value: boolean): void {
-        this.sharing = value;
+    setSharing(kind: SharingKind): void {
+        this.sharingKind = kind;
         this.emit();
     }
 
@@ -76,7 +79,7 @@ class StreamStore {
         this.streams.clear();
         this.status = "idle";
         this.errorMessage = null;
-        this.sharing = false;
+        this.sharingKind = null;
         this.emit();
     }
 
