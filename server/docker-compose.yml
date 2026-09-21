@@ -23,6 +23,9 @@ services:
       ORG_SECRET: "${ORG_SECRET}"
       PORT: "8080"
       TOKEN_TTL: "${TOKEN_TTL:-10m}"
+      # Verificação de presença (Fase 5) — opcional. Vazio = modo só-segredo.
+      DISCORD_BOT_TOKEN: "${DISCORD_BOT_TOKEN:-}"
+      PRESENCE_ENFORCEMENT: "${PRESENCE_ENFORCEMENT:-strict}"
     ports:
       - "8080:8080"
     depends_on:

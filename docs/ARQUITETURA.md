@@ -93,8 +93,11 @@ TLS via reverse proxy (Caddy/Traefik) — WebRTC/`wss` exige HTTPS.
 - **Sala = ID do canal de voz.** Qualquer um que saiba o ID + tenha o `orgSecret`
   pode entrar. Por isso o `orgSecret` é o controle de acesso no MVP — deve ser
   tratado como credencial (não commitar, distribuir via canal seguro da empresa).
-- **Fase 2:** bot do Discord valida se a `identity` está mesmo no canal de voz `C`
-  antes do token-service emitir o JWT (fecha o furo do "sabe o ID + secret").
+- **Presença (implementado):** um bot do Discord (opcional) valida se a `identity`
+  está mesmo no canal de voz `C` antes do token-service emitir o JWT — fecha o furo
+  do "sabe o ID + secret". Modos `strict`/`lenient`/`off`. Ver `server/README.md`.
+- **Rotação:** o `ORG_SECRET` aceita lista separada por vírgula para troca sem
+  downtime; emissões/negações são auditadas em JSON no token-service.
 - Todo tráfego em `wss`/DTLS-SRTP (padrão WebRTC) + TLS no token-service.
 - Sem gravação por padrão. Se adicionada, deve ser opt-in e auditável.
 

@@ -43,10 +43,13 @@ Marcos incrementais — cada fase é utilizável/testável antes de seguir.
 - **Teste:** derrubar o servidor no meio da sessão e ver a reconexão/erro no painel.
   _(pendente: exercício fim-a-fim no ambiente do dev)_
 
-## Fase 5 — Segurança avançada (opcional)
-- [ ] Bot Discord que valida presença no canal de voz antes de emitir token.
-- [ ] Rotação de segredo / tokens curtos.
-- [ ] Logs de auditoria no token-service.
+## Fase 5 — Segurança avançada ✅
+- [x] Bot Discord (opcional) valida presença no canal de voz antes de emitir token
+      (modos `strict`/`lenient`/`off`), integrado ao token-service.
+- [x] Rotação de segredo sem downtime (lista separada por vírgula) + tokens curtos.
+- [x] Logs de auditoria em JSON no token-service (granted/denied + motivo).
+- Pendente futuro: prova forte de identidade via OAuth2 (hoje a checagem confirma
+  presença do userId, não a autoria da requisição).
 
 ## Fase 6 — Distribuição
 - [ ] Guia de build do Vencord com o plugin em `src/userplugins/`.

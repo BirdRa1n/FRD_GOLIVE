@@ -10,6 +10,7 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "discord.js": "^14.16.3",
     "express": "^4.19.2",
     "livekit-server-sdk": "^2.9.0"
   },

@@ -1,77 +1,142 @@
 import { timingSafeEqual } from "node:crypto";
-import express from "express";
+import express, { type Response } from "express";
 import { AccessToken } from "livekit-server-sdk";
 
+import { checkVoicePresence, isReady, startPresence } from "./presence.js";
+
 const {
-  LIVEKIT_API_KEY,
-  LIVEKIT_API_SECRET,
-  ORG_SECRET,
-  PORT = "8080",
-  TOKEN_TTL = "10m",
+    LIVEKIT_API_KEY,
+    LIVEKIT_API_SECRET,
+    ORG_SECRET,
+    DISCORD_BOT_TOKEN,
+    // strict | lenient | off  (só se aplica quando há DISCORD_BOT_TOKEN)
+    PRESENCE_ENFORCEMENT = "strict",
+    PORT = "8080",
+    TOKEN_TTL = "10m",
 } = process.env;
 
 if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET || !ORG_SECRET) {
-  console.error(
-    "Faltam variáveis de ambiente: LIVEKIT_API_KEY, LIVEKIT_API_SECRET, ORG_SECRET",
-  );
-  process.exit(1);
+    console.error(
+        "Faltam variáveis de ambiente: LIVEKIT_API_KEY, LIVEKIT_API_SECRET, ORG_SECRET",
+    );
+    process.exit(1);
 }
 
-/** Comparação em tempo constante para evitar timing attacks no segredo. */
+// Rotação sem downtime: aceita uma lista de segredos separados por vírgula.
+// Durante a troca, mantenha o antigo e o novo até todos migrarem.
+const ORG_SECRETS = ORG_SECRET.split(",").map(s => s.trim()).filter(Boolean);
+
+const presenceEnabled = Boolean(DISCORD_BOT_TOKEN) && PRESENCE_ENFORCEMENT !== "off";
+const presenceStrict = PRESENCE_ENFORCEMENT !== "lenient";
+
+/** Comparação em tempo constante contra qualquer segredo válido. */
 function secretMatches(provided: unknown): boolean {
-  if (typeof provided !== "string") return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(ORG_SECRET as string);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+    if (typeof provided !== "string") return false;
+    const a = Buffer.from(provided);
+    return ORG_SECRETS.some(secret => {
+        const b = Buffer.from(secret);
+        return a.length === b.length && timingSafeEqual(a, b);
+    });
+}
+
+interface AuditEntry {
+    room?: unknown;
+    identity?: unknown;
+    result: "granted" | "denied";
+    reason?: string;
+    presence?: string;
+}
+
+function audit(entry: AuditEntry): void {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), event: "token", ...entry }));
+}
+
+function deny(res: Response, status: number, entry: Omit<AuditEntry, "result">): void {
+    audit({ ...entry, result: "denied" });
+    res.status(status).json({ error: entry.reason ?? "negado" });
 }
 
 const app = express();
 app.use(express.json({ limit: "16kb" }));
 
 // O plugin roda dentro do cliente Discord (origem app://). O controle de acesso
-// real é o ORG_SECRET, não a origem — por isso liberamos CORS amplamente.
+// real é o ORG_SECRET + presença, não a origem — por isso liberamos CORS.
 app.use((_req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  next();
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    next();
 });
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+    res.json({
+        ok: true,
+        presenceEnabled,
+        presenceReady: presenceEnabled ? isReady() : undefined,
+    });
 });
 
 app.post("/token", async (req, res) => {
-  const { room, identity, orgSecret, name } = req.body ?? {};
+    const { room, identity, orgSecret, name } = req.body ?? {};
 
-  if (typeof room !== "string" || room.length === 0) {
-    return res.status(400).json({ error: "room é obrigatório" });
-  }
-  if (typeof identity !== "string" || identity.length === 0) {
-    return res.status(400).json({ error: "identity é obrigatório" });
-  }
-  if (!secretMatches(orgSecret)) {
-    return res.status(403).json({ error: "orgSecret inválido" });
-  }
+    if (typeof room !== "string" || room.length === 0) {
+        return deny(res, 400, { room, identity, reason: "room é obrigatório" });
+    }
+    if (typeof identity !== "string" || identity.length === 0) {
+        return deny(res, 400, { room, identity, reason: "identity é obrigatório" });
+    }
+    if (!secretMatches(orgSecret)) {
+        return deny(res, 403, { room, identity, reason: "orgSecret inválido" });
+    }
 
-  const at = new AccessToken(LIVEKIT_API_KEY as string, LIVEKIT_API_SECRET as string, {
-    identity,
-    name: typeof name === "string" && name.length > 0 ? name : identity,
-    ttl: TOKEN_TTL,
-  });
-  at.addGrant({
-    roomJoin: true,
-    room,
-    canPublish: true,
-    canSubscribe: true,
-    canPublishData: true,
-  });
+    if (presenceEnabled) {
+        if (!isReady()) {
+            return deny(res, 503, { room, identity, reason: "serviço de presença inicializando" });
+        }
+        const presence = checkVoicePresence(room, identity);
+        if (presence === "absent") {
+            return deny(res, 403, { room, identity, presence, reason: "usuário não está no canal de voz" });
+        }
+        if (presence === "unknown" && presenceStrict) {
+            return deny(res, 403, { room, identity, presence, reason: "presença não verificável (canal fora do alcance do bot)" });
+        }
+    }
 
-  const token = await at.toJwt();
-  res.json({ token });
+    const at = new AccessToken(LIVEKIT_API_KEY as string, LIVEKIT_API_SECRET as string, {
+        identity,
+        name: typeof name === "string" && name.length > 0 ? name : identity,
+        ttl: TOKEN_TTL,
+    });
+    at.addGrant({
+        roomJoin: true,
+        room,
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: true,
+    });
+
+    const token = await at.toJwt();
+    audit({ room, identity, result: "granted", presence: presenceEnabled ? "present" : "n/a" });
+    res.json({ token });
 });
 
-app.listen(Number(PORT), () => {
-  console.log(`token-service ouvindo na porta ${PORT}`);
-});
+async function main(): Promise<void> {
+    if (presenceEnabled) {
+        try {
+            await startPresence(DISCORD_BOT_TOKEN as string);
+        } catch (e) {
+            console.error("[presence] falha ao conectar o bot:", e);
+            process.exit(1);
+        }
+    } else {
+        console.warn(
+            "[presence] DISCORD_BOT_TOKEN ausente ou enforcement=off — emitindo tokens só com o segredo (modo Fase 1).",
+        );
+    }
+
+    app.listen(Number(PORT), () => {
+        console.log(`token-service ouvindo na porta ${PORT} (presença: ${presenceEnabled ? PRESENCE_ENFORCEMENT : "off"})`);
+    });
+}
+
+void main();

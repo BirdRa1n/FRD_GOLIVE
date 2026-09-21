@@ -72,9 +72,34 @@ Erros: `400` (room/identity ausentes), `403` (orgSecret inválido).
 Se preferir um TURN dedicado em vez do embutido, rode um `coturn` ao lado e
 configure o LiveKit para anunciá-lo. Fica de fora do MVP para reduzir peças móveis.
 
-## Segurança (MVP)
+## Segurança
 
-- Acesso é controlado pelo `ORG_SECRET`. Quem tem o segredo + o ID do canal entra
-  na sala. Trate o segredo como credencial.
-- **Fase 5 (roadmap):** bot do Discord valida se a `identity` está mesmo no canal
-  de voz antes do token-service emitir o JWT — fecha o furo do "sabe o ID + secret".
+- Acesso base é o `ORG_SECRET`. **Rotação sem downtime:** informe uma lista
+  separada por vírgula (`"antigo,novo"`) enquanto os usuários migram, depois
+  remova o antigo.
+- **Auditoria:** cada emissão/negação vira uma linha JSON no stdout
+  (`{"ts","event":"token","room","identity","result","reason","presence"}`) —
+  colete via logs do Docker. Contém IDs de usuário/canal do Discord.
+
+### Verificação de presença via bot (Fase 5)
+
+Fecha o furo do "sabe o ID + segredo": o token só é emitido se o usuário estiver
+**mesmo** conectado ao canal de voz (`room`).
+
+1. Crie uma aplicação em https://discord.com/developers/applications → **Bot**.
+2. Ative o **Server Members**? Não é preciso; ative apenas o intent de gateway
+   **Voice States** (o código usa `Guilds` + `GuildVoiceStates`).
+3. Convide o bot para o(s) servidor(es) da empresa (escopo `bot`, sem permissões
+   especiais necessárias além de ver os canais).
+4. Ponha o token em `DISCORD_BOT_TOKEN` no `.env` e escolha `PRESENCE_ENFORCEMENT`:
+   - `strict` (padrão): exige presença confirmada; nega quando não dá pra verificar.
+   - `lenient`: nega só quando o usuário comprovadamente não está no canal.
+   - `off`: ignora (modo só-segredo).
+
+**Limitação:** o bot só enxerga **canais de voz de servidores** onde ele está.
+Chamadas em **DM/grupo** não são verificáveis → em `strict` são negadas; use
+`lenient` se precisar suportá-las (aí caem no controle só-segredo).
+
+> Observação: a checagem confirma que o *userId informado* está no canal, mas não
+> prova criptograficamente que quem pediu é aquele usuário. Prova forte de
+> identidade exigiria OAuth2 do Discord (evolução futura).
