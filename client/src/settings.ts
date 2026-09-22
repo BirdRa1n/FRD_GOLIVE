@@ -32,6 +32,11 @@ export const settings = definePluginSettings({
         description: "Mostrar a transmissão privada dentro do tile do participante na grade de chamada (desligue se quebrar após update do Discord)",
         default: true,
     },
+    hijackNativeControls: {
+        type: OptionType.BOOLEAN,
+        description: "Usar os botões nativos de câmera/tela do Discord para iniciar a transmissão privada (desligue se quebrar após update do Discord)",
+        default: true,
+    },
     maxHeight: {
         type: OptionType.SELECT,
         description: "Resolução máxima da captura de tela",

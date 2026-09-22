@@ -196,6 +196,34 @@ const CSS = `
     opacity: 1;
 }
 
+/* --- Chip discreto de status (canto inferior direito) --- */
+#frd-golive-root .frd-chip {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 3000;
+    max-width: 320px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: var(--background-secondary, #2b2d31);
+    color: var(--text-normal, #dbdee1);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+#frd-golive-root .frd-chip-error {
+    color: var(--text-danger, #f23f43);
+}
+
+/* --- Botão nativo do Discord sequestrado, em estado "transmitindo" --- */
+button.frd-native-active .buttonIcon_e131a9,
+button.frd-native-active svg {
+    color: var(--status-danger, #f23f43) !important;
+    fill: var(--status-danger, #f23f43) !important;
+}
+
 /* --- Overlay no tile nativo do Discord --- */
 .frd-native-overlay {
     position: absolute;

@@ -6,6 +6,7 @@ import { disconnect, onVoiceChannelChange } from "./rtc/controller";
 import { settings } from "./settings";
 import { clearAudioSinks, syncAudioSinks } from "./state/audioSink";
 import { streamStore } from "./state/streamStore";
+import { startNativeControls, stopNativeControls, syncNativeControls } from "./ui/nativeControlsHijack";
 import { startNativeTiles, stopNativeTiles, syncNativeTiles } from "./ui/nativeTileInject";
 import { mountPanel, unmountPanel } from "./ui/panelMount";
 import { injectStyles, removeStyles } from "./ui/styles";
@@ -27,12 +28,14 @@ export default definePlugin({
         injectStyles();
         mountPanel();
         startNativeTiles();
+        startNativeControls();
 
-        // Reage a mudanças de streams: (re)cria os players de áudio e reancora
-        // os overlays nos tiles nativos.
+        // Reage a mudanças de streams: players de áudio, overlays nos tiles e
+        // estado ativo dos botões nativos.
         storeUnsub = streamStore.subscribe(() => {
             syncAudioSinks();
             syncNativeTiles();
+            syncNativeControls();
         });
 
         FluxDispatcher.subscribe("VOICE_CHANNEL_SELECT", handleVoiceSelect);
@@ -48,6 +51,7 @@ export default definePlugin({
         storeUnsub = null;
         void disconnect();
         stopNativeTiles();
+        stopNativeControls();
         clearAudioSinks();
         unmountPanel();
         removeStyles();
