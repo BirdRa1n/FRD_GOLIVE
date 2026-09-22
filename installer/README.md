@@ -19,30 +19,54 @@ usuário habilitar o acesso.
 O hub é servido pelo próprio servidor (`server/`); o login usa OAuth do Discord —
 como configurar em [../docs/DISCORD-OAUTH.md](../docs/DISCORD-OAUTH.md).
 
+## Instalação em 1 comando (recomendado)
+
+Os scripts de bootstrap fazem **tudo** — checam dependências, baixam e compilam o
+Vencord **com o plugin** (num cache do seu usuário, sem você clonar nada) e abrem o
+instalador. Eles **explicam o que será feito** e avisam sobre a senha de admin.
+
+**macOS:**
+```bash
+bash installer/scripts/install-mac.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\installer\scripts\install-windows.ps1
+```
+
+> Sobre admin: o patch do Discord pode pedir sua senha (macOS, quando o Discord está
+> em `/Aplicativos`). No Windows normalmente não precisa (grava em `%LocalAppData%`).
+> O que muda: injeta o Vencord + ativa o plugin + grava settings e uma regra de CSP
+> só do seu domínio. Nada é enviado a terceiros. **Feche o Discord antes de aplicar.**
+
 ## Desenvolvimento
 
 ```bash
 npm install
 npm run typecheck
-npm start          # roda o app (precisa do vencord-dist/, ver abaixo)
-npm run dist       # empacota .dmg (mac) / .exe (win)
+npm run build:vencord   # gera installer/vencord-dist (clona o Vencord, compila o plugin)
+npm start               # roda o app (precisa do vencord-dist/)
+npm run start:full      # build:vencord + start, num passo só
+npm run dist            # build:vencord + empacota .dmg (mac) / .exe (win)
 ```
 
-## O `vencord-dist/` (bundle do CI)
+## O `vencord-dist/` (bundle)
 
-O app precisa de um **Vencord já compilado com o plugin** em `installer/vencord-dist/`.
-Esse artefato é produzido no CI:
+O app precisa de um **Vencord já compilado com o plugin** em `installer/vencord-dist/`
+(gitignored). Gere com o script cross-platform:
 
 ```bash
-git clone https://github.com/Vendicated/Vencord /tmp/Vencord
-cd /tmp/Vencord && pnpm i && pnpm add livekit-client
-cp -R <repo>/client/src src/userplugins/frdGoLive
-pnpm build
-cp -R dist <repo>/installer/vencord-dist
+npm run build:vencord   # = node scripts/build-vencord-dist.mjs
 ```
-(o `vencord-dist/` é gitignored). Para o **servidor birdra1n**, esse build já pode
-trazer o domínio na CSP; para servidores próprios, a CSP é escrita via
-`customCspRules` no passo 4.
+
+Ele clona o Vencord em `~/.frd-golive/build` (**fora do repo**, evitando o problema do
+pnpm "subir"), copia `client/src`, roda `pnpm build` e publica o `dist/` resultante em
+`installer/vencord-dist`. Variáveis: `FRD_BUILD_DIR` (cache), `VENCORD_REPO`.
+
+Em dev, dá para apontar para um Vencord já compilado sem gerar o bundle:
+`FRD_VENCORD_DIST=~/Vencord/dist npm start`.
 
 ## Troubleshooting
 
