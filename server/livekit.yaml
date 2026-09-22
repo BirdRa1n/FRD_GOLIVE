@@ -1,0 +1,29 @@
+# Configuração do LiveKit (SFU).
+# As chaves de API (keys) NÃO ficam aqui — são injetadas via variável de ambiente
+# LIVEKIT_KEYS pelo docker-compose, para não versionar segredos.
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  # Em produção (VPS/servidor com IP público) deixe true para o SFU anunciar o IP
+  # externo correto nos candidatos ICE. Em rede local, pode precisar ajustar.
+  use_external_ip: true
+
+# TURN embutido do LiveKit — essencial em redes corporativas com NAT restritivo.
+# Desligado por padrão (dev). Para habilitar em produção:
+#   1. Aponte um domínio (ex.: media.suaempresa.com) para o servidor.
+#   2. Forneça certificado TLS (cert_file/key_file) OU faça terminação TLS num
+#      proxy à frente e use loadBalancerBehind.
+#   3. Abra a tls_port (5349, idealmente também 443) no firewall.
+turn:
+  enabled: false
+  domain: media.example.com
+  tls_port: 5349
+  # cert_file: /etc/livekit/turn/cert.pem
+  # key_file: /etc/livekit/turn/key.pem
+
+logging:
+  level: info
