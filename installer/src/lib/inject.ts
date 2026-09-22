@@ -39,11 +39,19 @@ export async function downloadInstallerCli(): Promise<string> {
 
 /**
  * Roda o Installer CLI apontando para o NOSSO build (dev-install), aplicando a
- * modificação no Discord. As envs replicam o que o `pnpm inject` faz.
+ * modificação no Discord SEM prompt interativo. As envs replicam o `pnpm inject`.
+ *
+ * O `-branch` evita o menu "Select Discord install to patch": "auto" detecta o
+ * install; ou "stable"/"ptb"/"canary". Override via FRD_DISCORD_BRANCH. Um caminho
+ * explícito de Discord pode ser passado em `location` (vira `-location`).
  */
-export function runInject(cliPath: string): Promise<void> {
+export function runInject(cliPath: string, opts: { branch?: string; location?: string; } = {}): Promise<void> {
+    const branch = opts.branch || process.env.FRD_DISCORD_BRANCH || "auto";
+    const args = ["-install", "-branch", branch];
+    if (opts.location) args.push("-location", opts.location);
+
     return new Promise((resolve, reject) => {
-        const child = spawn(cliPath, ["-install"], {
+        const child = spawn(cliPath, args, {
             env: {
                 ...process.env,
                 VENCORD_USER_DATA_DIR: userDataDir(),
@@ -51,7 +59,9 @@ export function runInject(cliPath: string): Promise<void> {
             },
             stdio: "inherit",
         });
-        child.on("exit", code => (code === 0 ? resolve() : reject(new Error(`o instalador saiu com código ${code}`))));
+        child.on("exit", code => (code === 0
+            ? resolve()
+            : reject(new Error(`o instalador saiu com código ${code} (feche o Discord e tente de novo)`))));
         child.on("error", reject);
     });
 }

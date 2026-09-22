@@ -68,6 +68,13 @@ pnpm "subir"), copia `client/src`, roda `pnpm build` e publica o `dist/` resulta
 Em dev, dá para apontar para um Vencord já compilado sem gerar o bundle:
 `FRD_VENCORD_DIST=~/Vencord/dist npm start`.
 
+## Qual Discord é modificado (sem prompt)
+
+O instalador roda o Vencord CLI de forma **não-interativa** (`-install -branch auto`),
+detectando o Discord instalado automaticamente — não abre o menu "Select Discord
+install to patch". Para forçar uma branch específica, defina
+`FRD_DISCORD_BRANCH=stable|ptb|canary` (default `auto`).
+
 ## Troubleshooting
 
 - **`Electron failed to install correctly`** (comum no **Node 26+**): o postinstall
