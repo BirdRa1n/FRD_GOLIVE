@@ -23,6 +23,20 @@ Feche e reabra o PowerShell depois, para o `PATH` atualizar. Confira:
 node -v ; git --version ; pnpm -v
 ```
 
+### Liberar a execução de scripts (necessário para o pnpm)
+
+Por padrão o Windows bloqueia scripts `.ps1` e o `pnpm` falha com
+*"a execução de scripts foi desabilitada neste sistema"*. Libere para o seu
+usuário (não precisa de admin):
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+Confirme com **S**. `RemoteSigned` permite scripts locais e exige assinatura só em
+scripts baixados da internet. Alternativa sem mudar a policy: use o shim `.cmd`
+(`pnpm.cmd install`, `pnpm.cmd build`, etc.) no lugar de `pnpm ...`.
+
 ## 2. Clonar o Vencord (FORA de qualquer repo nosso)
 
 ```powershell
@@ -111,6 +125,9 @@ Depois reinicie o Discord (Ctrl+R na janela costuma bastar para recarregar).
 
 ## Problemas comuns
 
+- **`a execução de scripts foi desabilitada neste sistema`** (ao rodar `pnpm`) →
+  rode `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, ou
+  use `pnpm.cmd` no lugar de `pnpm`.
 - **`Command "build" not found`** → você está na pasta errada ou clonou o Vencord
   dentro de `client/`. Rode o `pnpm build` dentro de `%USERPROFILE%\Vencord`.
 - **`Could not resolve "@webpack/common"`** → você usou symlink ou copiou `client\`
