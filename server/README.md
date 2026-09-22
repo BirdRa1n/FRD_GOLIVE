@@ -87,7 +87,7 @@ Erros: `400` (room/identity ausentes), `403` (orgSecret inválido).
 2. **Habilite o TURN** no `livekit.yaml` (`turn.enabled: true`, `domain`, cert) e
    abra a porta no compose/firewall. Sem TURN, redes corporativas restritivas
    falham na conexão de mídia.
-3. **Firewall:** libere 7880 (ws), 7881 (tcp), 50000-60000/udp e a porta do TURN.
+3. **Firewall:** libere 7880 (ws), 7881 (tcp), 7882/udp e a porta do TURN.
 4. **Segredos fortes:** `LIVEKIT_API_SECRET` e `ORG_SECRET` via `openssl rand`.
 5. **Rotação do `ORG_SECRET`** quando alguém sai da organização (é a credencial
    de acesso do MVP).
