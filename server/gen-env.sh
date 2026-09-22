@@ -38,9 +38,20 @@ LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
 ORG_SECRET=$ORG_SECRET
 TOKEN_TTL=10m
 
+# Portas (opcional).
+LIVEKIT_PORT=7880
+LIVEKIT_TCP_PORT=7881
+TOKEN_PORT=8080
+
 # Verificação de presença via bot (Fase 5) — opcional. Preencha para ativar.
 DISCORD_BOT_TOKEN=
 PRESENCE_ENFORCEMENT=strict
+
+# Atualização do código / painel admin.
+UPDATE_REPO=https://github.com/BirdRa1n/FRD_GOLIVE
+UPDATE_BRANCH=main
+ADMIN_UI=off
+HOST_REPO_DIR=
 EOF
 chmod 600 "$ENV_FILE"
 

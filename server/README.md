@@ -7,7 +7,28 @@ num único `docker compose`:
 - **token-service** — emite tokens JWT do LiveKit validando o `ORG_SECRET`.
 - **TURN** — embutido no LiveKit (habilitável), para NAT corporativo.
 
-## Subindo (dev)
+## Instalação em 1 comando (recomendado)
+
+No servidor, rode:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/BirdRa1n/FRD_GOLIVE/main/server/install.sh | sh
+```
+
+O instalador (estilo Tailscale) verifica `git`/`docker`/`docker compose` (e oferece
+instalar o Docker via `get.docker.com`), clona o repositório e pergunta, de forma
+interativa, se você quer:
+
+- gerar o `.env` com segredos aleatórios;
+- customizar **portas** (`LIVEKIT_PORT`, `TOKEN_PORT`);
+- customizar o **repositório de updates** (`UPDATE_REPO`/`UPDATE_BRANCH`);
+- configurar o **bot de presença** (`DISCORD_BOT_TOKEN`);
+- habilitar o **painel admin** (`/admin`);
+- instalar o **Tailscale** para acesso privado.
+
+Ao final ele sobe tudo com `docker compose up -d --build`.
+
+## Subindo (dev / manual)
 
 Pré-requisitos: Docker + Docker Compose.
 
@@ -75,6 +96,26 @@ Erros: `400` (room/identity ausentes), `403` (orgSecret inválido).
 
 Se preferir um TURN dedicado em vez do embutido, rode um `coturn` ao lado e
 configure o LiveKit para anunciá-lo. Fica de fora do MVP para reduzir peças móveis.
+
+## Atualização do código (painel admin)
+
+Painel opcional em `/admin` que mostra a versão atual vs. a do repositório e tem um
+botão **"Atualizar servidor"** — que puxa o código de `UPDATE_REPO`/`UPDATE_BRANCH`
+e reconstrói os containers (via um container *updater* independente).
+
+```bash
+# habilita o painel (monta o socket do Docker e o repo)
+HOST_REPO_DIR=$(pwd)/.. \
+docker compose -f docker-compose.yml -f docker-compose.admin.yml up -d --build
+```
+
+- Requer `ADMIN_UI=on` e `HOST_REPO_DIR` (caminho absoluto do repo no host).
+- `UPDATE_REPO` no `.env` permite apontar para um **fork/mirror** próprio.
+- A ação de atualizar é protegida pelo `ORG_SECRET`.
+
+> ⚠️ **Segurança:** o painel monta o socket do Docker no token-service, o que
+> equivale a root no host. Exponha **somente** por rede privada (ex.: Tailscale),
+> nunca na internet pública.
 
 ## Segurança
 

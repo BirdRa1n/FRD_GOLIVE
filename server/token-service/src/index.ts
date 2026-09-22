@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import express, { type Response } from "express";
 import { AccessToken } from "livekit-server-sdk";
 
+import { createAdminRouter } from "./admin.js";
 import { checkVoicePresence, isReady, startPresence } from "./presence.js";
 
 const {
@@ -13,6 +14,12 @@ const {
     PRESENCE_ENFORCEMENT = "strict",
     PORT = "8080",
     TOKEN_TTL = "10m",
+    // Painel admin de atualização (opt-in) e origem do código.
+    ADMIN_UI = "off",
+    UPDATE_REPO = "https://github.com/BirdRa1n/FRD_GOLIVE",
+    UPDATE_BRANCH = "main",
+    REPO_DIR = "/repo",
+    HOST_REPO_DIR = "",
 } = process.env;
 
 if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET || !ORG_SECRET) {
@@ -73,8 +80,19 @@ app.get("/health", (_req, res) => {
         ok: true,
         presenceEnabled,
         presenceReady: presenceEnabled ? isReady() : undefined,
+        adminUi: ADMIN_UI === "on",
     });
 });
+
+if (ADMIN_UI === "on") {
+    app.use("/admin", createAdminRouter({
+        updateRepo: UPDATE_REPO,
+        updateBranch: UPDATE_BRANCH,
+        repoDir: REPO_DIR,
+        hostRepoDir: HOST_REPO_DIR,
+        secretMatches,
+    }));
+}
 
 app.post("/token", async (req, res) => {
     const { room, identity, orgSecret, name } = req.body ?? {};

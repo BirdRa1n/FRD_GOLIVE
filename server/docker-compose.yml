@@ -9,10 +9,10 @@ services:
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
-      - "7880:7880"                  # HTTP/WebSocket (signaling)
-      - "7881:7881"                  # RTC sobre TCP (fallback)
-      - "50000-60000:50000-60000/udp" # RTC sobre UDP
-      # - "5349:5349"                # TURN/TLS (habilite junto com turn.enabled)
+      - "${LIVEKIT_PORT:-7880}:7880"        # HTTP/WebSocket (signaling)
+      - "${LIVEKIT_TCP_PORT:-7881}:7881"    # RTC sobre TCP (fallback)
+      - "50000-60000:50000-60000/udp"       # RTC sobre UDP
+      # - "5349:5349"                       # TURN/TLS (habilite junto com turn.enabled)
 
   token-service:
     build: ./token-service
@@ -26,7 +26,11 @@ services:
       # Verificação de presença (Fase 5) — opcional. Vazio = modo só-segredo.
       DISCORD_BOT_TOKEN: "${DISCORD_BOT_TOKEN:-}"
       PRESENCE_ENFORCEMENT: "${PRESENCE_ENFORCEMENT:-strict}"
+      # Origem do código para o painel admin de atualização.
+      UPDATE_REPO: "${UPDATE_REPO:-https://github.com/BirdRa1n/FRD_GOLIVE}"
+      UPDATE_BRANCH: "${UPDATE_BRANCH:-main}"
+      ADMIN_UI: "${ADMIN_UI:-off}"
     ports:
-      - "8080:8080"
+      - "${TOKEN_PORT:-8080}:8080"
     depends_on:
       - livekit
