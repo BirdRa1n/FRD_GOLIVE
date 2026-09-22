@@ -82,8 +82,8 @@ if [ -f "$LKY" ]; then
         && g "use_external_ip: false" || w "use_external_ip não está false (pode anunciar IP errado)"
     grep -qE "^[[:space:]]*udp_port:[[:space:]]*$LIVEKIT_UDP_PORT" "$LKY" \
         && g "udp_port: $LIVEKIT_UDP_PORT" || w "udp_port != $LIVEKIT_UDP_PORT no livekit.yaml"
-    grep -qE 'port_range_start' "$LKY" \
-        && r "livekit.yaml ainda tem port_range_start (estoura RAM!) — troque por udp_port"
+    grep -qE '^[[:space:]]*port_range_start:' "$LKY" \
+        && r "livekit.yaml ainda tem port_range_start ATIVO (estoura RAM!) — troque por udp_port"
 else
     w "livekit.yaml não encontrado"
 fi
@@ -98,8 +98,8 @@ else
     w "ss/netstat ausentes — pulei UDP local"
 fi
 
-sec "Relay UDP / frp"
-have pgrep && { pgrep -f frpc >/dev/null 2>&1 && g "frpc rodando (cliente do relay)" || w "frpc não parece estar rodando aqui"; }
+sec "Relay UDP / frp (opcional — ignore se você usa WireGuard/fw-manager)"
+have pgrep && { pgrep -f frpc >/dev/null 2>&1 && g "frpc rodando (cliente do relay)" || w "frpc não roda aqui (ok se o relay é WireGuard/fw-manager)"; }
 if [ -n "${LIVEKIT_NODE_IP:-}" ] && have nc; then
     nc -z -w3 "$LIVEKIT_NODE_IP" "$FRP_PORT" 2>/dev/null \
         && g "controle frp $LIVEKIT_NODE_IP:$FRP_PORT alcançável" \
