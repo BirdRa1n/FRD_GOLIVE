@@ -231,10 +231,9 @@ const CSS = `
     background: #000;
 }
 #frd-golive-root .frd-theater-video {
-    max-width: 100%;
-    max-height: 100%;
-    width: auto;
-    height: auto;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
 }
 #frd-golive-root .frd-theater-strip {
     display: flex;

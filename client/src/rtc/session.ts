@@ -67,10 +67,13 @@ export class RtcSession {
         if (this.room) await this.disconnect();
 
         const room = new Room({
-            adaptiveStream: true, // ajusta a resolução recebida ao tamanho do <video>
-            dynacast: true, // para de enviar camadas que ninguém consome
+            // adaptiveStream OFF: como anexamos o stream manualmente (srcObject), o
+            // LiveKit não observa o tamanho dos nossos <video> e escolheria uma
+            // camada baixa. Desligado, o assinante recebe sempre a melhor qualidade.
+            adaptiveStream: false,
+            dynacast: true, // publisher só envia o que é consumido
             publishDefaults: {
-                simulcast: true, // múltiplas camadas de qualidade por publicação
+                simulcast: true, // câmera: múltiplas camadas
             },
         });
         this.room = room;
@@ -99,8 +102,22 @@ export class RtcSession {
             },
         });
 
+        // bitrate alvo em função da resolução (nitidez para tela/texto).
+        const maxBitrate = opts.maxHeight >= 1440 ? 8_000_000
+            : opts.maxHeight >= 1080 ? 5_000_000
+            : 2_500_000;
+
         for (const track of tracks) {
-            await this.room.localParticipant.publishTrack(track);
+            if (track.kind === Track.Kind.Video) {
+                // "detail" prioriza nitidez (texto/código) sobre fluidez.
+                try { track.mediaStreamTrack.contentHint = "detail"; } catch { /* ok */ }
+                await this.room.localParticipant.publishTrack(track, {
+                    simulcast: false, // tela: uma única camada de alta qualidade
+                    videoEncoding: { maxBitrate, maxFramerate: opts.fps },
+                });
+            } else {
+                await this.room.localParticipant.publishTrack(track);
+            }
             this.publishedTracks.push(track);
         }
     }
