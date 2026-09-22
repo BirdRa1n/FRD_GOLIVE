@@ -37,6 +37,16 @@ export const settings = definePluginSettings({
         description: "Usar os botões nativos de câmera/tela do Discord para iniciar a transmissão privada (desligue se quebrar após update do Discord)",
         default: true,
     },
+    unlockNativeVideoGate: {
+        type: OptionType.BOOLEAN,
+        description: "Desbloquear os botões nativos em regiões censuradas (override do experimento). Só faz efeito com o hijack ligado — o clique é redirecionado pra transmissão privada, o Go Live do Discord nunca roda.",
+        default: true,
+    },
+    videoGuardExperiment: {
+        type: OptionType.STRING,
+        description: "Nome do experimento do 'video guard' do Discord (atualize se o Discord rotacionar e os botões voltarem a ficar bloqueados)",
+        default: "2026-08-video-guard",
+    },
     maxHeight: {
         type: OptionType.SELECT,
         description: "Resolução máxima da captura de tela",

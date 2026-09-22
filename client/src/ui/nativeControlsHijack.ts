@@ -12,7 +12,9 @@ import { streamStore } from "../state/streamStore";
 
 type Kind = "screen" | "camera";
 
-const SCREEN_RE = /\btela\b|screen|pantalla|écran|ecran|bildschirm|schermo|scherm|画面|화면/i;
+// Cobre tanto o rótulo bloqueado ("Compartilhamento de tela indisponível") quanto
+// o habilitado ("Compartilhar tela" / "Transmitir" / "Go Live" etc.).
+const SCREEN_RE = /\btela\b|screen|compartilh|transmit|go.?live|ao.?vivo|pantalla|écran|ecran|bildschirm|schermo|scherm|画面|화면/i;
 const CAMERA_RE = /câmera|camera|cámara|caméra|kamera|webcam/i;
 
 const ACTIVE_CLASS = "frd-native-active";
