@@ -1,177 +1,87 @@
-# Servidor FRD GoLive (self-host)
+# Servidor FRD GoLive (mesh) — signaling + auth + admin
 
-Servidor privado que roteia os streams de tela/câmera **fora do Discord**. Três peças
-num único `docker compose`:
+Servidor do FRD GoLive. A mídia vai **cliente↔cliente (P2P/mesh)**, então este
+servidor só faz **signaling + auth + config + admin** — tudo **HTTP/WS numa única
+porta**, então passa 100% pelo **Cloudflare Tunnel** (sem VPS/UDP).
 
-- **LiveKit** (SFU) — roteia as tracks de vídeo/áudio entre participantes.
-- **token-service** — emite tokens JWT do LiveKit validando o `ORG_SECRET`.
-- **TURN** — embutido no LiveKit (habilitável), para NAT corporativo.
+## Subir
 
-## Instalação em 1 comando (recomendado)
-
-No servidor, rode:
+Instalação guiada (recomendado — clona, gera credenciais e sobe):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/BirdRa1n/FRD_GOLIVE/main/server/install.sh | sh
 ```
 
-O instalador (estilo Tailscale) verifica `git`/`docker`/`docker compose` (e oferece
-instalar o Docker via `get.docker.com`), clona o repositório e pergunta, de forma
-interativa, se você quer:
-
-- gerar o `.env` com segredos aleatórios;
-- customizar **portas** (`LIVEKIT_PORT`, `TOKEN_PORT`);
-- customizar o **repositório de updates** (`UPDATE_REPO`/`UPDATE_BRANCH`);
-- configurar o **bot de presença** (`DISCORD_BOT_TOKEN`);
-- habilitar o **painel admin** (`/admin`);
-- instalar o **Tailscale** para acesso privado.
-
-Ao final ele sobe tudo com `docker compose up -d --build`.
-
-## Subindo (dev / manual)
-
-Pré-requisitos: Docker + Docker Compose.
+Ou manual, dentro de `server/`:
 
 ```bash
-./gen-env.sh             # gera .env com segredos aleatórios (ou: cp .env.example .env)
-docker compose up --build
+./gen-env.sh                 # gera .env com ADMIN_TOKEN e SESSION_SECRET aleatórios
+docker compose up -d --build # sobe na porta 8090
+# alternativa sem Docker: npm install && npm run build && npm start
 ```
 
-`gen-env.sh` cria o `.env` com `LIVEKIT_API_SECRET`/`ORG_SECRET` aleatórios e
-permissões `600`. Recusa sobrescrever um `.env` existente (use `--force`). Depois,
-se for usar o bot de presença, preencha `DISCORD_BOT_TOKEN`.
+Depois, para ligar o **login do Discord** (hub/admin), preencha as variáveis
+`DISCORD_*` e `ADMIN_DISCORD_IDS` — passo a passo em
+[docs/DISCORD-OAUTH.md](../docs/DISCORD-OAUTH.md).
 
-Endpoints:
+## Endpoints
 
-- LiveKit (signaling): `ws://localhost:7880`
-- token-service: `http://localhost:8080`
-  - `GET  /health` → `{"ok":true}`
-  - `POST /token`  → `{"token":"<jwt>"}`
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/health` | status/versão |
+| GET | `/config` | config do cliente: `signalingUrl`, `iceServers`, versão |
+| WS | `/signaling` | signaling do mesh (salas por channelId) |
+| POST | `/auth/request-access` | `{userId,name}` — usuário pede acesso |
+| GET | `/policy/:userId` | policy atual (enabled + quotas) |
+| GET | `/admin/users` | lista usuários (header `X-Admin-Token`) |
+| POST | `/admin/users/:id/enable` | `{enabled,maxHeight,maxFps}` — habilita + quota |
+| GET | `/admin/transmissions` | transmissões ativas agora |
+| GET | `/admin/metrics` | CPU, memória, salas, peers, uptime |
 
-Teste de emissão de token:
+Ao habilitar um usuário, a nova policy é **empurrada pelo WS** para as conexões
+vivas dele (o plugin liga as funções na hora).
 
-```bash
-curl -s http://localhost:8080/token \
-  -H 'Content-Type: application/json' \
-  -d '{"room":"canal-123","identity":"alice","orgSecret":"SEU_ORG_SECRET"}'
-```
+## Hub web (golivefrd)
 
-Para validar publish/subscribe de verdade antes do plugin existir, use o
-[LiveKit Playground](https://agents-playground.livekit.io/) apontando para o seu
-LiveKit local com um token emitido acima.
+O mesmo serviço serve o hub (páginas HTML + login):
 
-## Contrato do token-service
+| Rota | Descrição |
+|---|---|
+| `GET /` | login (Discord) ou home com status do usuário |
+| `GET /login` → `GET /auth/callback` | Discord OAuth2 (scope `identify`) |
+| `GET /me` · `POST /me/request-access` | dados/pedido do usuário logado |
+| `GET /admin` | painel: usuários+quotas, transmissões ativas, métricas ao vivo |
 
-`POST /token`
+Fluxo de habilitação: usuário loga → pede acesso → admin libera no painel → o
+servidor empurra a policy pelo WS → o plugin no Discord liga as funções.
 
-```jsonc
-// requisição
-{
-  "room": "<id do canal de voz do Discord>",
-  "identity": "<id único do usuário>",
-  "orgSecret": "<segredo da organização>",
-  "name": "<opcional: nome de exibição>"
-}
-// resposta 200
-{ "token": "<jwt do livekit>" }
-```
+## Configuração (`.env`)
 
-Erros: `400` (room/identity ausentes), `403` (orgSecret inválido).
+Gerado pelo `gen-env.sh`. Principais chaves:
 
-## Produção
+| Variável | Descrição |
+|---|---|
+| `PORT` | porta HTTP/WS (padrão 8090) |
+| `ADMIN_TOKEN` | protege `/admin/*` (header `X-Admin-Token`) — aleatório |
+| `PUBLIC_SIGNALING_URL` | vazio = deriva do host (com HTTPS vira `wss://.../signaling`) |
+| `STUN_URLS` | STUN público basta para NAT amigável |
+| `TURN_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL` | só para NAT simétrico/corporativo |
+| `DEFAULT_MAX_HEIGHT` / `DEFAULT_MAX_FPS` | quotas padrão de novos usuários |
+| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_REDIRECT_URI` | OAuth do hub — ver [docs/DISCORD-OAUTH.md](../docs/DISCORD-OAUTH.md) |
+| `SESSION_SECRET` | assina o cookie de sessão — aleatório |
+| `ADMIN_DISCORD_IDS` | Discord user IDs dos admins (separados por vírgula) |
 
-1. **Domínio + TLS.** WebRTC exige `wss`. Aponte um domínio (ex.:
-   `media.suaempresa.com`) para o servidor e coloque um proxy TLS (Caddy/Traefik)
-   à frente do LiveKit (7880) e do token-service (8080), OU forneça certificados
-   diretamente ao LiveKit.
-2. **Habilite o TURN** no `livekit.yaml` (`turn.enabled: true`, `domain`, cert) e
-   abra a porta no compose/firewall. Sem TURN, redes corporativas restritivas
-   falham na conexão de mídia.
-3. **Firewall:** libere 7880 (ws), 7881 (tcp), 7882/udp e a porta do TURN.
-4. **Segredos fortes:** `LIVEKIT_API_SECRET` e `ORG_SECRET` via `openssl rand`.
-5. **Rotação do `ORG_SECRET`** quando alguém sai da organização (é a credencial
-   de acesso do MVP).
+## Cloudflare
 
-### Alternativa: coturn separado
+Uma única rota basta: `https://golivefrd.SEU.com` → `http://SERVIDOR:8090` (HTTP
+**e** o WebSocket `/signaling` na mesma porta). O plugin puxa `GET /config` e conecta.
 
-Se preferir um TURN dedicado em vez do embutido, rode um `coturn` ao lado e
-configure o LiveKit para anunciá-lo. Fica de fora do MVP para reduzir peças móveis.
+## Transporte no cliente
 
-## Relay de mídia por um VPS (IP público)
+No plugin (Vencord): setting **Transport = Mesh P2P** e aponte o `tokenServiceUrl`
+para este servidor. NAT simétrico ainda precisa de TURN (configure `TURN_URLS`).
 
-Cenário: o LiveKit roda em casa (talvez atrás de CGNAT), mas você tem um **VPS com
-IP público** e quer que a mídia entre por ele. O signaling (WS) pode ir por
-Cloudflare Tunnel/Access; a **mídia (UDP) passa pelo VPS**.
+## Limitação
 
-**Ponto-chave:** o cliente (plugin) **não muda**. O IP para onde a mídia vai vem
-dos *ICE candidates* que o LiveKit anuncia — puro server-side (`node_ip`).
-
-1. **Túnel casa → VPS.** Use WireGuard (ou `frp`/`rathole` reverso, que funciona
-   sob CGNAT porque a casa inicia a conexão).
-2. **No VPS, encaminhe a mídia** para o LiveKit de casa pelo túnel:
-   ```bash
-   # exemplo com iptables (UDP 7882 e TCP 7881) — CASA_WG_IP = IP do LiveKit no túnel
-   sysctl -w net.ipv4.ip_forward=1
-   iptables -t nat -A PREROUTING -p udp --dport 7882 -j DNAT --to-destination CASA_WG_IP:7882
-   iptables -t nat -A PREROUTING -p tcp --dport 7881 -j DNAT --to-destination CASA_WG_IP:7881
-   iptables -t nat -A POSTROUTING -j MASQUERADE
-   ```
-3. **No LiveKit de casa, anuncie o IP do VPS:** no `.env` `LIVEKIT_NODE_IP=<IP_DO_VPS>`
-   e no `livekit.yaml` `node_ip: <IP_DO_VPS>` + `use_external_ip: false`.
-   O `install.sh` faz isso se você responder "sim" à pergunta do IP público.
-
-Depois disso, os candidatos ICE apontam para `VPS:7882`; os clientes mandam a
-mídia pro VPS, que relaya pra casa. Signaling e token-service podem continuar indo
-por Cloudflare (WS/HTTP) — só a mídia precisa do VPS.
-
-## Atualização do código (painel admin)
-
-Painel opcional em `/admin` que mostra a versão atual vs. a do repositório e tem um
-botão **"Atualizar servidor"** — que puxa o código de `UPDATE_REPO`/`UPDATE_BRANCH`
-e reconstrói os containers (via um container *updater* independente).
-
-```bash
-# habilita o painel (monta o socket do Docker e o repo)
-HOST_REPO_DIR=$(pwd)/.. \
-docker compose -f docker-compose.yml -f docker-compose.admin.yml up -d --build
-```
-
-- Requer `ADMIN_UI=on` e `HOST_REPO_DIR` (caminho absoluto do repo no host).
-- `UPDATE_REPO` no `.env` permite apontar para um **fork/mirror** próprio.
-- A ação de atualizar é protegida pelo `ORG_SECRET`.
-
-> ⚠️ **Segurança:** o painel monta o socket do Docker no token-service, o que
-> equivale a root no host. Exponha **somente** por rede privada (ex.: Tailscale),
-> nunca na internet pública.
-
-## Segurança
-
-- Acesso base é o `ORG_SECRET`. **Rotação sem downtime:** informe uma lista
-  separada por vírgula (`"antigo,novo"`) enquanto os usuários migram, depois
-  remova o antigo.
-- **Auditoria:** cada emissão/negação vira uma linha JSON no stdout
-  (`{"ts","event":"token","room","identity","result","reason","presence"}`) —
-  colete via logs do Docker. Contém IDs de usuário/canal do Discord.
-
-### Verificação de presença via bot (Fase 5)
-
-Fecha o furo do "sabe o ID + segredo": o token só é emitido se o usuário estiver
-**mesmo** conectado ao canal de voz (`room`).
-
-1. Crie uma aplicação em https://discord.com/developers/applications → **Bot**.
-2. Ative o **Server Members**? Não é preciso; ative apenas o intent de gateway
-   **Voice States** (o código usa `Guilds` + `GuildVoiceStates`).
-3. Convide o bot para o(s) servidor(es) da empresa (escopo `bot`, sem permissões
-   especiais necessárias além de ver os canais).
-4. Ponha o token em `DISCORD_BOT_TOKEN` no `.env` e escolha `PRESENCE_ENFORCEMENT`:
-   - `strict` (padrão): exige presença confirmada; nega quando não dá pra verificar.
-   - `lenient`: nega só quando o usuário comprovadamente não está no canal.
-   - `off`: ignora (modo só-segredo).
-
-**Limitação:** o bot só enxerga **canais de voz de servidores** onde ele está.
-Chamadas em **DM/grupo** não são verificáveis → em `strict` são negadas; use
-`lenient` se precisar suportá-las (aí caem no controle só-segredo).
-
-> Observação: a checagem confirma que o *userId informado* está no canal, mas não
-> prova criptograficamente que quem pediu é aquele usuário. Prova forte de
-> identidade exigiria OAuth2 do Discord (evolução futura).
+Mesh **não escala**: quem transmite envia uma cópia por espectador. Alvo: grupos
+pequenos/médios. Para grupos grandes, seria preciso um SFU (não incluso nesta versão).

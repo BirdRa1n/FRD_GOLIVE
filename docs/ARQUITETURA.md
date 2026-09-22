@@ -1,118 +1,120 @@
-# Arquitetura
+# Arquitetura v2
 
-## 1. Premissa e limites técnicos (leia primeiro)
+Rearquitetura do FRD GoLive de **SFU (LiveKit)** para **P2P/mesh**, com instalador
+Electron, hub web centralizado e camada de auth/admin.
 
-| O que **queremos** | O que é **viável** |
-|---|---|
-| "Sequestrar" o Go Live nativo e mandar pro nosso servidor | ❌ Inviável. SFU do Discord é proprietário/criptografado. Reimplementar é gigante e quebra a cada update. |
-| Vídeo de tela/câmera fora do Discord | ✅ Pipeline paralelo: captura padrão do navegador → nosso SFU (LiveKit). |
-| Ver a transmissão dentro do Discord | ⚠️ Em **painel próprio do plugin** (PiP/janela), não no tile nativo. |
-| Voz pelo Discord | ✅ Fica intacta, sem tocar nela. |
-| Áudio do sistema audível pros membros | ✅ Fácil no nosso pipeline (`getDisplayMedia({ audio: true })`). |
-| Descobrir quem está na call | ✅ Via stores do Discord (VoiceState) → nome da sala = ID do canal de voz. |
+## Motivação
 
-**Regra de ouro:** não fazemos engenharia reversa do protocolo de mídia do Discord.
-Só usamos APIs padrão de captura (`getDisplayMedia`/`getUserMedia`) e um servidor
-WebRTC próprio. Isso mantém o projeto legal do ponto de vista de reversing e
-estável frente a updates do Discord.
+- **Remover a dependência de VPS/UDP para a maioria.** No P2P, a mídia vai
+  **cliente↔cliente** e nunca toca o servidor → só precisamos do **signaling
+  (HTTP/WS)**, que passa 100% pelo Cloudflare Tunnel. VPS/TURN vira opcional (só
+  para NAT simétrico/corporativo restritivo).
+- **Onboarding sem terminal.** Instalador gráfico aplica a modificação no Discord.
+- **Governança.** Admin habilita usuários, limita qualidade/FPS, vê transmissões
+  ativas e métricas.
 
-## 2. Componentes
+> Trade-off aceito: mesh **não escala** como SFU (quem transmite envia uma cópia
+> por espectador). Alvo v2 = grupos pequenos/médios. Para grupos grandes, manter a
+> opção SFU (v1) ou um SFU gerenciado (ex.: Cloudflare Realtime) como modo alternativo.
 
-### 2.1 Cliente — userplugin do Vencord (`client/`)
+## Componentes
 
-Um plugin de usuário do Vencord (compilado junto ao Vencord, em `src/userplugins/`).
+```
+┌───────────────────┐        ┌──────────────────────────┐
+│  Instalador (App   │        │   Hub Web                │
+│  Electron, Mac/Win)│───────▶│   golivefrd.birdra1n.com │
+│  aplica mod no     │  abre  │   auth · admin · dash    │
+│  Discord + config  │  nav.  └───────────┬──────────────┘
+└─────────┬──────────┘                    │ REST/WS
+          │ grava config                  ▼
+          ▼                    ┌──────────────────────────┐
+┌───────────────────┐  WS      │  Servidor (self-host ou   │
+│  Plugin Vencord   │◀────────▶│  birdra1n)                │
+│  P2P mesh (RTCPC) │ signaling│  - Signaling (WS)         │
+│  captura/render   │          │  - Auth + quotas          │
+└───────────────────┘          │  - Config endpoint        │
+          ▲  mídia P2P (WebRTC) │  - Admin API + métricas   │
+          └────────┐           │  - (TURN opcional)        │
+                   ▼           └──────────────────────────┘
+            outro Plugin (peer)
+```
 
-Módulos:
+### 1. Servidor (self-host ou hospedado)
 
-- **`settings`** — aba de configurações do plugin (via API de settings do Vencord):
-  - `serverUrl` — URL do LiveKit privado (ex.: `wss://media.minhaempresa.com`).
-  - `tokenServiceUrl` — URL do serviço de token (ex.: `https://media.minhaempresa.com/token`).
-  - `orgSecret` — segredo compartilhado da organização.
-  - `includeSystemAudio` — incluir áudio do sistema no stream (default: on).
-  - `video` — resolução alvo, FPS, bitrate máx.
-  - `autoPublishOnGoLive` — ao clicar em compartilhar no Discord, publicar no privado.
-- **`discordState`** — lê stores do Discord (Webpack) para saber contexto:
-  - `SelectedChannelStore` / `VoiceStateStore` → canal de voz atual + participantes.
-  - `UserStore` → identidade do usuário local (nome de exibição na sala).
-- **`rtcSession`** — orquestra a conexão LiveKit (`livekit-client`):
-  - Ao entrar numa call de voz: pega token do `token-service` (room = channelId),
-    conecta na sala, e passa a **assinar** publicações de outros participantes.
-  - Ao compartilhar: captura mídia e **publica** track(s) na sala.
-- **`capture`** — `getDisplayMedia`/`getUserMedia` com as constraints das settings.
-- **`ui`**:
-  - **`PrivateStreamPanel`** — lista de streams ativos na call + player de vídeo
-    (elemento `<video>` recebendo o `MediaStream` remoto). Renderizado como
-    painel/modal/PiP injetado pelo plugin.
-  - **Botão/indicador** próprio (ex.: "Compartilhar (privado)") na barra da call.
-- **`patches`** — patches Webpack mínimos para injetar o botão e o painel na UI da
-  call. Evitamos patches invasivos no motor de mídia do Discord.
+Um serviço Node único (ou poucos), tudo atrás do Cloudflare (HTTP/WS):
 
-> **Referência útil:** os plugins `philsPluginLibrary` / `betterScreenshare`
-> mostram como acessar as constraints de captura e o motor de mídia no Vencord —
-> boa fonte para a parte de `capture`, ainda que nosso transporte seja separado.
+- **Signaling (WebSocket)**: salas = ID do canal de voz. Repassa SDP/ICE entre
+  peers. Não vê a mídia.
+- **Auth**: login (o admin habilita usuários), emite tokens de sala, valida se o
+  usuário está habilitado, aplica **quotas** (resolução/FPS máximos por usuário).
+- **Config endpoint** (`GET /config`): dado um host, retorna tudo que o cliente
+  precisa — URL de signaling, ICE servers (STUN/TURN), políticas, versão.
+- **Admin API**: habilitar/desabilitar usuários, definir quotas, listar
+  **transmissões ativas** (derivadas do signaling), métricas (CPU, rede, nº de
+  salas/peers).
+- **TURN (opcional)**: coturn próprio ou Cloudflare TURN, só para NAT restritivo.
+- **DB**: usuários, quotas, sessões, flags de habilitação (SQLite/Postgres).
 
-### 2.2 Servidor — auto-hospedado (`server/`)
+### 2. Plugin Vencord (transporte P2P)
 
-`docker-compose.yml` sobe três serviços:
+- Substitui a camada LiveKit por **`RTCPeerConnection` mesh**: uma conexão por peer
+  na sala.
+- **Signaling client** (WS) para trocar offer/answer/ICE.
+- Recebe **config do servidor** (ICE servers, quotas) — aplica limites de
+  qualidade/FPS que o admin definiu.
+- Mantém captura nativa, tiles nativos, teatro, hijack dos botões (já prontos).
+- Reporta estado (transmitindo/assistindo) ao servidor para visibilidade do admin.
 
-1. **LiveKit server** (SFU) — roteia as tracks entre participantes da sala.
-   Config em `livekit.yaml` (chaves de API, portas, TURN embutido opcional).
-2. **token-service** (Node/Express, pequeno) — emite **JWT do LiveKit**:
-   - Recebe `{ room, identity, orgSecret }`.
-   - Valida `orgSecret` contra o segredo configurado no servidor.
-   - Se ok, assina um AccessToken LiveKit com grants para aquela `room`.
-   - MVP: sem depender do Discord (ver Fase 2 para validação via bot).
-3. **coturn** (TURN/STUN) — essencial em redes corporativas com NAT restritivo.
+### 3. Instalador (Electron, Mac + Windows)
 
-TLS via reverse proxy (Caddy/Traefik) — WebRTC/`wss` exige HTTPS.
+- Detecta/instala pré-requisitos e **aplica a modificação no Discord** (build do
+  Vencord com o plugin embutido, ou um bundle pré-compilado injetado).
+- Fluxo:
+  1. Escolher **usar o servidor birdra1n** ou **configurar o próprio**.
+  2. Ao inserir o **host**, chama `GET https://<host>/config` → o host devolve
+     toda a config (signaling, ICE, versão) → o instalador grava e aplica as
+     modificações (inclui a entrada de **CSP** do domínio automaticamente).
+  3. Botão **"Abrir navegador"** → `http://golivefrd.birdra1n.com` (hub).
+- Assina/gera o build e injeta no Discord instalado (Mac e Windows).
 
-## 3. Fluxo de dados
+### 4. Hub Web (golivefrd.birdra1n.com)
 
-### Entrar na call
-1. Plugin detecta entrada no canal de voz `C` (VoiceStateStore).
-2. `POST token-service {room: C, identity: user, orgSecret}` → JWT.
-3. `livekit-client` conecta em `serverUrl` com o JWT → entra na sala `C`.
-4. Passa a receber eventos de `TrackPublished` de outros participantes.
+- **Auth**: o usuário faz login e **solicita habilitar o uso do servidor**.
+- Quando o admin habilita, o servidor **notifica o plugin no Discord** (via o
+  signaling WS já conectado) → o plugin liga as funções automaticamente e mostra
+  um aviso "acesso liberado".
+- **Painel do admin**:
+  - habilitar/desabilitar usuários; definir **quota de qualidade/FPS** por usuário;
+  - ver **transmissões ativas** no momento (quem, sala, desde quando);
+  - **dashboard**: CPU, memória, rede, nº de salas/peers, histórico.
+- Reúne as funções antes espalhadas (config, admin, docs) num lugar só.
 
-### Compartilhar tela/câmera
-1. Usuário clica em "Compartilhar (privado)".
-2. `getDisplayMedia({video: constraints, audio: includeSystemAudio})`.
-3. `room.localParticipant.publishTrack(...)` para cada track.
-4. Outros participantes recebem `TrackSubscribed` → `PrivateStreamPanel` mostra.
+## Fluxo de habilitação (ponta a ponta)
 
-### Assistir
-1. Evento `TrackSubscribed` entrega um `MediaStreamTrack`.
-2. Plugin monta um `MediaStream` e atribui a um `<video>` no painel.
-3. Áudio do sistema (se presente) toca junto — membros se ouvem.
+```
+1. Usuário roda o instalador → escolhe servidor → host retorna config → mod aplicada.
+2. Instalador abre golivefrd.birdra1n.com → usuário faz login e pede acesso.
+3. Admin habilita o usuário (define quota).
+4. Servidor empurra "habilitado" pelo WS → plugin no Discord liga as funções e avisa.
+5. Usuário transmite (P2P). Admin vê a transmissão ativa e as métricas no dash.
+```
 
-### Voz
-- Nada muda. Segue pelo Discord nativo, em paralelo.
+## Segurança
 
-## 4. Segurança e privacidade
+- Auth por conta (não só segredo compartilhado). Tokens de sala curtos.
+- Quotas aplicadas no **cliente** (UX) e **validadas no servidor** (o signaling só
+  monta a sala se o usuário estiver habilitado e dentro da quota).
+- Signaling nunca vê a mídia (P2P criptografado DTLS-SRTP ponta a ponta).
+- Admin atrás de auth forte; painel só por rede confiável/Access.
 
-- **Sala = ID do canal de voz.** Qualquer um que saiba o ID + tenha o `orgSecret`
-  pode entrar. Por isso o `orgSecret` é o controle de acesso no MVP — deve ser
-  tratado como credencial (não commitar, distribuir via canal seguro da empresa).
-- **Presença (implementado):** um bot do Discord (opcional) valida se a `identity`
-  está mesmo no canal de voz `C` antes do token-service emitir o JWT — fecha o furo
-  do "sabe o ID + secret". Modos `strict`/`lenient`/`off`. Ver `server/README.md`.
-- **Rotação:** o `ORG_SECRET` aceita lista separada por vírgula para troca sem
-  downtime; emissões/negações são auditadas em JSON no token-service.
-- Todo tráfego em `wss`/DTLS-SRTP (padrão WebRTC) + TLS no token-service.
-- Sem gravação por padrão. Se adicionada, deve ser opt-in e auditável.
+## Histórico: a v1 (SFU) foi removida
 
-## 5. Decisões registradas
+A primeira versão usava um **SFU (LiveKit)** — toda a mídia passava pelo servidor,
+exigindo porta UDP pública e um relay por VPS (o Cloudflare Tunnel só leva HTTP/WS).
+Isso foi **removido**: o servidor agora é só mesh (signaling/auth/admin).
 
-- **Transporte:** LiveKit SFU (auto-hospedado). Menos código, escala pra grupos,
-  SDK JS maduro. (Alternativas descartadas no MVP: mesh P2P — não escala;
-  mediasoup — muito código.)
-- **Auth MVP:** segredo de organização compartilhado. (Bot de validação → Fase 2.)
-- **Exibição:** painel próprio do plugin, não o tile nativo do Discord.
-- **Voz:** permanece no Discord, intocada.
-
-## 6. Riscos conhecidos
-
-- Patches Webpack do Vencord podem quebrar em updates do Discord — manter mínimos.
-- NAT corporativo: sem TURN bem configurado, conexões falham. coturn é obrigatório.
-- Todos os participantes precisam do plugin + mesma config. Sem isso, não veem nada.
-- Uso de client mod é contra o ToS do Discord (risco do usuário).
+- O plugin ainda abstrai o transporte atrás de uma interface (`RtcTransport`), e o
+  código do transporte SFU (`client/src/rtc/session.ts`) permanece no cliente para
+  quem quiser plugar um SFU próprio — mas **não há mais servidor SFU neste repo**.
+- Para grupos grandes (onde o mesh não escala), seria preciso reintroduzir um SFU
+  (ex.: LiveKit próprio ou Cloudflare Realtime) como serviço à parte.

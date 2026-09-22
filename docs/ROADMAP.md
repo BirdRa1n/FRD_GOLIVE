@@ -1,65 +1,52 @@
-# Roadmap
+# Roadmap v2
 
-Marcos incrementais — cada fase é utilizável/testável antes de seguir.
+Fases incrementais. Cada uma entrega algo testável e não quebra a v1 (SFU) até a
+migração estar pronta.
 
-## Fase 0 — Fundação do repositório
-- [ ] Trocar `.gitignore` (de OCaml) para Node/TypeScript.
-- [ ] Estrutura de pastas: `client/`, `server/`, `docs/`.
-- [ ] `CONTRIBUTING.md` + notas de setup de dev do Vencord.
+## Fase A — Transporte P2P/mesh (fundação)
+- [ ] Interface `RtcTransport` no plugin (abstrai `mesh` | `sfu`).
+- [ ] **Signaling server** mínimo (Node + `ws`): salas por channelId, repasse de
+      offer/answer/ICE, atrás do Cloudflare (HTTP/WS).
+- [ ] Cliente de signaling no plugin.
+- [ ] Mesh: `RTCPeerConnection` por peer; publicar tela/câmera; assinar remotos.
+- [ ] ICE: STUN público por padrão; TURN opcional via config.
+- **Teste:** 2–3 clientes, só com Cloudflare (sem VPS), veem a transmissão em NAT
+  amigável. Documentar o caso de NAT simétrico (precisa TURN).
 
-## Fase 1 — Servidor mínimo (self-host)
-- [ ] `server/docker-compose.yml`: LiveKit + coturn + token-service.
-- [ ] `server/livekit.yaml` de exemplo.
-- [ ] `token-service`: `POST /token {room, identity, orgSecret}` → JWT LiveKit.
-- [ ] Validação do `orgSecret`. Variáveis via `.env`.
-- [ ] Documento de deploy (TLS via Caddy, portas, firewall).
-- **Teste:** publicar/assinar uma track com o app de exemplo do LiveKit.
+## Fase B — Auth + quotas + config endpoint
+- [ ] DB (SQLite) de usuários, quotas, flags de habilitação.
+- [ ] Login/registro; admin habilita usuários; quota de resolução/FPS por usuário.
+- [ ] `GET /config` retorna signaling URL, ICE servers, políticas, versão.
+- [ ] Signaling valida habilitação + aplica quota ao montar a sala.
+- [ ] Plugin aplica a quota recebida (limita maxHeight/fps).
+- **Teste:** usuário não habilitado é barrado; quota limita a qualidade.
 
-## Fase 2 — Plugin: conexão e assinatura ✅
-- [x] Esqueleto do userplugin (`definePlugin`, settings).
-- [x] Aba de settings: `serverUrl`, `tokenServiceUrl`, `orgSecret`, opções de vídeo.
-- [x] `discordState`: detectar canal de voz atual.
-- [x] `rtcSession`: conectar ao LiveKit com room = channelId; assinar tracks.
-- [x] `PrivateStreamPanel`: renderizar `<video>` de streams remotos.
-- **Teste:** dois clientes na mesma call veem stream publicado manualmente.
-  _(pendente: rodar dentro do Vencord + servidor no ambiente do dev)_
+## Fase C — Hub web (golivefrd.birdra1n.com)
+- [ ] App web (Next.js) com auth.
+- [ ] Fluxo "solicitar acesso" → admin aprova.
+- [ ] Push de "habilitado" pelo WS → plugin liga funções + avisa no Discord.
+- [ ] Painel admin: usuários, quotas, **transmissões ativas**.
+- [ ] Dashboard: CPU, memória, rede, salas/peers (métricas do servidor).
+- **Teste:** habilitar no hub reflete no Discord em segundos; dash mostra a call ativa.
 
-## Fase 3 — Plugin: captura e publicação (parcial — já adiantado na Fase 2)
-- [x] Botão "Compartilhar tela" no painel.
-- [x] `capture`: `createLocalScreenTracks` com resolução/fps das settings.
-- [x] Publicar tracks; incluir áudio do sistema (opção `includeSystemAudio`).
-- [x] Parar de transmitir (`stopSharing`).
-- [x] Botão de câmera na UI.
-- [x] Indicador visual de "transmitindo" (tela/câmera) no painel.
-- [x] Captura nativa via `desktopCapturer` (Electron) + seletor de fonte próprio,
-      para regiões onde o Discord bloqueia o compartilhamento de tela.
-- [ ] Seleção de fonte/janela também no modo `getDisplayMedia` padrão.
-- **Teste:** A compartilha tela+áudio; B vê e ouve; voz do Discord segue normal.
+## Fase D — Instalador Electron (Mac + Windows)
+- [ ] App Electron: detecta Discord/Vencord, aplica a modificação (build + inject).
+- [ ] Opção "servidor birdra1n" vs "próprio"; ao inserir host, puxa `GET /config`.
+- [ ] Aplica CSP do domínio automaticamente; grava config do plugin.
+- [ ] Botão "Abrir navegador" → hub.
+- [ ] Empacotar/assinar para macOS (.dmg/.pkg) e Windows (.exe/NSIS).
+- **Teste:** do zero ao Discord modificado sem terminal, nos dois SOs.
 
-## Fase 4 — Robustez ✅
-- [x] Reconexão automática (auto-reconnect do LiveKit + backoff próprio com token novo).
-- [x] Tratamento de saída/entrada de participantes (limpa streams na queda).
-- [x] Simulcast + qualidade adaptativa (`adaptiveStream`, `dynacast`, `simulcast`).
-- [x] Múltiplos publicadores simultâneos no painel.
-- [x] Mensagens de erro claras (servidor offline, segredo inválido, cancelamento
-      de captura), com botão de "Tentar de novo".
-- **Teste:** derrubar o servidor no meio da sessão e ver a reconexão/erro no painel.
-  _(pendente: exercício fim-a-fim no ambiente do dev)_
+## Fase E — Observabilidade + polimento
+- [ ] Reporte de estado (transmitindo/assistindo) do plugin ao servidor.
+- [ ] Histórico de sessões; alertas de quota; logs de auditoria.
+- [ ] Modo `sfu` opcional para grupos grandes (reusa a v1/LiveKit).
 
-## Fase 5 — Segurança avançada ✅
-- [x] Bot Discord (opcional) valida presença no canal de voz antes de emitir token
-      (modos `strict`/`lenient`/`off`), integrado ao token-service.
-- [x] Rotação de segredo sem downtime (lista separada por vírgula) + tokens curtos.
-- [x] Logs de auditoria em JSON no token-service (granted/denied + motivo).
-- Pendente futuro: prova forte de identidade via OAuth2 (hoje a checagem confirma
-  presença do userId, não a autoria da requisição).
-
-## Fase 6 — Distribuição
-- [ ] Guia de build do Vencord com o plugin em `src/userplugins/`.
-- [ ] Guia de self-host "1 comando" (docker compose up).
-- [ ] Documentação de troubleshooting de rede corporativa.
+## Ordem sugerida
+A → B → C → D → E. A Fase A é a que remove o VPS (o pedido nº 1) e destrava o
+resto. As fases C/D dependem de A/B (config + auth).
 
 ## Fora de escopo (por ora)
-- Substituir o tile nativo do Go Live do Discord.
 - Gravação de sessões.
-- Clientes sem o plugin.
+- Reencode server-side (é P2P; sem SFU não há transcode central).
+- SFU escalável gerenciado (fica como modo opcional, não default).
