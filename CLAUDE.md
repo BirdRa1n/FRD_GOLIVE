@@ -142,3 +142,11 @@ curl -s http://localhost:8090/config   # signalingUrl (controle) + serverUrl (Li
 plugin + a CSP do domínio, injeta via Vencord Installer CLI e abre o hub. Precisa de um
 `installer/vencord-dist/` (Vencord já compilado com o plugin — gitignored, gerado no CI).
 Ver `installer/README.md` (inclui o workaround do Electron no Node 26+).
+
+- **Build/release:** `installer/scripts/build-app.sh` (Mac: .app/.dmg/.zip, ad-hoc sem
+  Developer ID via `after-pack.cjs`) e `build-app.bat` (Windows: .exe NSIS);
+  `publish-release.{sh,bat}` sobem `release/` com o `gh` para a release `v<versão>`.
+- **Auto-update:** `electron-updater` com provider GitHub (`publish` no
+  `electron-builder.yml`). Nomes de artefato **sem espaço** (senão o `latest*.yml` não
+  bate com o asset). No macOS sem Developer ID o update vira "baixe a nova versão".
+- `.bat` precisam de **CRLF** (ver `.gitattributes`) — com LF o `goto` quebra no cmd.

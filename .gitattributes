@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Scripts do Windows precisam de CRLF (labels/goto quebram com LF no cmd).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+# Scripts shell sempre LF.
+*.sh text eol=lf

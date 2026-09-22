@@ -66,8 +66,51 @@ function scheduleCheck() {
 
 api.defaults().then(d => {
     defaults = d;
+    $("version").textContent = d.version ? `FRD GoLive Instalador v${d.version}` : "";
     checkServer();
 });
+
+// ------------------------------------------------------------ auto-update
+function renderUpdate(s) {
+    const box = $("update");
+    const text = $("update-text");
+    const bar = $("update-progress");
+    const action = $("update-action");
+    action.hidden = true;
+    bar.hidden = true;
+    box.className = "notice";
+
+    switch (s.state) {
+        case "downloading":
+            box.hidden = false;
+            text.textContent = `Baixando a versão ${s.version}… ${s.percent}%`;
+            bar.hidden = false;
+            bar.style.setProperty("--value", s.percent + "%");
+            break;
+        case "installing":
+            box.hidden = false;
+            text.textContent = `Instalando a versão ${s.version} — o app reinicia sozinho.`;
+            bar.hidden = false;
+            bar.classList.add("indeterminate");
+            break;
+        case "manual":
+            box.hidden = false;
+            box.className = "notice warn";
+            text.textContent = `A versão ${s.version} está disponível. Baixe e instale para atualizar.`;
+            action.hidden = false;
+            action.onclick = () => api.openRelease();
+            break;
+        case "error":
+            // Falha silenciosa na UI (sem internet etc.): o app segue funcionando.
+            console.warn("[update]", s.message);
+            box.hidden = true;
+            break;
+        default:
+            box.hidden = true; // disabled / checking / none
+    }
+}
+api.updateState().then(renderUpdate);
+api.onUpdate(renderUpdate);
 
 $("server-choice").addEventListener("change", e => {
     useOwn = e.detail.value === "own";

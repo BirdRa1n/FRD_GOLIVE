@@ -52,6 +52,45 @@ npm run start:full      # build:vencord + start, num passo só
 npm run dist            # build:vencord + empacota .dmg (mac) / .exe (win)
 ```
 
+## Gerar o app (.app / .exe) e publicar uma versão
+
+Scripts prontos (fazem `npm install`, compilam o Vencord com o plugin, o app e empacotam):
+
+| | macOS | Windows |
+|---|---|---|
+| Compilar | `bash installer/scripts/build-app.sh` | `installer\scripts\build-app.bat` |
+| Publicar | `bash installer/scripts/publish-release.sh` | `installer\scripts\publish-release.bat` |
+
+- **macOS** gera `release/FRD-GoLive-<v>-{arm64,x64}.dmg` (1ª instalação), `.zip` (usado
+  pelo auto-update), `latest-mac.yml` e `release/mac*/FRD GoLive.app`. Opções:
+  `--bump patch|minor|major`, `--arch arm64|x64|both`, `--skip-vencord`.
+- **Windows** gera `release/FRD-GoLive-Setup-<v>.exe`, `.blockmap`, `latest.yml` e
+  `release/win-unpacked/`. Opções: `--bump`, `--skip-vencord`. O `.exe` só é gerado
+  no Windows (NSIS).
+- **Publicar** usa o GitHub CLI (`gh auth login` antes) e sobe tudo de `release/` para a
+  release `v<versão do package.json>` em BirdRa1n/FRD_GOLIVE. Mac e Windows podem
+  publicar em momentos diferentes: o 1º cria a release, o 2º só anexa os arquivos.
+  `--draft` cria rascunho (o auto-update ignora rascunhos até publicar).
+
+Fluxo de uma nova versão: `build-app --bump patch` → testar → commit/push do
+`package.json` → `publish-release` (em cada SO).
+
+### Auto-update (electron-updater)
+
+Ao abrir, o app empacotado procura uma release nova neste repositório, baixa e reinicia
+já atualizado (se estiver no meio do "Aplicar", espera terminar). A faixa no topo da
+janela mostra o progresso. Em dev (`npm start`) fica desligado; `FRD_DISABLE_UPDATES=1`
+desliga em builds empacotados.
+
+- **Windows:** atualiza sozinho mesmo sem assinatura (o SmartScreen avisa na 1ª instalação).
+- **macOS:** o Squirrel.Mac só instala sozinho em app assinado com **Developer ID**
+  (defina `CSC_LINK`/`CSC_KEY_PASSWORD` ou tenha o certificado no keychain). Sem ele, o
+  build é assinado **ad-hoc** (`scripts/after-pack.cjs`) — abre normalmente (1ª vez:
+  botão direito → Abrir) e, quando há versão nova, o app mostra "baixe a nova versão"
+  com o link da release.
+- As releases deste repositório são do **instalador**: o updater pega a mais recente
+  (não-rascunho), então não publique releases de outras partes com tag `v*` aqui.
+
 ## O `vencord-dist/` (bundle)
 
 O app precisa de um **Vencord já compilado com o plugin** em `installer/vencord-dist/`

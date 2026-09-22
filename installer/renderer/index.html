@@ -37,6 +37,16 @@
   </div>
 
   <main class="container page">
+    <!-- Auto-update (electron-updater): aparece só quando há algo a dizer. -->
+    <div class="notice appear" id="update" hidden role="status">
+      <i data-icon="download" id="update-icon"></i>
+      <div class="stack grow" style="--gap:6px">
+        <span id="update-text"></span>
+        <div class="progress" id="update-progress" hidden><i></i></div>
+      </div>
+      <button class="btn btn-sm" id="update-action" hidden>Baixar</button>
+    </div>
+
     <header class="hero appear">
       <span class="logo logo-lg" data-icon="logo"></span>
       <div class="stack" style="--gap:4px">
@@ -97,6 +107,7 @@
         <button class="btn btn-block" id="restart">Instalar em outro Discord</button>
       </div>
     </section>
+    <p class="caption" style="text-align:center" id="version"></p>
   </main>
 
   <script src="./app.js"></script>
