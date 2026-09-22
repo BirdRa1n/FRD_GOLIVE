@@ -1,12 +1,16 @@
-# Servidor FRD GoLive (mesh) — signaling + auth + admin
+# Servidor FRD GoLive — hub/auth/admin + SFU (LiveKit)
 
-Servidor do FRD GoLive. A mídia vai **cliente↔cliente (P2P/mesh)**, então este
-servidor só faz **signaling + auth + config + admin** — tudo **HTTP/WS numa única
-porta**, então passa 100% pelo **Cloudflare Tunnel** (sem VPS/UDP).
+Servidor do FRD GoLive. Faz **hub (login Discord) + auth/habilitação + quotas +
+admin + config** e **emite os tokens do LiveKit**. A **mídia (vídeo) passa pelo SFU
+(LiveKit)** — e entra pelo **IP público que você definir** (ex.: um VPS que faz o
+relay do UDP para o servidor de casa).
+
+Tudo que o cliente fala com o hub é **HTTP/WS** (passa pelo Cloudflare Tunnel). Só a
+**mídia UDP** precisa do IP público/relay — ver [docs/RELAY-UDP.md](../docs/RELAY-UDP.md).
 
 ## Subir
 
-Instalação guiada (recomendado — clona, gera credenciais e sobe):
+Instalação guiada (recomendado — clona, gera credenciais, pergunta o IP da mídia e sobe):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/BirdRa1n/FRD_GOLIVE/main/server/install.sh | sh
@@ -15,73 +19,58 @@ curl -fsSL https://raw.githubusercontent.com/BirdRa1n/FRD_GOLIVE/main/server/ins
 Ou manual, dentro de `server/`:
 
 ```bash
-./gen-env.sh                 # gera .env com ADMIN_TOKEN e SESSION_SECRET aleatórios
-docker compose up -d --build # sobe na porta 8090
-# alternativa sem Docker: npm install && npm run build && npm start
+./gen-env.sh                 # gera .env com ADMIN_TOKEN, SESSION_SECRET e chaves do LiveKit
+# edite o .env: LIVEKIT_WS_URL (wss do LiveKit) e LIVEKIT_NODE_IP (IP da mídia)
+docker compose up -d --build # sobe o hub (8090) + o LiveKit (7880/7881/7882)
 ```
 
-Depois, para ligar o **login do Discord** (hub/admin), preencha as variáveis
-`DISCORD_*` e `ADMIN_DISCORD_IDS` — passo a passo em
+Login do Discord (hub/admin): preencha `DISCORD_*` e `ADMIN_DISCORD_IDS` — ver
 [docs/DISCORD-OAUTH.md](../docs/DISCORD-OAUTH.md).
+
+## Fluxo de mídia (SFU)
+
+1. O plugin puxa `GET /config` → `serverUrl` (WS do LiveKit) + `signalingUrl` (controle).
+2. Conecta o **canal de controle** (WS) → recebe a **policy** (habilitado? quotas?).
+3. Se habilitado, `POST /token` → o servidor emite um **token do LiveKit** e o plugin
+   conecta na **mídia** (LiveKit). A mídia entra pelo IP público (`node_ip`).
+4. O plugin reporta o estado (transmitindo) pelo controle → aparece em `/admin`.
+
+Usuário **não habilitado** não recebe token (`403`) — o painel mostra "aguardando
+liberação". Quando o admin habilita, a policy é **empurrada pelo WS** e o plugin
+conecta a mídia na hora.
 
 ## Endpoints
 
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | status/versão |
-| GET | `/config` | config do cliente: `signalingUrl`, `iceServers`, versão |
-| WS | `/signaling` | signaling do mesh (salas por channelId) |
-| POST | `/auth/request-access` | `{userId,name}` — usuário pede acesso |
+| GET | `/config` | `signalingUrl` (controle), `serverUrl` (LiveKit), versão |
+| POST | `/token` | `{room,userId,name}` → token do LiveKit (só habilitados) |
+| WS | `/signaling` | canal de controle: policy/presença + estado p/ o admin |
+| POST | `/auth/request-access` | `{userId,name}` — registra o pedido |
 | GET | `/policy/:userId` | policy atual (enabled + quotas) |
-| GET | `/admin/users` | lista usuários (header `X-Admin-Token`) |
-| POST | `/admin/users/:id/enable` | `{enabled,maxHeight,maxFps}` — habilita + quota |
-| GET | `/admin/transmissions` | transmissões ativas agora |
-| GET | `/admin/metrics` | CPU, memória, salas, peers, uptime |
-
-Ao habilitar um usuário, a nova policy é **empurrada pelo WS** para as conexões
-vivas dele (o plugin liga as funções na hora).
-
-## Hub web (golivefrd)
-
-O mesmo serviço serve o hub (páginas HTML + login):
-
-| Rota | Descrição |
-|---|---|
-| `GET /` | login (Discord) ou home com status do usuário |
-| `GET /login` → `GET /auth/callback` | Discord OAuth2 (scope `identify`) |
-| `GET /me` · `POST /me/request-access` | dados/pedido do usuário logado |
-| `GET /admin` | painel: usuários+quotas, transmissões ativas, métricas ao vivo |
-
-Fluxo de habilitação: usuário loga → pede acesso → admin libera no painel → o
-servidor empurra a policy pelo WS → o plugin no Discord liga as funções.
+| GET | `/admin/users` · `/admin/transmissions` · `/admin/metrics` | painel (header `X-Admin-Token`) |
+| POST | `/admin/users/:id/enable` | `{enabled,maxHeight,maxFps}` |
 
 ## Configuração (`.env`)
 
-Gerado pelo `gen-env.sh`. Principais chaves:
+Principais chaves (o `gen-env.sh` gera segredos aleatórios):
 
 | Variável | Descrição |
 |---|---|
-| `PORT` | porta HTTP/WS (padrão 8090) |
-| `ADMIN_TOKEN` | protege `/admin/*` (header `X-Admin-Token`) — aleatório |
-| `PUBLIC_SIGNALING_URL` | vazio = deriva do host (com HTTPS vira `wss://.../signaling`) |
-| `STUN_URLS` | STUN público basta para NAT amigável |
-| `TURN_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL` | só para NAT simétrico/corporativo |
-| `DEFAULT_MAX_HEIGHT` / `DEFAULT_MAX_FPS` | quotas padrão de novos usuários |
-| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` / `DISCORD_REDIRECT_URI` | OAuth do hub — ver [docs/DISCORD-OAUTH.md](../docs/DISCORD-OAUTH.md) |
-| `SESSION_SECRET` | assina o cookie de sessão — aleatório |
-| `ADMIN_DISCORD_IDS` | Discord user IDs dos admins (separados por vírgula) |
+| `PORT` | porta do hub (padrão 8090) |
+| `ADMIN_TOKEN` / `SESSION_SECRET` | protege `/admin/*` / assina o cookie — aleatórios |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | chaves com que o servidor assina os tokens |
+| `LIVEKIT_WS_URL` | **URL WS do LiveKit que o cliente usa** (ex.: `wss://media.SEU.com`) |
+| `LIVEKIT_NODE_IP` | **IP público por onde a mídia entra** (gravado no `livekit.yaml`) |
+| `DEFAULT_MAX_HEIGHT` / `DEFAULT_MAX_FPS` | quotas padrão |
+| `DISCORD_*` / `ADMIN_DISCORD_IDS` | OAuth do hub — ver docs/DISCORD-OAUTH.md |
 
-## Cloudflare
+## Cloudflare (2 rotas HTTP/WS)
 
-Uma única rota basta: `https://golivefrd.SEU.com` → `http://SERVIDOR:8090` (HTTP
-**e** o WebSocket `/signaling` na mesma porta). O plugin puxa `GET /config` e conecta.
+1. `golivefrd.SEU.com` → `http://SERVIDOR:8090` (hub: config/token/controle).
+2. `media.SEU.com` → `http://SERVIDOR:7880` (WS de signaling do LiveKit) — é o
+   `LIVEKIT_WS_URL`.
 
-## Transporte no cliente
-
-No plugin (Vencord): setting **Transport = Mesh P2P** e aponte o `tokenServiceUrl`
-para este servidor. NAT simétrico ainda precisa de TURN (configure `TURN_URLS`).
-
-## Limitação
-
-Mesh **não escala**: quem transmite envia uma cópia por espectador. Alvo: grupos
-pequenos/médios. Para grupos grandes, seria preciso um SFU (não incluso nesta versão).
+A **mídia UDP 7882** NÃO passa pelo Cloudflare: entra pelo IP público (`node_ip`)
+via relay — ver [docs/RELAY-UDP.md](../docs/RELAY-UDP.md).

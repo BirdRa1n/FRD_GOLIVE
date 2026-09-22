@@ -12,10 +12,11 @@ export interface User {
 
 /** Config que o cliente recebe do host (GET /config). */
 export interface ClientConfig {
-    signalingUrl: string; // wss://.../signaling
+    signalingUrl: string; // wss://.../signaling — canal de controle (policy/presença)
+    serverUrl: string; // wss://.../ do LiveKit (mídia SFU)
     iceServers: RTCIceServerConfig[];
     version: string;
-    transport: "mesh"; // v2 = mesh
+    transport: "sfu"; // mídia via LiveKit; a mídia entra pelo IP público do livekit.yaml
 }
 
 export interface RTCIceServerConfig {

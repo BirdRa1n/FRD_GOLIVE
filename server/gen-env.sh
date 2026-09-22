@@ -27,6 +27,9 @@ rand_hex() {
 # Segredos: protegem os endpoints /admin/* e assinam o cookie de sessão do hub.
 ADMIN_TOKEN="$(rand_hex 24)"
 SESSION_SECRET="$(rand_hex 32)"
+# Chaves do LiveKit (SFU) — o servidor assina os tokens com elas.
+LIVEKIT_API_KEY="API$(rand_hex 6)"
+LIVEKIT_API_SECRET="$(rand_hex 32)"
 
 # Cria o arquivo já com permissões restritas (contém segredos).
 umask 077
@@ -54,6 +57,22 @@ DEFAULT_MAX_FPS=30
 
 DB_FILE=/app/data/users.json
 VERSION=2.0.0
+
+# --- SFU (LiveKit) — a mídia (vídeo) passa por aqui ---
+LIVEKIT_API_KEY=$LIVEKIT_API_KEY
+LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
+# URL WS do LiveKit que o CLIENTE usa (signaling do LiveKit). Ex.: wss://media.SEU.com
+# ou ws://SEU_IP:7880. É o que o /config devolve como serverUrl.
+LIVEKIT_WS_URL=
+# IP PÚBLICO por onde a MÍDIA (UDP 7882) entra — ex.: o VPS que faz o relay.
+# O install.sh grava isto no livekit.yaml (node_ip) e desliga a autodetecção.
+LIVEKIT_NODE_IP=
+# Portas do LiveKit (mapeadas pelo docker-compose).
+LIVEKIT_PORT=7880
+LIVEKIT_TCP_PORT=7881
+LIVEKIT_UDP_PORT=7882
+# Validade do token de sala.
+TOKEN_TTL=10m
 
 # --- Hub web (login Discord + painel admin) ---
 # Crie um app em https://discord.com/developers/applications (veja docs/DISCORD-OAUTH.md).
