@@ -37,6 +37,26 @@ export const settings = definePluginSettings({
         description: "Nome do experimento do 'video guard' do Discord (atualize se o Discord rotacionar e os botões voltarem a ficar bloqueados)",
         default: "2026-08-video-guard",
     },
+    streamSounds: {
+        type: OptionType.BOOLEAN,
+        description: "Tocar um som quando alguém da call inicia ou encerra uma transmissão privada (como o Go Live do Discord)",
+        default: true,
+    },
+    streamSoundStyle: {
+        type: OptionType.SELECT,
+        description: "Som de início/fim de transmissão",
+        options: [
+            { label: "Sons do próprio Discord", value: "discord", default: true },
+            { label: "Chime sintetizado (use se o som nativo não tocar)", value: "synth" },
+        ],
+    },
+    streamSoundVolume: {
+        type: OptionType.SLIDER,
+        description: "Volume do som de início/fim de transmissão (%)",
+        markers: [0, 25, 50, 75, 100],
+        stickToMarkers: false,
+        default: 60,
+    },
     maxHeight: {
         type: OptionType.SELECT,
         description: "Resolução máxima da captura de tela",

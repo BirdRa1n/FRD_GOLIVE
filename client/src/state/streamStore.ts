@@ -19,6 +19,12 @@ type Listener = () => void;
 class StreamStore {
     private readonly streams = new Map<string, RemoteStreamInfo>();
     private readonly listeners = new Set<Listener>();
+    /**
+     * Volume (0..1) e mute escolhidos por quem ASSISTE, por usuário (id). Ficam
+     * fora de reset(): valem pela sessão toda, mesmo se a pessoa parar e voltar.
+     */
+    private readonly volumes = new Map<string, number>();
+    private readonly muted = new Set<string>();
 
     status: ConnectionStatus = "idle";
     errorMessage: string | null = null;
@@ -49,6 +55,33 @@ class StreamStore {
             if (this.focusedId === id) this.focusedId = null;
             this.emit();
         }
+    }
+
+    getVolume(id: string): number {
+        return this.volumes.get(id) ?? 1;
+    }
+
+    isMuted(id: string): boolean {
+        return this.muted.has(id);
+    }
+
+    setVolume(id: string, volume: number): void {
+        const v = Math.min(1, Math.max(0, volume));
+        this.volumes.set(id, v);
+        // Subir o volume desfaz o mute (comportamento do Discord).
+        if (v > 0) this.muted.delete(id);
+        this.emit();
+    }
+
+    toggleMute(id: string): void {
+        if (this.muted.has(id)) {
+            this.muted.delete(id);
+            // Desmutar com volume 0 não faria nada — volta pra um nível audível.
+            if (this.getVolume(id) === 0) this.volumes.set(id, 0.5);
+        } else {
+            this.muted.add(id);
+        }
+        this.emit();
     }
 
     setFocused(id: string | null): void {

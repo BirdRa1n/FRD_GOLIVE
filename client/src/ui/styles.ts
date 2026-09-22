@@ -254,16 +254,112 @@ button.frd-native-active svg {
 .frd-native-btn {
     width: 30px;
     height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
     color: #fff;
-    font-size: 15px;
-    line-height: 1;
     background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    transition: background 0.12s, transform 0.12s;
 }
-.frd-native-btn:hover {
+.frd-native-btn:hover:not(:disabled) {
     background: var(--brand-500, #5865f2);
+}
+.frd-native-btn:active:not(:disabled) {
+    transform: scale(0.94);
+}
+.frd-native-btn:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+.frd-native-btn svg,
+.frd-icon svg {
+    display: block;
+}
+.frd-icon {
+    display: inline-flex;
+}
+.frd-native-overlay:fullscreen {
+    border-radius: 0;
+}
+
+/* --- Volume da transmissão (tile nativo e teatro) --- */
+.frd-vol {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px 3px 3px;
+    border-radius: 10px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+}
+.frd-native-overlay > .frd-vol {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+.frd-native-overlay:hover > .frd-vol {
+    opacity: 1;
+}
+/* Mutado: o alto-falante riscado fica visível mesmo sem hover. */
+.frd-native-overlay.frd-muted > .frd-vol {
+    opacity: 1;
+}
+.frd-native-overlay.frd-muted:not(:hover) > .frd-vol .frd-vol-range,
+.frd-native-overlay.frd-muted:not(:hover) > .frd-vol .frd-vol-pct {
+    display: none;
+}
+.frd-native-overlay.frd-muted:not(:hover) > .frd-vol {
+    padding-right: 3px;
+}
+.frd-vol .frd-native-btn {
+    background: transparent;
+    backdrop-filter: none;
+}
+.frd-native-overlay.frd-muted .frd-vol-btn {
+    color: var(--status-danger, #f23f43);
+}
+.frd-vol-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 88px;
+    height: 4px;
+    margin: 0;
+    border-radius: 2px;
+    cursor: pointer;
+    background: linear-gradient(to right, #fff var(--frd-fill, 100%), rgba(255, 255, 255, 0.28) var(--frd-fill, 100%));
+}
+.frd-vol-range:disabled {
+    cursor: default;
+    opacity: 0.4;
+}
+.frd-vol-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.55);
+    transition: transform 0.1s;
+}
+.frd-vol-range:hover::-webkit-slider-thumb {
+    transform: scale(1.2);
+}
+.frd-vol-pct {
+    min-width: 34px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.85);
+}
+.frd-vol-inline {
+    background: rgba(255, 255, 255, 0.08);
 }
 
 /* --- Modo teatro --- */
@@ -290,6 +386,7 @@ button.frd-native-active svg {
 }
 #frd-golive-root .frd-theater-actions {
     display: flex;
+    align-items: center;
     gap: 8px;
 }
 #frd-golive-root .frd-theater-stage {
