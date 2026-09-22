@@ -1,15 +1,21 @@
 // Monta o painel num container flutuante no <body>.
-// Abordagem robusta e pouco invasiva para a Fase 2 — evita patches Webpack
-// frágeis na UI da call. Uma integração mais "nativa" pode vir depois.
+// Abordagem robusta e pouco invasiva — evita patches Webpack frágeis na UI da call.
+//
+// O `ReactDOM` de @webpack/common nem sempre expõe `createRoot` (versões do
+// Discord variam), então pegamos o módulo do createRoot direto do Webpack.
 
-import { React, ReactDOM } from "@webpack/common";
+import { findByPropsLazy } from "@webpack";
+import { React } from "@webpack/common";
 
 import { PrivateStreamPanel } from "./PrivateStreamPanel";
 import { SourcePicker } from "./SourcePicker";
 
+// react-dom/client — o módulo que expõe createRoot no bundle do Discord.
+const ReactDOMClient: {
+    createRoot(el: Element): { render(node: unknown): void; unmount(): void; };
+} = findByPropsLazy("createRoot", "hydrateRoot");
+
 let container: HTMLDivElement | null = null;
-// createRoot retorna um Root do React 18; tipamos como unknown para não depender
-// de @types/react-dom aqui.
 let root: { render(node: unknown): void; unmount(): void; } | null = null;
 
 export function mountPanel(): void {
@@ -19,9 +25,7 @@ export function mountPanel(): void {
     container.id = "frd-golive-root";
     document.body.appendChild(container);
 
-    root = (ReactDOM as unknown as {
-        createRoot(el: Element): { render(node: unknown): void; unmount(): void; };
-    }).createRoot(container);
+    root = ReactDOMClient.createRoot(container);
     root.render(
         React.createElement(
             React.Fragment,
