@@ -6,8 +6,10 @@ port: 7880
 
 rtc:
   tcp_port: 7881
-  port_range_start: 50000
-  port_range_end: 60000
+  # Uma ÚNICA porta UDP multiplexada para todo o tráfego de mídia (UDP mux).
+  # NÃO use port_range_start/end aqui: publicar uma faixa grande no Docker cria
+  # um processo docker-proxy por porta e esgota a RAM do host.
+  udp_port: 7882
   # Em produção (VPS/servidor com IP público) deixe true para o SFU anunciar o IP
   # externo correto nos candidatos ICE. Em rede local, pode precisar ajustar.
   use_external_ip: true

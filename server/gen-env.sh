@@ -41,6 +41,7 @@ TOKEN_TTL=10m
 # Portas (opcional).
 LIVEKIT_PORT=7880
 LIVEKIT_TCP_PORT=7881
+LIVEKIT_UDP_PORT=7882
 TOKEN_PORT=8080
 
 # Verificação de presença via bot (Fase 5) — opcional. Preencha para ativar.

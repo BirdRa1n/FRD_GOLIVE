@@ -9,10 +9,10 @@ services:
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
-      - "${LIVEKIT_PORT:-7880}:7880"        # HTTP/WebSocket (signaling)
-      - "${LIVEKIT_TCP_PORT:-7881}:7881"    # RTC sobre TCP (fallback)
-      - "50000-60000:50000-60000/udp"       # RTC sobre UDP
-      # - "5349:5349"                       # TURN/TLS (habilite junto com turn.enabled)
+      - "${LIVEKIT_PORT:-7880}:7880"                # HTTP/WebSocket (signaling)
+      - "${LIVEKIT_TCP_PORT:-7881}:7881"            # RTC sobre TCP (fallback)
+      - "${LIVEKIT_UDP_PORT:-7882}:7882/udp"        # RTC sobre UDP (porta única mux)
+      # - "5349:5349"                               # TURN/TLS (habilite junto com turn.enabled)
 
   token-service:
     build: ./token-service
