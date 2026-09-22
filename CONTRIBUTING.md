@@ -42,14 +42,16 @@ cd ~/Vencord
 pnpm install
 pnpm add livekit-client
 mkdir -p src/userplugins
-ln -s /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
+cp -R /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
 pnpm build
 pnpm inject      # injeta no cliente Discord instalado
 ```
 
 Clone o Vencord **fora** deste repositório (senão o `pnpm` sobe e usa o
-`package.json` daqui, que não tem script `build`). Linke a pasta **`client/src`**
-(que contém o `index.tsx`), não `client/`. Ver `client/README.md` para detalhes.
+`package.json` daqui, que não tem script `build`). **Copie** a pasta
+**`client/src`** para dentro de `src/userplugins` (não use symlink: o esbuild
+resolveria o caminho real fora de `src/` e os aliases `@webpack/*` quebrariam).
+Ver `client/README.md` para o loop de dev com `rsync`.
 
 ## Estilo
 

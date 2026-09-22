@@ -60,19 +60,28 @@ cd ~/Vencord
 pnpm install
 pnpm add livekit-client            # dependência do nosso plugin
 
-# vincule a PASTA src/ como o userplugin (é ela que contém o index.tsx):
+# COPIE a pasta src/ para dentro de src/userplugins (é ela que contém o index.tsx):
 mkdir -p src/userplugins
-ln -s /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
+cp -R /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
 
 pnpm build
 pnpm inject                        # injeta no Discord instalado
 ```
 
-O link é para **`client/src`**, não `client/`: o Vencord espera
-`src/userplugins/frdGoLive/index.tsx`, e o nosso `index.tsx` fica em
-`client/src/`. Linkar `client/` inteiro deixa o `index.tsx` fundo demais e o
-plugin não é reconhecido. Se o build não seguir o symlink, copie no lugar:
-`cp -R /caminho/para/FRD_GOLIVE/client/src ~/Vencord/src/userplugins/frdGoLive`.
+**Copie, não use symlink.** O Vencord resolve os aliases (`@webpack/common`,
+`@utils/types`, `@api/Settings`) via `tsconfig` com escopo em `src/**`. Um symlink
+para fora do repo faz o esbuild resolver o **caminho real** (fora de `src/`), e os
+aliases deixam de valer — o build falha com `Could not resolve "@webpack/common"`.
+Copiar coloca os arquivos fisicamente dentro de `src/`, onde os aliases funcionam.
+
+Copie a pasta **`client/src`** (que contém o `index.tsx`), não `client/` inteiro —
+senão o `index.tsx` fica fundo demais e o plugin não é reconhecido.
+
+Durante o desenvolvimento, ressincronize antes de cada build:
+
+```bash
+rsync -a --delete /caminho/para/FRD_GOLIVE/client/src/ ~/Vencord/src/userplugins/frdGoLive/ && pnpm build
+```
 
 Depois, no Discord: Configurações → Vencord → Plugins → **FRDGoLive** → ative e
 preencha `serverUrl`, `tokenServiceUrl` e `orgSecret` (os mesmos do servidor).
