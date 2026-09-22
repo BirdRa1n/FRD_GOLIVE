@@ -1,7 +1,7 @@
 # Cliente FRD GoLive (userplugin do Vencord)
 
-Userplugin do Vencord que compartilha tela/câmera **cliente↔cliente (P2P/mesh)** por
-um servidor privado de signaling — fora do Discord. A voz continua no Discord.
+Userplugin do Vencord que compartilha tela/câmera por um **SFU privado (LiveKit)** —
+fora do Discord. A voz continua no Discord. O acesso é liberado pelo admin no hub.
 
 > 🪟 **No Windows?** Veja o passo a passo dedicado em [WINDOWS.md](WINDOWS.md).
 > 🖱️ **Não quer terminal?** Use o **instalador gráfico** em [../installer/](../installer)
@@ -15,10 +15,9 @@ src/
 ├── settings.ts             # aba de settings (transport, servidor, vídeo)
 ├── discordState.ts         # lê canal de voz atual + usuário (stores do Discord)
 ├── rtc/
-│   ├── meshTransport.ts    # transporte P2P (RTCPeerConnection por peer) — ATUAL
-│   ├── signalingClient.ts  # cliente WS do signaling (offer/answer/ICE, policy)
-│   ├── session.ts          # transporte SFU/LiveKit (legado) ✔ typecheckável
-│   └── controller.ts       # orquestra: config → connect → publish/subscribe
+│   ├── session.ts          # transporte SFU (LiveKit) — a mídia ✔ typecheckável
+│   ├── signalingClient.ts  # canal de CONTROLE (WS): policy/habilitação + estado
+│   └── controller.ts       # orquestra: config → controle → token → LiveKit
 ├── state/
 │   └── streamStore.ts      # store reativo puro (streams, connected, sharing)
 └── ui/                     # painel, teatro, picker, tiles nativos, hijack de botões
@@ -37,15 +36,15 @@ build do Vencord.
 ## Como funciona (fluxo)
 
 1. Ao entrar num canal de voz (`VOICE_CHANNEL_SELECT`), o plugin puxa `GET <host>/config`
-   e conecta no **signaling** (WebSocket), numa sala = **ID do canal de voz**.
-2. Para cada outro participante com o plugin, abre uma conexão **P2P
-   (RTCPeerConnection)**. A mídia vai direto entre os clientes (DTLS‑SRTP).
-3. "Compartilhar tela" captura via `getDisplayMedia` (com áudio do sistema, se
-   ligado) e envia aos peers. O painel/teatro mostra as transmissões da sala.
+   e conecta o **canal de controle** (WebSocket), numa sala = **ID do canal de voz**.
+2. Se o usuário está **habilitado** (policy do controle), pede `POST /token` e conecta
+   no **SFU (LiveKit)** para a mídia. Se não, o painel mostra "aguardando liberação".
+3. "Compartilhar tela" captura via `getDisplayMedia` (com áudio do sistema, se ligado)
+   e publica no SFU. Os outros do mesmo canal assinam e assistem.
 4. Ao sair do canal, desconecta e limpa.
 
-O admin do servidor precisa **habilitar** o usuário (via hub) para que as funções
-liguem — a policy (enabled + quotas de resolução/FPS) chega pelo próprio WS.
+O admin precisa **habilitar** o usuário (via hub); a policy (enabled + quotas) chega
+pelo canal de controle e libera as funções na hora.
 
 ## Instalação
 
@@ -57,7 +56,7 @@ settings + a CSP do domínio e abre o hub. Sem terminal.
 ### Opção B — build manual dentro do Vencord
 
 O Vencord compila plugins no build (não há runtime loading). Como o plugin importa
-`livekit-client` (transporte legado), instale‑o **no repositório do Vencord**.
+`livekit-client` (transporte da mídia), instale‑o **no repositório do Vencord**.
 
 > **Clone o Vencord FORA deste repositório** (ex.: `~/Vencord`). Não clone dentro de
 > `client/`: o `pnpm` "sobe" e usa o `package.json` deste projeto (sem script `build`),
@@ -83,9 +82,8 @@ pnpm inject                        # injeta no Discord instalado
 
 Depois, no Discord: Configurações → Vencord → Plugins → **FRDGoLive** → ative e
 configure:
-- **Transport**: `Mesh P2P` (padrão).
 - **tokenServiceUrl**: o host do servidor (ex.: `https://golivefrd.SEU.com`) — é de
-  onde o plugin puxa `/config` e conecta no signaling.
+  onde o plugin puxa `/config` e `/token`. A URL da mídia (LiveKit) vem da config.
 
 > Todos os participantes precisam do plugin apontando para o **mesmo servidor**, e
 > cada um precisa estar **habilitado** pelo admin no hub.

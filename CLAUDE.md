@@ -9,10 +9,14 @@ Modificação de cliente do Discord (plugin Vencord) + servidor que permite
 servidores do Discord**, só a voz continua nativa. Alvo: empresas com regras de
 privacidade rígidas.
 
-**Arquitetura atual = P2P/mesh.** A mídia vai cliente↔cliente (WebRTC); o servidor
-só faz signaling/auth/admin/config (HTTP+WS numa porta só → passa pelo Cloudflare
-Tunnel, sem VPS/UDP). A v1 (SFU LiveKit + relay UDP por VPS) **foi removida** — ver
-"Histórico" em `docs/ARQUITETURA.md`.
+**Arquitetura atual = SFU (LiveKit) + hub central.** O servidor `server/` faz
+hub/login/auth/habilitação/quotas/admin/config **e emite os tokens do LiveKit**. A
+**mídia (vídeo) passa pelo SFU (LiveKit)** e entra pelo **IP público configurável**
+(`LIVEKIT_NODE_IP`, normalmente um VPS que faz relay do UDP 7882 → servidor de casa).
+O controle (config/token/policy) é HTTP/WS (passa pelo Cloudflare); só a mídia UDP
+precisa do IP público/relay. O acesso ao token é gated pela **habilitação no hub**
+(sem orgSecret). Houve um intervalo em que o transporte foi **mesh/P2P** — isso foi
+**revertido**; o código do mesh (`meshTransport.ts`) foi removido.
 
 ## Estrutura
 
@@ -23,11 +27,10 @@ client/            userplugin do Vencord (TS/React)
     settings.ts          settings do plugin (@api/Settings)
     discordState.ts      lê canal de voz atual + usuário (stores do Discord)
     rtc/
-      meshTransport.ts   transporte P2P (RTCPeerConnection por peer) — ATUAL
-      signalingClient.ts cliente WS do signaling (offer/answer/ICE, policy)
-      session.ts         transporte SFU/LiveKit (legado, sem servidor no repo)
+      session.ts         transporte SFU (LiveKit) — a mídia — ✔ typecheckável
+      signalingClient.ts canal de CONTROLE (WS): policy/habilitação + estado
       nativeCapture.ts   captura via desktopCapturer (Electron) — ✔ typecheckável
-      controller.ts      orquestra config → connect → publish/subscribe (mesh|sfu)
+      controller.ts      orquestra config → controle(policy) → token → LiveKit
     state/
       streamStore.ts     store reativo puro — ✔ typecheckável
       audioSink.ts       um <audio> oculto por stream (evita eco)
@@ -36,9 +39,10 @@ client/            userplugin do Vencord (TS/React)
 installer/         instalador gráfico (Electron, Mac/Win) — aplica a mod no Discord
   src/             main/preload (IPC), lib/ (config, inject, paths)
   renderer/        UI do instalador
-server/            signaling + auth + config + admin + hub web (Node, Docker)
-  src/             index.ts (Express+ws), store.ts, session.ts, discord.ts, hub.ts
-docs/              arquitetura, roadmap, guia do OAuth do Discord
+server/            hub/auth/admin/config + token do LiveKit (Node, Docker)
+  src/             index.ts (Express+ws), livekit.ts (token), store.ts, session.ts, discord.ts, hub.ts
+  livekit.yaml     config do SFU (udp_port 7882 mux, node_ip = IP público da mídia)
+docs/              arquitetura, roadmap, OAuth do Discord, relay UDP
 ```
 
 ## Build & testes
@@ -61,25 +65,30 @@ pnpm build && pnpm inject
 - **Copie `client/src`** (contém o `index.tsx`), não `client/`. Symlink quebra os aliases.
 - Nome do plugin: `FRDGoLive`.
 
-**Servidor** (Node, mesh signaling):
+**Servidor** (Node hub + LiveKit SFU):
 ```bash
 cd server && ./gen-env.sh && docker compose up -d --build   # ou install.sh (curl|sh)
 cd server && npm install && npm run build                    # typecheck/build isolado
-curl -s http://localhost:8090/health   # {"ok":true,...}
-curl -s http://localhost:8090/config   # signalingUrl + iceServers
+curl -s http://localhost:8090/health   # {"ok":true,"transport":"sfu",...}
+curl -s http://localhost:8090/config   # signalingUrl (controle) + serverUrl (LiveKit)
 ```
-- `gen-env.sh` gera `.env` com `ADMIN_TOKEN` + `SESSION_SECRET` aleatórios.
+- `gen-env.sh` gera `.env` com segredos + chaves do LiveKit; defina `LIVEKIT_WS_URL`
+  e `LIVEKIT_NODE_IP` (IP público da mídia).
 - Login do hub/admin: preencher `DISCORD_*` — ver `docs/DISCORD-OAUTH.md`.
-- Cloudflare: uma rota `golivefrd.SEU.com` → `http://SERVIDOR:8090` (HTTP+WS, sem UDP).
+- Relay UDP da mídia (VPS → casa): `docs/RELAY-UDP.md`.
 
 ## Fatos e armadilhas importantes (não reaprender)
 
-- **Transporte = mesh (P2P)** → a mídia vai cliente↔cliente, nunca toca o servidor →
-  só precisa de **signaling HTTP/WS** (uma porta, 8090) → passa 100% pelo Cloudflare
-  Tunnel, **sem VPS/UDP**. NAT simétrico/corporativo ainda pode exigir TURN.
-- **Legado (v1 SFU, removido)**: usava LiveKit (mídia pelo servidor) → exigia UDP
-  público (7882 mux; nunca `port_range_start` — estoura RAM) + relay por VPS. O código
-  do transporte SFU segue em `client/src/rtc/session.ts`, mas **não há servidor SFU**.
+- **Transporte = SFU (LiveKit)** → a mídia passa pelo servidor → precisa de porta
+  **UDP pública 7882** (mux único; **nunca** `port_range_start` — cria 1 docker-proxy
+  por porta e estoura a RAM). O Cloudflare Tunnel **só leva HTTP/WS**, não UDP → a
+  mídia entra pelo **IP público `LIVEKIT_NODE_IP`** (normalmente um VPS que faz DNAT
+  do UDP 7882 → LiveKit de casa via WireGuard). Ver `docs/RELAY-UDP.md`.
+- **2 rotas Cloudflare**: `golivefrd.SEU.com`→`:8090` (hub) e `media.SEU.com`→`:7880`
+  (WS do LiveKit = `LIVEKIT_WS_URL`). O cliente precisa da CSP liberando **os dois**
+  domínios (o instalador faz isso a partir do `/config`).
+- **Token gated pela habilitação**: `POST /token` só emite se o usuário está enabled
+  no hub. Sem `orgSecret`. Quotas (altura/FPS) aplicadas no cliente (`clampToPolicy`).
 - **CSP do Discord** bloqueia conexões a domínios fora da lista. É **obrigatório**
   adicionar o domínio do servidor em `Vencord/src/main/csp/index.ts` (`CspPolicies`),
   com `wss://` explícito (o host "pelado" não casa com o esquema wss nesse Chromium):
