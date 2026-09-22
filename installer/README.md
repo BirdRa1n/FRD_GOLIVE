@@ -41,6 +41,24 @@ cp -R dist <repo>/installer/vencord-dist
 trazer o domínio na CSP; para servidores próprios, a CSP é escrita via
 `customCspRules` no passo 4.
 
+## Troubleshooting
+
+- **`Electron failed to install correctly`** (comum no **Node 26+**): o postinstall
+  do Electron usa `extract-zip`, que quebra no Node bleeding-edge — baixa mas extrai
+  só o `LICENSES.chromium.html`. Soluções:
+  - **Recomendado:** usar **Node LTS (20 ou 22)** para este app.
+  - **Workaround** (baixa o binário na mão):
+    ```bash
+    VER=$(node -p "require('./node_modules/electron/package.json').version")
+    A=$(uname -m); [ "$A" = arm64 ] && A=arm64 || A=x64   # macOS
+    curl -fL -o /tmp/e.zip "https://github.com/electron/electron/releases/download/v$VER/electron-v$VER-darwin-$A.zip"
+    rm -rf node_modules/electron/dist && mkdir -p node_modules/electron/dist
+    unzip -q /tmp/e.zip -d node_modules/electron/dist
+    printf 'Electron.app/Contents/MacOS/Electron' > node_modules/electron/path.txt
+    ```
+- **npm bloqueando install-scripts** (`allowScripts`): aprove com
+  `npm install-scripts approve electron esbuild` e `npm rebuild electron esbuild`.
+
 ## Pontos a validar em máquina real (WIP)
 
 Este instalador precisa de teste em Mac e Windows reais. Verificar:
