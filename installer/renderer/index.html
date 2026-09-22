@@ -19,6 +19,10 @@
   #log { white-space: pre-wrap; font-size: 12px; color: #b5bac1; margin-top: 12px; }
   .ok { color: #3ba55d; } .err { color: #f23f43; }
   .hidden { display: none; }
+  details.note { margin-top: 12px; font-size: 12px; color: #b5bac1; }
+  details.note summary { cursor: pointer; color: #949ba4; }
+  details.note ul { margin: 8px 0 0; padding-left: 18px; }
+  details.note li { margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -31,6 +35,19 @@
     <label class="opt"><input type="radio" name="server" value="own" />
       <span><b>Configurar meu próprio servidor</b><br><span class="muted">Informe o host — ele devolve toda a config.</span></span></label>
     <input type="text" id="host" class="hidden" placeholder="https://golive.suaempresa.com" />
+
+    <details class="note">
+      <summary>O que a modificação faz (e sobre a senha de administrador)</summary>
+      <ul>
+        <li>Injeta o <b>Vencord</b> (client mod) no seu Discord e ativa o plugin FRD GoLive.</li>
+        <li>Grava as <b>settings do plugin</b> e uma regra de <b>CSP</b> liberando só o domínio do seu servidor.</li>
+        <li>Ao aplicar, o sistema pode <b>pedir sua senha de administrador</b> — é o passo que
+            modifica o app do Discord (no macOS, quando ele está em /Aplicativos). Nada é
+            enviado a terceiros nem alterado fora dos dados do app e do Discord.</li>
+        <li><b>Feche o Discord</b> antes de aplicar; reabra depois.</li>
+      </ul>
+    </details>
+
     <button id="apply">Aplicar modificação</button>
     <div id="log"></div>
   </div>
