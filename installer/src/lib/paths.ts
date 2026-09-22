@@ -1,9 +1,16 @@
 import { join } from "node:path";
 import { app } from "electron";
 
-/** Diretório de dados do Vencord que ESTE instalador gerencia (dev-install). */
+/**
+ * Diretório de dados do Vencord — DEVE ser o MESMO que o Vencord lê em runtime,
+ * senão as settings/CSP que gravamos são ignoradas. No Vencord, DATA_DIR =
+ * join(discord.getPath("userData"), "..", "Vencord") = <appData>/Vencord. Como
+ * `appData` é a pasta de dados do usuário (compartilhada, não por-app), este mesmo
+ * caminho resolve a partir do instalador: join(app.getPath("appData"), "Vencord").
+ * É o único DATA_DIR para todas as branches (stable/ptb/canary).
+ */
 export function userDataDir(): string {
-    return join(app.getPath("userData"), "vencord");
+    return join(app.getPath("appData"), "Vencord");
 }
 
 /**
