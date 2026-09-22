@@ -1,45 +1,17 @@
 import { definePluginSettings } from "@api/Settings";
 import { OptionType } from "@utils/types";
 
+import type { StreamPrefs } from "./state/streamStore";
+
 export const settings = definePluginSettings({
     tokenServiceUrl: {
         type: OptionType.STRING,
-        description: "URL do servidor FRD GoLive (hub) — ex.: https://golivefrd.SEU.com. O plugin puxa /config e /token daqui; a URL da mídia (LiveKit) vem da config.",
+        description: "URL do servidor FRD GoLive (hub) — ex.: https://golivefrd.SEU.com. O instalador preenche isto.",
         default: "",
-    },
-    includeSystemAudio: {
-        type: OptionType.BOOLEAN,
-        description: "Incluir áudio do sistema. ATENÇÃO: no modo tela/janela captura o áudio do sistema inteiro (inclui a call). Para áudio SEM a call, compartilhe uma ABA do Chrome.",
-        default: true,
-    },
-    nativeScreenCapture: {
-        type: OptionType.BOOLEAN,
-        description: "Captura nativa (desktopCapturer): contorna o bloqueio de compartilhamento de tela do Discord em regiões censuradas",
-        default: false,
-    },
-    nativeTileOverlay: {
-        type: OptionType.BOOLEAN,
-        description: "Mostrar a transmissão privada dentro do tile do participante na grade de chamada (desligue se quebrar após update do Discord)",
-        default: true,
-    },
-    hijackNativeControls: {
-        type: OptionType.BOOLEAN,
-        description: "Usar os botões nativos de câmera/tela do Discord para iniciar a transmissão privada (desligue se quebrar após update do Discord)",
-        default: true,
-    },
-    unlockNativeVideoGate: {
-        type: OptionType.BOOLEAN,
-        description: "Desbloquear os botões nativos em regiões censuradas (override do experimento). Só faz efeito com o hijack ligado — o clique é redirecionado pra transmissão privada, o Go Live do Discord nunca roda.",
-        default: true,
-    },
-    videoGuardExperiment: {
-        type: OptionType.STRING,
-        description: "Nome do experimento do 'video guard' do Discord (atualize se o Discord rotacionar e os botões voltarem a ficar bloqueados)",
-        default: "2026-08-video-guard",
     },
     streamSounds: {
         type: OptionType.BOOLEAN,
-        description: "Tocar um som quando alguém da call inicia ou encerra uma transmissão privada (como o Go Live do Discord)",
+        description: "Tocar um som quando alguém da call inicia ou encerra uma transmissão privada (dá pra silenciar por pessoa no botão direito da transmissão)",
         default: true,
     },
     streamSoundStyle: {
@@ -57,22 +29,37 @@ export const settings = definePluginSettings({
         stickToMarkers: false,
         default: 60,
     },
-    maxHeight: {
-        type: OptionType.SELECT,
-        description: "Resolução máxima da captura de tela",
-        options: [
-            { label: "720p", value: 720 },
-            { label: "1080p", value: 1080, default: true },
-            { label: "1440p", value: 1440 },
-        ],
+    nativeTileOverlay: {
+        type: OptionType.BOOLEAN,
+        description: "Mostrar a transmissão privada dentro do tile do participante na call (desligue se quebrar após um update do Discord)",
+        default: true,
     },
-    fps: {
-        type: OptionType.SELECT,
-        description: "Quadros por segundo da captura",
-        options: [
-            { label: "15 fps", value: 15 },
-            { label: "30 fps", value: 30, default: true },
-            { label: "60 fps", value: 60 },
-        ],
+    hijackNativeControls: {
+        type: OptionType.BOOLEAN,
+        description: "Usar os botões nativos de câmera/tela do Discord para iniciar a transmissão privada (desligue se quebrar após um update do Discord)",
+        default: true,
+    },
+    unlockNativeVideoGate: {
+        type: OptionType.BOOLEAN,
+        description: "Desbloquear os botões nativos em regiões censuradas (só com os botões nativos ligados — o Go Live do Discord nunca roda)",
+        default: true,
+    },
+    videoGuardExperiment: {
+        type: OptionType.STRING,
+        description: "Nome do experimento do 'video guard' do Discord (atualize se o Discord rotacionar e os botões voltarem a ficar bloqueados)",
+        default: "2026-08-video-guard",
+    },
+
+    // --- Escondidas: lembradas automaticamente, sem mexer em Configurações ---
+    // Qualidade/som agora são escolhidos no picker de transmissão; guardamos a
+    // última escolha para abrir o picker já nela.
+    maxHeight: { type: OptionType.NUMBER, description: "Última resolução escolhida (0 = fonte)", default: 1080, hidden: true },
+    fps: { type: OptionType.NUMBER, description: "Último FPS escolhido", default: 30, hidden: true },
+    includeSystemAudio: { type: OptionType.BOOLEAN, description: "Último 'compartilhar som'", default: true, hidden: true },
+    /** Volume/silenciar por usuário (menu de botão direito). */
+    streamPrefs: {
+        type: OptionType.CUSTOM,
+        default: {} as Record<string, StreamPrefs>,
+        hidden: true,
     },
 });

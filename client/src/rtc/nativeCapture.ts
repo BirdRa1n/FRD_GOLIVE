@@ -36,6 +36,7 @@ export function getNativeSources(): Promise<NativeSource[]> {
 
 export interface NativeCaptureOptions {
     systemAudio: boolean;
+    /** Altura máxima em px; 0 = resolução da fonte. */
     maxHeight: number;
     fps: number;
 }
@@ -44,12 +45,15 @@ export async function captureNativeSource(
     sourceId: string,
     opts: NativeCaptureOptions,
 ): Promise<MediaStream> {
+    // maxHeight 0 = resolução da fonte (sem limite de tamanho).
+    const size = opts.maxHeight > 0
+        ? { maxWidth: Math.round((opts.maxHeight * 16) / 9), maxHeight: opts.maxHeight }
+        : {};
     const video = {
         mandatory: {
             chromeMediaSource: "desktop",
             chromeMediaSourceId: sourceId,
-            maxWidth: Math.round((opts.maxHeight * 16) / 9),
-            maxHeight: opts.maxHeight,
+            ...size,
             maxFrameRate: opts.fps,
         },
     };

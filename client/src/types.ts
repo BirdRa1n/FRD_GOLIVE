@@ -4,6 +4,10 @@
 export interface NativeSource {
     id: string;
     name: string;
+    /** "screen" = monitor inteiro; "window" = janela de um aplicativo. */
+    kind: "screen" | "window";
     /** thumbnail como data URL (image/png). */
     thumbnail: string;
+    /** ícone do aplicativo (só janelas), data URL. */
+    appIcon?: string;
 }

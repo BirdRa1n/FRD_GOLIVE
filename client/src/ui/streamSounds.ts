@@ -7,6 +7,7 @@
 import { findByPropsLazy } from "@webpack";
 
 import { settings } from "../settings";
+import { streamStore } from "../state/streamStore";
 import { type ChimeKind, playChime } from "./chime";
 
 type SoundModule = { playSound(name: string, volume?: number): unknown; };
@@ -21,8 +22,10 @@ const DISCORD_SOUND: Record<ChimeKind, string> = {
 const THROTTLE_MS = 700;
 let lastPlayed = 0;
 
-export function playStreamSound(kind: ChimeKind): void {
+/** `userId`: quem começou/parou (omitido = você mesmo). Respeita o silenciar por pessoa. */
+export function playStreamSound(kind: ChimeKind, userId?: string): void {
     if (!settings.store.streamSounds) return;
+    if (userId && streamStore.isSoundMuted(userId)) return;
 
     const now = Date.now();
     if (now - lastPlayed < THROTTLE_MS) return;

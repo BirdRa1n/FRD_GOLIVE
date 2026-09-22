@@ -16,7 +16,6 @@
     "src/rtc/signalingClient.ts",
     "src/state/streamStore.ts",
     "src/state/audioSink.ts",
-    "src/ui/pickerController.ts",
     "src/ui/chime.ts",
     "src/types.ts"
   ]

@@ -6,12 +6,14 @@ import { disconnect, onVoiceChannelChange } from "./rtc/controller";
 import { settings } from "./settings";
 import { clearAudioSinks, syncAudioSinks } from "./state/audioSink";
 import { streamStore } from "./state/streamStore";
+import { userContextPatch } from "./ui/StreamContextMenu";
 import { startNativeControls, stopNativeControls, syncNativeControls } from "./ui/nativeControlsHijack";
 import { startNativeTiles, stopNativeTiles, syncNativeTiles } from "./ui/nativeTileInject";
 import { mountPanel, unmountPanel } from "./ui/panelMount";
 import { injectStyles, removeStyles } from "./ui/styles";
 
 let storeUnsub: (() => void) | null = null;
+let prefsUnsub: (() => void) | null = null;
 
 function handleVoiceSelect(payload: { channelId: string | null; }): void {
     onVoiceChannelChange(payload.channelId ?? null);
@@ -24,7 +26,18 @@ export default definePlugin({
     authors: [{ name: "Dário Jr", id: 0n }],
     settings,
 
+    // Botão direito num usuário da call: volume/silenciar da transmissão privada.
+    contextMenus: {
+        "user-context": userContextPatch,
+    },
+
     start() {
+        // Volume/silenciar por pessoa (menu de botão direito) sobrevivem a reinícios.
+        streamStore.hydratePrefs(settings.store.streamPrefs);
+        prefsUnsub = streamStore.subscribePrefs(() => {
+            settings.store.streamPrefs = streamStore.exportPrefs();
+        });
+
         injectStyles();
         mountPanel();
         startNativeTiles();
@@ -64,6 +77,8 @@ export default definePlugin({
         FluxDispatcher.unsubscribe("VOICE_CHANNEL_SELECT", handleVoiceSelect);
         storeUnsub?.();
         storeUnsub = null;
+        prefsUnsub?.();
+        prefsUnsub = null;
         void disconnect();
         stopNativeTiles();
         stopNativeControls();

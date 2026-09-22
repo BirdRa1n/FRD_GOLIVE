@@ -1,5 +1,6 @@
 // Injeta a transmissão privada DENTRO do tile nativo do participante na grade de
-// chamada do Discord, com volume da transmissão, expandir (teatro) e tela cheia.
+// chamada do Discord, com expandir (teatro), tela cheia e menu de botão direito
+// (volume, silenciar transmissão, silenciar sons) — como o tile nativo.
 //
 // Anchor: o atributo `data-selenium-video-tile="<userId>"` do Discord é estável
 // (não é hasheado) e traz o ID do usuário — que é a `identity` das nossas streams.
@@ -11,7 +12,8 @@
 
 import { settings } from "../settings";
 import { streamStore } from "../state/streamStore";
-import { ICONS, volumeIcon } from "./icons";
+import { ICONS } from "./icons";
+import { openStreamContextMenu } from "./StreamContextMenu";
 
 const OVERLAY_CLASS = "frd-native-overlay";
 const TILE_ATTR = "data-selenium-video-tile";
@@ -68,67 +70,29 @@ function buildOverlay(userId: string, stream: MediaStream): HTMLDivElement {
     isolate(btns);
     wrap.appendChild(btns);
 
-    // Canto inferior esquerdo: volume da transmissão (só para quem assiste).
-    const bar = document.createElement("div");
-    bar.className = "frd-vol";
-    const mute = iconButton("Silenciar", ICONS.volumeHigh, () => streamStore.toggleMute(userId));
-    mute.classList.add("frd-vol-btn");
-    const range = document.createElement("input");
-    range.type = "range";
-    range.min = "0";
-    range.max = "100";
-    range.step = "1";
-    range.className = "frd-vol-range";
-    range.setAttribute("aria-label", "Volume da transmissão");
-    range.oninput = () => streamStore.setVolume(userId, Number(range.value) / 100);
-    // Enquanto arrasta, o sync (com debounce) não reescreve o valor do slider.
-    range.onpointerdown = () => { range.dataset.dragging = "1"; };
-    range.onpointerup = range.onpointercancel = () => { delete range.dataset.dragging; };
-    const pct = document.createElement("span");
-    pct.className = "frd-vol-pct";
-    bar.append(mute, range, pct);
-    // Roda do mouse sobre a barra: ±5%.
-    bar.addEventListener("wheel", e => {
-        e.preventDefault();
-        e.stopPropagation();
-        const step = e.deltaY < 0 ? 0.05 : -0.05;
-        streamStore.setVolume(userId, streamStore.getVolume(userId) + step);
-    }, { passive: false });
-    isolate(bar);
-    wrap.appendChild(bar);
+    // Selo "silenciado" (canto inferior esquerdo), como o ícone do Discord.
+    const badge = document.createElement("span");
+    badge.className = "frd-native-muted";
+    badge.innerHTML = ICONS.volumeMuted;
+    badge.title = "Transmissão silenciada — botão direito para opções";
+    wrap.appendChild(badge);
+
+    // Botão direito: menu nativo com volume, silenciar e sons (StreamContextMenu).
+    wrap.addEventListener("contextmenu", e =>
+        openStreamContextMenu(e, userId, () => void wrap.requestFullscreen?.()));
 
     updateOverlay(wrap, userId, stream);
     return wrap;
 }
 
-/** Reflete o estado atual (stream, volume, mute, se há áudio) no overlay. */
+/** Reflete o estado atual (stream, mute) no overlay. */
 function updateOverlay(ov: HTMLElement, userId: string, stream: MediaStream): void {
     const v = ov.querySelector("video");
     if (v && v.srcObject !== stream) v.srcObject = stream;
 
     const hasAudio = stream.getAudioTracks().length > 0;
-    const volume = streamStore.getVolume(userId);
-    const muted = streamStore.isMuted(userId);
-    const shown = muted ? 0 : volume;
-
-    ov.classList.toggle("frd-no-audio", !hasAudio);
-    ov.classList.toggle("frd-muted", hasAudio && (muted || volume === 0));
-
-    const btn = ov.querySelector<HTMLButtonElement>(".frd-vol-btn");
-    if (btn) {
-        btn.innerHTML = volumeIcon(volume, muted || !hasAudio);
-        btn.title = !hasAudio ? "Transmissão sem áudio" : muted ? "Ativar som" : "Silenciar";
-        btn.disabled = !hasAudio;
-    }
-    const range = ov.querySelector<HTMLInputElement>(".frd-vol-range");
-    if (range) {
-        const value = String(Math.round(shown * 100));
-        if (!range.dataset.dragging && range.value !== value) range.value = value;
-        range.disabled = !hasAudio;
-        range.style.setProperty("--frd-fill", `${Math.round(shown * 100)}%`);
-    }
-    const pct = ov.querySelector<HTMLSpanElement>(".frd-vol-pct");
-    if (pct) pct.textContent = hasAudio ? `${Math.round(shown * 100)}%` : "sem áudio";
+    const silenced = hasAudio && (streamStore.isMuted(userId) || streamStore.getVolume(userId) === 0);
+    ov.classList.toggle("frd-muted", silenced);
 }
 
 function sync(): void {

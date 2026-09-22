@@ -2,7 +2,7 @@ import { React } from "@webpack/common";
 
 import type { RemoteStreamInfo } from "../rtc/session";
 import { streamStore } from "../state/streamStore";
-import { volumeIcon } from "./icons";
+import { openStreamContextMenu } from "./StreamContextMenu";
 
 function Video({ info, className }: { info: RemoteStreamInfo; className: string; }) {
     const ref = React.useRef<HTMLVideoElement>(null);
@@ -10,50 +10,6 @@ function Video({ info, className }: { info: RemoteStreamInfo; className: string;
         if (ref.current) ref.current.srcObject = info.stream;
     }, [info.stream]);
     return <video ref={ref} autoPlay playsInline muted className={className} />;
-}
-
-function Icon({ svg }: { svg: string; }) {
-    return <span className="frd-icon" dangerouslySetInnerHTML={{ __html: svg }} />;
-}
-
-/** Mute + slider de volume da transmissão em foco (só afeta quem assiste). */
-function VolumeControl({ info }: { info: RemoteStreamInfo; }) {
-    const hasAudio = info.stream.getAudioTracks().length > 0;
-    const volume = streamStore.getVolume(info.id);
-    const muted = streamStore.isMuted(info.id);
-    const shown = hasAudio && !muted ? volume : 0;
-    const pct = Math.round(shown * 100);
-
-    const onWheel = (e: React.WheelEvent) => {
-        if (!hasAudio) return;
-        streamStore.setVolume(info.id, volume + (e.deltaY < 0 ? 0.05 : -0.05));
-    };
-
-    return (
-        <div className={"frd-vol frd-vol-inline" + (hasAudio ? "" : " frd-vol-disabled")} onWheel={onWheel}>
-            <button
-                className="frd-native-btn frd-vol-btn"
-                disabled={!hasAudio}
-                title={!hasAudio ? "Transmissão sem áudio" : muted ? "Ativar som" : "Silenciar"}
-                onClick={() => streamStore.toggleMute(info.id)}
-            >
-                <Icon svg={volumeIcon(volume, muted || !hasAudio)} />
-            </button>
-            <input
-                type="range"
-                className="frd-vol-range"
-                min={0}
-                max={100}
-                step={1}
-                value={pct}
-                disabled={!hasAudio}
-                aria-label="Volume da transmissão"
-                style={{ "--frd-fill": `${pct}%` } as React.CSSProperties}
-                onChange={e => streamStore.setVolume(info.id, Number(e.currentTarget.value) / 100)}
-            />
-            <span className="frd-vol-pct">{hasAudio ? `${pct}%` : "sem áudio"}</span>
-        </div>
-    );
 }
 
 /** Modo teatro: stream em foco grande + filmstrip dos outros (estilo Go Live). */
@@ -95,7 +51,6 @@ export function TheaterView() {
                     <span className="frd-live-dot" /> {focused.name}
                 </span>
                 <div className="frd-theater-actions">
-                    <VolumeControl info={focused} />
                     <button className="frd-btn frd-btn-secondary" onClick={requestFullscreen}>
                         Tela cheia
                     </button>
@@ -105,7 +60,12 @@ export function TheaterView() {
                 </div>
             </div>
 
-            <div className="frd-theater-stage" ref={stageRef}>
+            <div
+                className="frd-theater-stage"
+                ref={stageRef}
+                onContextMenu={e => openStreamContextMenu(e, focused.id, requestFullscreen)}
+                title="Botão direito: volume e opções da transmissão"
+            >
                 <Video info={focused} className="frd-theater-video" />
             </div>
 
@@ -116,6 +76,7 @@ export function TheaterView() {
                             key={s.id}
                             className={"frd-strip-item" + (s.id === focusedId ? " frd-strip-active" : "")}
                             onClick={() => streamStore.setFocused(s.id)}
+                            onContextMenu={e => openStreamContextMenu(e, s.id)}
                             title={s.name}
                         >
                             <Video info={s} className="frd-strip-video" />
