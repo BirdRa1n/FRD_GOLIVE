@@ -32,26 +32,33 @@ function log(msg) { process.stdout.write(`\x1b[1;34m›\x1b[0m ${msg}\n`); }
 function ok(msg) { process.stdout.write(`\x1b[1;32m✓\x1b[0m ${msg}\n`); }
 function die(msg) { process.stderr.write(`\x1b[1;31m✗ ${msg}\x1b[0m\n`); process.exit(1); }
 
-/** Roda um comando herdando stdio; lança em falha. `cmd` resolvido no PATH. */
-function run(cmd, args, cwd) {
-    // No Windows, executáveis de npm são .cmd → precisam de shell.
-    execFileSync(cmd, args, { cwd, stdio: "inherit", shell: isWin });
+/**
+ * Roda um comando herdando stdio; lança em falha.
+ * `shell` só para .cmd do Node (pnpm/corepack) no Windows. git/node são .exe e
+ * rodam SEM shell — assim caminhos com espaço (ex.: C:\Users\Nome Sobrenome) nos
+ * argumentos não quebram (com shell:true eles não são citados).
+ */
+function run(cmd, args, cwd, shell = false) {
+    execFileSync(cmd, args, { cwd, stdio: "inherit", shell });
 }
 
 /** Retorna a saída de um comando (trim), ou null se ele falhar. */
-function tryOut(cmd, args) {
+function tryOut(cmd, args, shell = false) {
     try {
-        return execFileSync(cmd, args, { stdio: ["ignore", "pipe", "ignore"], shell: isWin })
+        return execFileSync(cmd, args, { stdio: ["ignore", "pipe", "ignore"], shell })
             .toString().trim();
     } catch { return null; }
 }
 
+// pnpm/corepack são .cmd no Windows → precisam de shell. git/node são .exe.
+const SH = isWin;
+
 /** Descobre como invocar o pnpm: pnpm direto, senão via corepack. */
 function resolvePnpm() {
-    if (tryOut("pnpm", ["--version"])) return { cmd: "pnpm", pre: [] };
+    if (tryOut("pnpm", ["--version"], SH)) return { cmd: "pnpm", pre: [] };
     log("pnpm não encontrado — habilitando via corepack (vem com o Node)…");
-    try { run("corepack", ["enable"]); } catch { /* pode exigir admin; corepack pnpm ainda funciona */ }
-    if (tryOut("corepack", ["pnpm", "--version"])) return { cmd: "corepack", pre: ["pnpm"] };
+    try { run("corepack", ["enable"], undefined, SH); } catch { /* pode exigir admin; corepack pnpm ainda funciona */ }
+    if (tryOut("corepack", ["pnpm", "--version"], SH)) return { cmd: "corepack", pre: ["pnpm"] };
     die("pnpm indisponível e o corepack falhou. Instale o pnpm (https://pnpm.io/installation) e rode de novo.");
     return null;
 }
@@ -66,7 +73,7 @@ function main() {
     if (!tryOut("node", ["--version"])) die("node não encontrado.");
 
     const pnpm = resolvePnpm();
-    const pnpmRun = (args, cwd) => run(pnpm.cmd, [...pnpm.pre, ...args], cwd);
+    const pnpmRun = (args, cwd) => run(pnpm.cmd, [...pnpm.pre, ...args], cwd, SH);
 
     mkdirSync(BUILD_DIR, { recursive: true });
 
