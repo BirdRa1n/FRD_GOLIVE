@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface ClientConfig {
-    signalingUrl: string;
+    signalingUrl: string; // canal de controle (policy/presença)
+    serverUrl: string; // URL WS do LiveKit (mídia SFU)
     iceServers: unknown[];
     version: string;
     transport: string;
@@ -37,9 +38,7 @@ export function writeVencordConfig(dir: string, base: string, config: ClientConf
     settings.plugins = (settings.plugins as Record<string, unknown>) ?? {};
     (settings.plugins as Record<string, unknown>).FRDGoLive = {
         enabled: true,
-        transport: config.transport === "mesh" ? "mesh" : "sfu",
-        tokenServiceUrl: base,
-        serverUrl: config.signalingUrl,
+        tokenServiceUrl: base, // hub: /config + /token
         nativeScreenCapture: false,
         nativeTileOverlay: true,
         hijackNativeControls: true,
@@ -47,17 +46,20 @@ export function writeVencordConfig(dir: string, base: string, config: ClientConf
     };
     writeFileSync(settingsFile, JSON.stringify(settings, null, 4));
 
-    // 2) CSP: libera o domínio do servidor (connect-src) via customCspRules.
-    //    O Vencord lê as native settings de "native-settings.json" (não "native.json").
+    // 2) CSP: libera o hub E o servidor de mídia (LiveKit) no connect-src.
+    //    O Vencord lê as native settings de "native-settings.json" (não "native.json")
+    //    e injeta a chave LITERALMENTE — cobrimos HTTPS (fetch) e WSS (WebSocket).
     const domain = new URL(base).hostname;
+    const hosts = new Set<string>([domain]);
+    try { if (config.serverUrl) hosts.add(new URL(config.serverUrl).hostname); } catch { /* serverUrl vazio/inválido */ }
+
     const nativeFile = join(settingsDir, "native-settings.json");
     const native = readJson(nativeFile);
     const rules = (native.customCspRules as Record<string, string[]>) ?? {};
-    // O Vencord injeta a chave LITERALMENTE no connect-src. Cobrimos fetch (HTTPS)
-    // e o WebSocket de signaling (WSS): host pelado + wss:// explícito (o host
-    // pelado nem sempre casa com o esquema wss neste Chromium) + wildcard de sub.
-    for (const host of [domain, `*.${domain}`, `wss://${domain}`, `wss://*.${domain}`]) {
-        rules[host] = ["connect-src"];
+    for (const h of hosts) {
+        for (const key of [h, `*.${h}`, `wss://${h}`, `wss://*.${h}`]) {
+            rules[key] = ["connect-src"];
+        }
     }
     native.customCspRules = rules;
     writeFileSync(nativeFile, JSON.stringify(native, null, 4));
