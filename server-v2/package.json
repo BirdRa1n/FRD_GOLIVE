@@ -1,0 +1,23 @@
+{
+  "name": "frd-golive-server-v2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Servidor v2: signaling P2P (mesh) + config + auth/quotas + admin.",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.5.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

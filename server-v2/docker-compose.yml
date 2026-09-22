@@ -1,0 +1,10 @@
+services:
+  server-v2:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      # HTTP + WebSocket de signaling — ambos pela mesma porta (só HTTP/WS → Cloudflare Tunnel serve!)
+      - "${PORT:-8090}:8090"
+    volumes:
+      - ./data:/app/data

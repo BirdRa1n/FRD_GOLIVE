@@ -11,6 +11,7 @@ import { getLocalUser } from "../discordState";
 import { settings } from "../settings";
 import { streamStore } from "../state/streamStore";
 import { pickSource } from "../ui/pickerController";
+import { MeshTransport } from "./meshTransport";
 import {
     captureNativeSource,
     getNativeSources,
@@ -18,7 +19,8 @@ import {
 } from "./nativeCapture";
 import { RtcSession } from "./session";
 
-let session: RtcSession | null = null;
+type Transport = RtcSession | MeshTransport;
+let session: Transport | null = null;
 /** Canal em que o usuário QUER estar conectado (null = saída intencional). */
 let desiredChannel: string | null = null;
 /** Suprime a lógica de reconexão durante desconexões que nós mesmos provocamos. */
@@ -94,21 +96,68 @@ async function disposeSession(): Promise<void> {
     }
 }
 
+function buildMesh(): MeshTransport {
+    return new MeshTransport({
+        onStreamAdded: info => streamStore.upsert(info),
+        onStreamUpdated: info => streamStore.upsert(info),
+        onStreamRemoved: id => streamStore.remove(id),
+        onConnected: () => { retryAttempt = 0; streamStore.setStatus("connected"); },
+        onDisconnected: () => handleUnexpectedDisconnect(),
+        onPolicy: policy => {
+            if (!policy.enabled) {
+                streamStore.setError("Aguardando liberação do admin — peça acesso em golivefrd.birdra1n.com.");
+            } else {
+                streamStore.clearError();
+                streamStore.setStatus("connected");
+            }
+        },
+    });
+}
+
+interface MeshConfig {
+    signalingUrl: string;
+    iceServers: RTCIceServer[];
+}
+
+async function establishMesh(channelId: string, user: { id: string; username: string; }): Promise<void> {
+    const base = settings.store.tokenServiceUrl.replace(/\/+$/, "");
+    // registra o pedido de acesso (idempotente) para o admin ver o usuário
+    fetch(`${base}/auth/request-access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, name: user.username }),
+    }).catch(() => { /* melhor esforço */ });
+
+    const res = await fetch(`${base}/config`);
+    if (!res.ok) throw new Error(`servidor respondeu ${res.status} em /config`);
+    const cfg = await res.json() as MeshConfig;
+
+    const mesh = buildMesh();
+    session = mesh;
+    await mesh.connect(cfg.signalingUrl, channelId, user.id, user.username, cfg.iceServers);
+}
+
 async function establish(channelId: string): Promise<void> {
     const user = getLocalUser();
     if (!user) throw new Error("Usuário do Discord indisponível.");
+
+    streamStore.setStatus(retryAttempt > 0 ? "reconnecting" : "connecting");
+    await disposeSession();
+
+    if (settings.store.transport === "mesh") {
+        await establishMesh(channelId, user);
+        return;
+    }
+
+    // SFU (LiveKit)
     if (!settings.store.orgSecret) {
         streamStore.setError("Configure o segredo da organização nas configurações do plugin.");
         return;
     }
-
-    streamStore.setStatus(retryAttempt > 0 ? "reconnecting" : "connecting");
-
-    await disposeSession();
-    session = buildSession();
-
+    const s = buildSession();
+    session = s;
     const token = await fetchToken(channelId, user.id, user.username);
-    await session.connect(settings.store.serverUrl, token);
+    await s.connect(settings.store.serverUrl, token);
 }
 
 function handleUnexpectedDisconnect(): void {
