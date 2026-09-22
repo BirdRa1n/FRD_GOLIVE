@@ -97,6 +97,33 @@ Erros: `400` (room/identity ausentes), `403` (orgSecret inválido).
 Se preferir um TURN dedicado em vez do embutido, rode um `coturn` ao lado e
 configure o LiveKit para anunciá-lo. Fica de fora do MVP para reduzir peças móveis.
 
+## Relay de mídia por um VPS (IP público)
+
+Cenário: o LiveKit roda em casa (talvez atrás de CGNAT), mas você tem um **VPS com
+IP público** e quer que a mídia entre por ele. O signaling (WS) pode ir por
+Cloudflare Tunnel/Access; a **mídia (UDP) passa pelo VPS**.
+
+**Ponto-chave:** o cliente (plugin) **não muda**. O IP para onde a mídia vai vem
+dos *ICE candidates* que o LiveKit anuncia — puro server-side (`node_ip`).
+
+1. **Túnel casa → VPS.** Use WireGuard (ou `frp`/`rathole` reverso, que funciona
+   sob CGNAT porque a casa inicia a conexão).
+2. **No VPS, encaminhe a mídia** para o LiveKit de casa pelo túnel:
+   ```bash
+   # exemplo com iptables (UDP 7882 e TCP 7881) — CASA_WG_IP = IP do LiveKit no túnel
+   sysctl -w net.ipv4.ip_forward=1
+   iptables -t nat -A PREROUTING -p udp --dport 7882 -j DNAT --to-destination CASA_WG_IP:7882
+   iptables -t nat -A PREROUTING -p tcp --dport 7881 -j DNAT --to-destination CASA_WG_IP:7881
+   iptables -t nat -A POSTROUTING -j MASQUERADE
+   ```
+3. **No LiveKit de casa, anuncie o IP do VPS:** no `.env` `LIVEKIT_NODE_IP=<IP_DO_VPS>`
+   e no `livekit.yaml` `node_ip: <IP_DO_VPS>` + `use_external_ip: false`.
+   O `install.sh` faz isso se você responder "sim" à pergunta do IP público.
+
+Depois disso, os candidatos ICE apontam para `VPS:7882`; os clientes mandam a
+mídia pro VPS, que relaya pra casa. Signaling e token-service podem continuar indo
+por Cloudflare (WS/HTTP) — só a mídia precisa do VPS.
+
 ## Atualização do código (painel admin)
 
 Painel opcional em `/admin` que mostra a versão atual vs. a do repositório e tem um
