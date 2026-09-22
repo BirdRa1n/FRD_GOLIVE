@@ -10,7 +10,7 @@
 import { getLocalUser } from "../discordState";
 import { settings } from "../settings";
 import { streamStore } from "../state/streamStore";
-import { pickSource } from "../ui/sourcePicker";
+import { pickSource } from "../ui/pickerController";
 import {
     captureNativeSource,
     getNativeSources,
