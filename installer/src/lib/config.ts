@@ -47,12 +47,16 @@ export function writeVencordConfig(dir: string, base: string, config: ClientConf
     };
     writeFileSync(settingsFile, JSON.stringify(settings, null, 4));
 
-    // 2) CSP: libera o domínio do servidor (connect-src) via customCspRules
+    // 2) CSP: libera o domínio do servidor (connect-src) via customCspRules.
+    //    O Vencord lê as native settings de "native-settings.json" (não "native.json").
     const domain = new URL(base).hostname;
-    const nativeFile = join(settingsDir, "native.json");
+    const nativeFile = join(settingsDir, "native-settings.json");
     const native = readJson(nativeFile);
     const rules = (native.customCspRules as Record<string, string[]>) ?? {};
-    for (const host of [`*.${domain}`, domain, `wss://*.${domain}`, `ws://*.${domain}`]) {
+    // O Vencord injeta a chave LITERALMENTE no connect-src. Cobrimos fetch (HTTPS)
+    // e o WebSocket de signaling (WSS): host pelado + wss:// explícito (o host
+    // pelado nem sempre casa com o esquema wss neste Chromium) + wildcard de sub.
+    for (const host of [domain, `*.${domain}`, `wss://${domain}`, `wss://*.${domain}`]) {
         rules[host] = ["connect-src"];
     }
     native.customCspRules = rules;
