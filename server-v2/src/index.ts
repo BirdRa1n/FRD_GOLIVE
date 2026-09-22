@@ -3,6 +3,9 @@ import os from "node:os";
 import express from "express";
 import { WebSocket, WebSocketServer } from "ws";
 
+import * as discord from "./discord.js";
+import { adminPage, homePage, loginPage } from "./hub.js";
+import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
 import type {
     ActiveTransmission,
@@ -11,6 +14,19 @@ import type {
     PeerInfo,
     ServerMessage,
 } from "./types.js";
+
+const ADMIN_IDS = (process.env.ADMIN_DISCORD_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
+
+function getSession(req: express.Request): Session | null {
+    return verify(parseCookies(req.headers.cookie)[COOKIE_NAME]);
+}
+function isAdmin(s: Session | null): boolean {
+    return !!s && ADMIN_IDS.includes(s.id);
+}
+function setSessionCookie(req: express.Request, res: express.Response, token: string): void {
+    const secure = req.headers["x-forwarded-proto"] === "https" || req.secure;
+    res.setHeader("Set-Cookie", `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${7 * 24 * 3600}${secure ? "; Secure" : ""}`);
+}
 
 const {
     PORT = "8090",
@@ -92,13 +108,59 @@ app.post("/auth/request-access", (req, res) => {
 
 app.get("/policy/:userId", (req, res) => res.json(store.policyFor(req.params.userId)));
 
-// --- Admin ---
-function admin(req: express.Request, res: express.Response, next: express.NextFunction): void {
-    if (ADMIN_TOKEN && req.headers["x-admin-token"] !== ADMIN_TOKEN) {
-        res.status(403).json({ error: "admin token inválido" });
-        return;
+// --- Hub (login Discord + páginas) ---
+app.get("/", (req, res) => {
+    const s = getSession(req);
+    if (!s) return res.type("html").send(loginPage(discord.oauthConfigured()));
+    res.type("html").send(homePage(s.name, store.policyFor(s.id), isAdmin(s)));
+});
+
+app.get("/login", (_req, res) => {
+    if (!discord.oauthConfigured()) return res.status(500).send("Discord OAuth não configurado.");
+    res.redirect(discord.oauthUrl("s"));
+});
+
+app.get("/auth/callback", async (req, res) => {
+    try {
+        const code = String(req.query.code ?? "");
+        if (!code) return res.redirect("/");
+        const token = await discord.exchangeCode(code);
+        const u = await discord.getUser(token);
+        store.requestAccess(u.id, u.name); // registra ao logar
+        setSessionCookie(req, res, sign({ id: u.id, name: u.name }));
+        res.redirect("/");
+    } catch (e) {
+        res.status(500).send("Falha no login: " + (e as Error).message);
     }
-    next();
+});
+
+app.get("/logout", (_req, res) => {
+    res.setHeader("Set-Cookie", `${COOKIE_NAME}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
+    res.redirect("/");
+});
+
+app.get("/me", (req, res) => {
+    const s = getSession(req);
+    if (!s) return res.status(401).json({ error: "não logado" });
+    res.json({ id: s.id, name: s.name, admin: isAdmin(s), policy: store.policyFor(s.id) });
+});
+
+app.post("/me/request-access", (req, res) => {
+    const s = getSession(req);
+    if (!s) return res.status(401).json({ error: "não logado" });
+    res.json(store.requestAccess(s.id, s.name));
+});
+
+app.get("/admin", (req, res) => {
+    if (!isAdmin(getSession(req))) return res.status(403).send("Acesso negado.");
+    res.type("html").send(adminPage());
+});
+
+// --- Admin API (aceita sessão de admin OU X-Admin-Token) ---
+function admin(req: express.Request, res: express.Response, next: express.NextFunction): void {
+    const tokenOk = Boolean(ADMIN_TOKEN) && req.headers["x-admin-token"] === ADMIN_TOKEN;
+    if (tokenOk || isAdmin(getSession(req))) return next();
+    res.status(403).json({ error: "não autorizado" });
 }
 
 app.get("/admin/users", admin, (_req, res) => res.json(store.list()));

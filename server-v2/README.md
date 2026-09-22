@@ -29,6 +29,24 @@ docker compose up --build
 Ao habilitar um usuário, a nova policy é **empurrada pelo WS** para as conexões
 vivas dele (o plugin liga as funções na hora).
 
+## Hub web (golivefrd)
+
+O mesmo serviço serve o hub (páginas HTML + login):
+
+| Rota | Descrição |
+|---|---|
+| `GET /` | login (Discord) ou home com status do usuário |
+| `GET /login` → `GET /auth/callback` | Discord OAuth2 (scope `identify`) |
+| `GET /me` · `POST /me/request-access` | dados/pedido do usuário logado |
+| `GET /admin` | painel: usuários+quotas, transmissões ativas, métricas ao vivo |
+
+Configure em `.env`: `DISCORD_CLIENT_ID/SECRET/REDIRECT_URI`, `SESSION_SECRET` e
+`ADMIN_DISCORD_IDS` (quem acessa `/admin`). Aponte `golivefrd.SEU.com` (Cloudflare)
+para este serviço.
+
+Fluxo de habilitação: usuário loga → pede acesso → admin libera no painel → o
+servidor empurra a policy pelo WS → o plugin no Discord liga as funções.
+
 ## Cloudflare
 
 Uma única rota basta: `https://<host>` → `http://SERVIDOR:8090` (HTTP **e** o
