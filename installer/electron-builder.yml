@@ -5,15 +5,41 @@ directories:
 files:
   - dist/**
   - renderer/**
+# Assinatura ad-hoc no macOS sem Developer ID (ver scripts/after-pack.cjs).
+afterPack: scripts/after-pack.cjs
 extraResources:
-  # Vencord dist pré-compilado COM o plugin — gerado no CI (ver README).
+  # Vencord dist pré-compilado COM o plugin — gerado por build:vencord (ver README).
   - from: vencord-dist
     to: vencord-dist
+
+# Sem espaços: o GitHub troca espaço por "." no nome do asset e o latest*.yml
+# (que o auto-update lê) apontaria para um arquivo que não existe.
+artifactName: FRD-GoLive-${version}-${arch}.${ext}
+
+# Auto-update (electron-updater): lê as releases deste repositório.
+# Os scripts scripts/publish-release.{sh,bat} sobem os arquivos com o `gh`;
+# o electron-builder só gera (--publish never).
+publish:
+  provider: github
+  owner: BirdRa1n
+  repo: FRD_GOLIVE
+  releaseType: release
+
 mac:
-  target: dmg
   category: public.app-category.utilities
+  # zip é OBRIGATÓRIO para o auto-update no macOS; o dmg é para a 1ª instalação.
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
 win:
-  target: nsis
+  target:
+    - target: nsis
+      arch: [x64]
+
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  artifactName: FRD-GoLive-Setup-${version}.${ext}

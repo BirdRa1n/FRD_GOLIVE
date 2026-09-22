@@ -4,6 +4,7 @@ import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 import { fetchConfig, writeVencordConfig } from "./lib/config.js";
 import { downloadInstallerCli, ensureBundledDist, runInject } from "./lib/inject.js";
 import { userDataDir } from "./lib/paths.js";
+import { currentUpdateState, initUpdater, openReleasePage, setBusy } from "./lib/updater.js";
 
 const HUB_URL = process.env.FRD_HUB_URL ?? "http://golivefrd.birdra1n.com";
 const DEFAULT_HOST = process.env.FRD_DEFAULT_HOST ?? "https://golivefrd.birdra1n.com";
@@ -20,6 +21,7 @@ function createWindow(): void {
         ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
         webPreferences: { preload: join(__dirname, "preload.js") },
     });
+    initUpdater(win);
     void win.loadFile(join(__dirname, "..", "renderer", "index.html"));
 }
 
@@ -34,19 +36,27 @@ app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
 });
 
-ipcMain.handle("defaults", () => ({ defaultHost: DEFAULT_HOST, hubUrl: HUB_URL }));
+ipcMain.handle("defaults", () => ({ defaultHost: DEFAULT_HOST, hubUrl: HUB_URL, version: app.getVersion() }));
+ipcMain.handle("update-state", () => currentUpdateState());
+ipcMain.handle("open-release", () => openReleasePage());
 
 ipcMain.handle("apply", async (_e, host: string) => {
-    // 1. o host devolve toda a config
-    const { base, config } = await fetchConfig(host);
-    // 2. coloca o build (com o plugin) no diretório de dados
-    ensureBundledDist();
-    // 3. grava config do plugin + regras de CSP do domínio
-    const domain = writeVencordConfig(userDataDir(), base, config);
-    // 4. aplica a modificação no Discord
-    const cli = await downloadInstallerCli();
-    await runInject(cli);
-    return { ok: true, domain, transport: config.transport };
+    // não reinicia para atualizar no meio da aplicação
+    setBusy(true);
+    try {
+        // 1. o host devolve toda a config
+        const { base, config } = await fetchConfig(host);
+        // 2. coloca o build (com o plugin) no diretório de dados
+        ensureBundledDist();
+        // 3. grava config do plugin + regras de CSP do domínio
+        const domain = writeVencordConfig(userDataDir(), base, config);
+        // 4. aplica a modificação no Discord
+        const cli = await downloadInstallerCli();
+        await runInject(cli);
+        return { ok: true, domain, transport: config.transport };
+    } finally {
+        setBusy(false);
+    }
 });
 
 ipcMain.handle("open-hub", () => shell.openExternal(HUB_URL));
