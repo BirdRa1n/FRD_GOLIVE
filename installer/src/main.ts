@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 
 import { fetchConfig, writeVencordConfig } from "./lib/config.js";
 import { downloadInstallerCli, ensureBundledDist, runInject } from "./lib/inject.js";
@@ -11,9 +11,13 @@ const DEFAULT_HOST = process.env.FRD_DEFAULT_HOST ?? "https://golivefrd.birdra1n
 function createWindow(): void {
     const win = new BrowserWindow({
         width: 560,
-        height: 640,
+        height: 680,
         resizable: false,
         title: "FRD GoLive",
+        // Mesmo fundo do design system (--bg) — sem flash branco ao abrir no escuro.
+        backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0a12" : "#f4f3fa",
+        // macOS: barra de título integrada (semáforo sobre o conteúdo, estilo SwiftUI).
+        ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
         webPreferences: { preload: join(__dirname, "preload.js") },
     });
     void win.loadFile(join(__dirname, "..", "renderer", "index.html"));

@@ -38,9 +38,11 @@ client/            userplugin do Vencord (TS/React)
     native.ts            módulo NATIVO (processo main): desktopCapturer
 installer/         instalador gráfico (Electron, Mac/Win) — aplica a mod no Discord
   src/             main/preload (IPC), lib/ (config, inject, paths)
-  renderer/        UI do instalador
+  renderer/        UI do instalador (usa o design system; renderer/ui/ é copiado no build)
 server/            hub/auth/admin/config + token do LiveKit (Node, Docker)
   src/             index.ts (Express+ws), livekit.ts (token), store.ts, session.ts, discord.ts, hub.ts
+  public/ui/       DESIGN SYSTEM: ui.css (tokens/componentes), ui.js (tema, segmented,
+                   sheet, toast, ícones), index.html (catálogo em /ui/)
   livekit.yaml     config do SFU (udp_port 7882 mux, node_ip = IP público da mídia)
 docs/              arquitetura, roadmap, OAuth do Discord, relay UDP
 ```
@@ -117,6 +119,22 @@ curl -s http://localhost:8090/config   # signalingUrl (controle) + serverUrl (Li
 - Ao mexer no plugin: **copiar `client/src` → Vencord → `pnpm build` → recarregar o
   Discord** (mudança de renderer: Cmd/Ctrl+R; mudança de CSP/main ou `native.ts`:
   reinício completo).
+
+## Design system (UI do hub/login/admin/instalador)
+
+- Fonte única em `server/public/ui/` (`ui.css` + `ui.js`), **sem build**. O hub serve em
+  `/ui/*` (com `?v=VERSION` nos links); catálogo vivo de todos os componentes em `/ui/`.
+- O instalador **copia** esses arquivos para `installer/renderer/ui/` no `npm run build`
+  (`scripts/sync-ui.mjs`; destino gitignored). Não edite a cópia.
+- Linguagem SwiftUI-like: `.large-title`, listas `.group`/`.row`, `.card-hero` em gradiente,
+  `.segmented`, `.toggle[role=switch]`, `<dialog class="sheet">`, `FRDUI.toast/confirm`.
+  Ícones: `<i data-icon="nome">` (hidratado pelo ui.js) ou `FRDUI.icon("nome")`.
+- Tema: segue o sistema; `data-theme` no `<html>` força claro/escuro (gravado em
+  localStorage pelo seletor `[data-theme-switch]`), troca com View Transitions.
+- Componentes usam **só tokens** (`--bg`, `--surface`, `--accent`, `--gradient`…) — nunca
+  cor literal, senão quebra um dos temas. Sem fontes externas (offline/privacidade).
+- Dentro de `<label>`, não coloque `.segmented` (o clique no texto aciona o 1º botão):
+  use `<div class="label">`.
 
 ## Instalador (Electron)
 
