@@ -1,36 +1,10 @@
 services:
-  livekit:
-    image: livekit/livekit-server:latest
-    command: --config /etc/livekit.yaml
+  server:
+    build: .
     restart: unless-stopped
-    # As chaves são passadas por env (formato "chave: segredo"), sobrepondo o arquivo.
-    environment:
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    env_file: .env
+    ports:
+      # HTTP + WebSocket de signaling — ambos pela mesma porta (só HTTP/WS → Cloudflare Tunnel serve!)
+      - "${PORT:-8090}:8090"
     volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
-    ports:
-      - "${LIVEKIT_PORT:-7880}:7880"                # HTTP/WebSocket (signaling)
-      - "${LIVEKIT_TCP_PORT:-7881}:7881"            # RTC sobre TCP (fallback)
-      - "${LIVEKIT_UDP_PORT:-7882}:7882/udp"        # RTC sobre UDP (porta única mux)
-      # - "5349:5349"                               # TURN/TLS (habilite junto com turn.enabled)
-
-  token-service:
-    build: ./token-service
-    restart: unless-stopped
-    environment:
-      LIVEKIT_API_KEY: "${LIVEKIT_API_KEY}"
-      LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET}"
-      ORG_SECRET: "${ORG_SECRET}"
-      PORT: "8080"
-      TOKEN_TTL: "${TOKEN_TTL:-10m}"
-      # Verificação de presença (Fase 5) — opcional. Vazio = modo só-segredo.
-      DISCORD_BOT_TOKEN: "${DISCORD_BOT_TOKEN:-}"
-      PRESENCE_ENFORCEMENT: "${PRESENCE_ENFORCEMENT:-strict}"
-      # Origem do código para o painel admin de atualização.
-      UPDATE_REPO: "${UPDATE_REPO:-https://github.com/BirdRa1n/FRD_GOLIVE}"
-      UPDATE_BRANCH: "${UPDATE_BRANCH:-main}"
-      ADMIN_UI: "${ADMIN_UI:-off}"
-    ports:
-      - "${TOKEN_PORT:-8080}:8080"
-    depends_on:
-      - livekit
+      - ./data:/app/data
