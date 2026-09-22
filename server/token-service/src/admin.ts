@@ -120,7 +120,7 @@ const ADMIN_HTML = `<!doctype html>
   document.getElementById("check").onclick = async () => {
     log("Verificando…");
     try {
-      const r = await fetch("version");
+      const r = await fetch("/admin/version");
       log(await r.json());
     } catch (e) { log("Erro: " + e.message); }
   };
@@ -129,7 +129,7 @@ const ADMIN_HTML = `<!doctype html>
     if (!confirm("Atualizar o servidor a partir do repositório e reconstruir os containers?")) return;
     log("Iniciando atualização…");
     try {
-      const r = await fetch("update", {
+      const r = await fetch("/admin/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgSecret: secretEl.value }),
