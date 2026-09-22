@@ -54,19 +54,9 @@ export async function captureNativeSource(
         },
     };
 
-    // Áudio do sistema por desktopCapturer só funciona em algumas plataformas
-    // (ex.: Windows). Tenta com áudio; se falhar, cai para vídeo puro.
-    if (opts.systemAudio) {
-        try {
-            return await navigator.mediaDevices.getUserMedia({
-                audio: { mandatory: { chromeMediaSource: "desktop" } },
-                video,
-            } as unknown as MediaStreamConstraints);
-        } catch {
-            // segue para captura só de vídeo
-        }
-    }
-
+    // SEM áudio: o desktopCapturer só captura o áudio do SISTEMA INTEIRO, o que
+    // incluiria a call do Discord (a voz dos membros vazaria na transmissão).
+    // Áudio scoped (só da janela) existe apenas no caminho getDisplayMedia.
     return navigator.mediaDevices.getUserMedia({
         audio: false,
         video,

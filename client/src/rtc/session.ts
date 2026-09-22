@@ -6,7 +6,6 @@
 
 import {
     ConnectionState,
-    createLocalScreenTracks,
     createLocalVideoTrack,
     LocalAudioTrack,
     type LocalTrack,
@@ -93,32 +92,48 @@ export class RtcSession {
     async shareScreen(opts: ScreenShareOptions): Promise<void> {
         if (!this.room) throw new Error("Não conectado ao servidor privado.");
 
-        const tracks = await createLocalScreenTracks({
-            audio: opts.systemAudio,
-            resolution: {
+        // Usa getDisplayMedia (picker nativo do Discord). Ao compartilhar uma
+        // JANELA, o áudio capturado é o DAQUELA janela — a call do Discord (outra
+        // janela) NÃO entra, como no compartilhamento nativo. suppressLocalAudioPlayback
+        // evita eco local do áudio capturado.
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
                 width: Math.round((opts.maxHeight * 16) / 9),
                 height: opts.maxHeight,
                 frameRate: opts.fps,
             },
+            audio: opts.systemAudio
+                ? ({ suppressLocalAudioPlayback: true } as MediaTrackConstraints)
+                : false,
         });
 
-        // bitrate alvo em função da resolução (nitidez para tela/texto).
+        await this.publishCapturedStream(stream, opts);
+    }
+
+    /** Publica um MediaStream de tela (vídeo em alta + áudio scoped) no LiveKit. */
+    private async publishCapturedStream(stream: MediaStream, opts: ScreenShareOptions): Promise<void> {
+        if (!this.room) throw new Error("Não conectado ao servidor privado.");
+
         const maxBitrate = opts.maxHeight >= 1440 ? 8_000_000
             : opts.maxHeight >= 1080 ? 5_000_000
             : 2_500_000;
 
-        for (const track of tracks) {
-            if (track.kind === Track.Kind.Video) {
+        for (const mediaTrack of stream.getTracks()) {
+            if (mediaTrack.kind === "video") {
                 // "detail" prioriza nitidez (texto/código) sobre fluidez.
-                try { track.mediaStreamTrack.contentHint = "detail"; } catch { /* ok */ }
+                try { mediaTrack.contentHint = "detail"; } catch { /* ok */ }
+                const track = new LocalVideoTrack(mediaTrack);
                 await this.room.localParticipant.publishTrack(track, {
                     simulcast: false, // tela: uma única camada de alta qualidade
                     videoEncoding: { maxBitrate, maxFramerate: opts.fps },
                 });
+                this.publishedTracks.push(track);
             } else {
+                const track = new LocalAudioTrack(mediaTrack);
                 await this.room.localParticipant.publishTrack(track);
+                this.publishedTracks.push(track);
             }
-            this.publishedTracks.push(track);
+            mediaTrack.addEventListener("ended", () => void this.stopSharing());
         }
     }
 
