@@ -31,7 +31,9 @@ Marcos incrementais — cada fase é utilizável/testável antes de seguir.
 - [x] Parar de transmitir (`stopSharing`).
 - [x] Botão de câmera na UI.
 - [x] Indicador visual de "transmitindo" (tela/câmera) no painel.
-- [ ] Trocar fonte/janela específica pela UI.
+- [x] Captura nativa via `desktopCapturer` (Electron) + seletor de fonte próprio,
+      para regiões onde o Discord bloqueia o compartilhamento de tela.
+- [ ] Seleção de fonte/janela também no modo `getDisplayMedia` padrão.
 - **Teste:** A compartilha tela+áudio; B vê e ouve; voz do Discord segue normal.
 
 ## Fase 4 — Robustez ✅

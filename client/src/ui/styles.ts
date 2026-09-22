@@ -73,6 +73,62 @@ const CSS = `
     0%, 100% { opacity: 1; }
     50% { opacity: 0.25; }
 }
+#frd-golive-root .frd-picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 3100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+}
+#frd-golive-root .frd-picker {
+    width: min(720px, 90vw);
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 16px;
+    border-radius: 8px;
+    background: var(--background-secondary, #2b2d31);
+    color: var(--text-normal, #dbdee1);
+}
+#frd-golive-root .frd-picker-title {
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+#frd-golive-root .frd-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+#frd-golive-root .frd-picker-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+    border: 1px solid var(--background-tertiary, #1e1f22);
+    border-radius: 6px;
+    background: var(--background-primary, #313338);
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+#frd-golive-root .frd-picker-item:hover {
+    border-color: var(--brand-500, #5865f2);
+}
+#frd-golive-root .frd-picker-thumb {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 4px;
+    background: #000;
+}
+#frd-golive-root .frd-picker-name {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 #frd-golive-root .frd-status {
     padding: 6px 12px;
     font-size: 13px;

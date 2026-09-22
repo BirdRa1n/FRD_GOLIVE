@@ -8,7 +8,9 @@ import {
     ConnectionState,
     createLocalScreenTracks,
     createLocalVideoTrack,
+    LocalAudioTrack,
     type LocalTrack,
+    LocalVideoTrack,
     type RemoteParticipant,
     type RemoteTrack,
     type RemoteTrackPublication,
@@ -108,6 +110,24 @@ export class RtcSession {
         const track = await createLocalVideoTrack();
         await this.room.localParticipant.publishTrack(track);
         this.publishedTracks.push(track);
+    }
+
+    /**
+     * Publica tracks de um MediaStream já capturado (ex.: via desktopCapturer do
+     * Electron, contornando o getDisplayMedia do Discord em regiões censuradas).
+     */
+    async publishMediaStream(stream: MediaStream): Promise<void> {
+        if (!this.room) throw new Error("Não conectado ao servidor privado.");
+        for (const mediaTrack of stream.getTracks()) {
+            const track =
+                mediaTrack.kind === "audio"
+                    ? new LocalAudioTrack(mediaTrack)
+                    : new LocalVideoTrack(mediaTrack);
+            await this.room.localParticipant.publishTrack(track);
+            this.publishedTracks.push(track);
+            // Se o usuário parar a captura pelo overlay do SO, encerra a publicação.
+            mediaTrack.addEventListener("ended", () => void this.stopSharing());
+        }
     }
 
     async stopSharing(): Promise<void> {

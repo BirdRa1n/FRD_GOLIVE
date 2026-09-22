@@ -10,5 +10,11 @@
     "skipLibCheck": true,
     "jsx": "react-jsx"
   },
-  "include": ["src/rtc/session.ts", "src/state/streamStore.ts"]
+  "include": [
+    "src/rtc/session.ts",
+    "src/rtc/nativeCapture.ts",
+    "src/state/streamStore.ts",
+    "src/ui/sourcePicker.ts",
+    "src/types.ts"
+  ]
 }

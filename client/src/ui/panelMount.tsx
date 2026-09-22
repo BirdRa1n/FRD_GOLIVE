@@ -5,6 +5,7 @@
 import { React, ReactDOM } from "@webpack/common";
 
 import { PrivateStreamPanel } from "./PrivateStreamPanel";
+import { SourcePicker } from "./SourcePicker";
 
 let container: HTMLDivElement | null = null;
 // createRoot retorna um Root do React 18; tipamos como unknown para não depender
@@ -21,7 +22,14 @@ export function mountPanel(): void {
     root = (ReactDOM as unknown as {
         createRoot(el: Element): { render(node: unknown): void; unmount(): void; };
     }).createRoot(container);
-    root.render(React.createElement(PrivateStreamPanel));
+    root.render(
+        React.createElement(
+            React.Fragment,
+            null,
+            React.createElement(PrivateStreamPanel),
+            React.createElement(SourcePicker),
+        ),
+    );
 }
 
 export function unmountPanel(): void {
