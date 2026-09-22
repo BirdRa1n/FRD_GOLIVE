@@ -1,7 +1,7 @@
 import { React } from "@webpack/common";
 
 import { streamStore } from "../state/streamStore";
-import { resolvePick } from "./sourcePicker";
+import { resolvePick } from "./pickerController";
 
 /** Overlay para escolher qual tela/janela capturar (modo nativo). */
 export function SourcePicker() {
