@@ -8,7 +8,7 @@ function Video({ info, className }: { info: RemoteStreamInfo; className: string;
     React.useEffect(() => {
         if (ref.current) ref.current.srcObject = info.stream;
     }, [info.stream]);
-    return <video ref={ref} autoPlay playsInline className={className} />;
+    return <video ref={ref} autoPlay playsInline muted className={className} />;
 }
 
 /** Modo teatro: stream em foco grande + filmstrip dos outros (estilo Go Live). */

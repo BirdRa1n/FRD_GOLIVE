@@ -14,6 +14,7 @@
     "src/rtc/session.ts",
     "src/rtc/nativeCapture.ts",
     "src/state/streamStore.ts",
+    "src/state/audioSink.ts",
     "src/ui/pickerController.ts",
     "src/types.ts"
   ]

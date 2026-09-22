@@ -196,6 +196,48 @@ const CSS = `
     opacity: 1;
 }
 
+/* --- Overlay no tile nativo do Discord --- */
+.frd-native-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    border-radius: inherit;
+    overflow: hidden;
+    background: #000;
+}
+.frd-native-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+}
+.frd-native-btns {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+.frd-native-overlay:hover .frd-native-btns {
+    opacity: 1;
+}
+.frd-native-btn {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #fff;
+    font-size: 15px;
+    line-height: 1;
+    background: rgba(0, 0, 0, 0.6);
+}
+.frd-native-btn:hover {
+    background: var(--brand-500, #5865f2);
+}
+
 /* --- Modo teatro --- */
 #frd-golive-root .frd-theater {
     position: fixed;

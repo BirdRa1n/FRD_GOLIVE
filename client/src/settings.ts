@@ -27,6 +27,11 @@ export const settings = definePluginSettings({
         description: "Captura nativa (desktopCapturer): contorna o bloqueio de compartilhamento de tela do Discord em regiões censuradas",
         default: false,
     },
+    nativeTileOverlay: {
+        type: OptionType.BOOLEAN,
+        description: "Mostrar a transmissão privada dentro do tile do participante na grade de chamada (desligue se quebrar após update do Discord)",
+        default: true,
+    },
     maxHeight: {
         type: OptionType.SELECT,
         description: "Resolução máxima da captura de tela",
