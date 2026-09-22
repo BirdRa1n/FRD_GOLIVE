@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Gera um server/.env com segredos aleatórios seguros.
+# Gera um server/.env com segredos aleatórios seguros para o servidor v2 (mesh).
 #
 # Uso:
 #   ./gen-env.sh            # cria .env (recusa se já existir)
@@ -24,40 +24,49 @@ rand_hex() {
     fi
 }
 
-LIVEKIT_API_KEY="API$(rand_hex 6)"
-LIVEKIT_API_SECRET="$(rand_hex 32)"
-ORG_SECRET="$(rand_hex 24)"
+# Segredos: protegem os endpoints /admin/* e assinam o cookie de sessão do hub.
+ADMIN_TOKEN="$(rand_hex 24)"
+SESSION_SECRET="$(rand_hex 32)"
 
 # Cria o arquivo já com permissões restritas (contém segredos).
 umask 077
 cat > "$ENV_FILE" <<EOF
 # Gerado por gen-env.sh em $(date -u +%Y-%m-%dT%H:%M:%SZ). NÃO versione este arquivo.
 
-LIVEKIT_API_KEY=$LIVEKIT_API_KEY
-LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
-ORG_SECRET=$ORG_SECRET
-TOKEN_TTL=10m
+PORT=8090
 
-# Portas (opcional).
-LIVEKIT_PORT=7880
-LIVEKIT_TCP_PORT=7881
-LIVEKIT_UDP_PORT=7882
-TOKEN_PORT=8080
+# Protege os endpoints /admin/* (header X-Admin-Token). Gerado aleatoriamente.
+ADMIN_TOKEN=$ADMIN_TOKEN
 
-# IP público da mídia WebRTC (ex.: VPS de relay). Vazio = autodetecção.
-LIVEKIT_NODE_IP=
+# URL pública do signaling (atrás do Cloudflare). Vazio = deriva do host da requisição
+# (recomendado: com HTTPS vira wss://SEU_HOST/signaling automaticamente).
+PUBLIC_SIGNALING_URL=
 
-# Verificação de presença via bot (Fase 5) — opcional. Preencha para ativar.
-DISCORD_BOT_TOKEN=
-PRESENCE_ENFORCEMENT=strict
+# ICE: STUN público basta para NAT amigável. TURN só para NAT simétrico/corporativo.
+STUN_URLS=stun:stun.l.google.com:19302
+TURN_URLS=
+TURN_USERNAME=
+TURN_CREDENTIAL=
 
-# Atualização do código / painel admin.
-UPDATE_REPO=https://github.com/BirdRa1n/FRD_GOLIVE
-UPDATE_BRANCH=main
-ADMIN_UI=off
-HOST_REPO_DIR=
+# Quotas padrão para novos usuários (o admin ajusta por usuário no painel).
+DEFAULT_MAX_HEIGHT=1080
+DEFAULT_MAX_FPS=30
+
+DB_FILE=/app/data/users.json
+VERSION=2.0.0
+
+# --- Hub web (login Discord + painel admin) ---
+# Crie um app em https://discord.com/developers/applications (veja docs/DISCORD-OAUTH.md).
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+DISCORD_REDIRECT_URI=https://golivefrd.SEU.com/auth/callback
+# Assina o cookie de sessão. Gerado aleatoriamente.
+SESSION_SECRET=$SESSION_SECRET
+# IDs (Discord) dos admins, separados por vírgula — acessam /admin pelo login.
+ADMIN_DISCORD_IDS=
 EOF
 chmod 600 "$ENV_FILE"
 
 printf 'OK: %s gerado com segredos aleatórios (permissões 600).\n' "$ENV_FILE"
-printf 'Distribua o ORG_SECRET aos usuários por um canal seguro.\n'
+printf 'Para o login do hub/admin, preencha DISCORD_CLIENT_ID/SECRET e ADMIN_DISCORD_IDS.\n'
+printf 'Passo a passo do OAuth: docs/DISCORD-OAUTH.md\n'

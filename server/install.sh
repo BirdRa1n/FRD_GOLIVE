@@ -1,12 +1,13 @@
 #!/usr/bin/env sh
-# Instalador do servidor FRD GoLive — estilo "curl | sh".
+# Instalador do servidor FRD GoLive v2 (mesh) — estilo "curl | sh".
 #
 #   curl -fsSL https://raw.githubusercontent.com/BirdRa1n/FRD_GOLIVE/main/server/install.sh | sh
 #
-# Verifica dependências (git, docker, docker compose), clona o repositório e
-# pergunta, de forma interativa, se você quer gerar o .env, customizar portas,
-# customizar o repositório de updates, configurar o bot de presença, habilitar o
-# painel admin e instalar o Tailscale para acesso privado.
+# O servidor v2 só faz signaling + auth + config + admin (tudo HTTP/WS, uma única
+# porta), então passa 100% pelo Cloudflare Tunnel — sem VPS/UDP. Este script:
+# verifica dependências (git, docker, docker compose), clona/atualiza o repositório,
+# gera o .env com segredos aleatórios, opcionalmente configura o OAuth do Discord e
+# o Tailscale, e sobe o container.
 set -eu
 
 REPO_DEFAULT="https://github.com/BirdRa1n/FRD_GOLIVE"
@@ -46,7 +47,7 @@ set_env() {
 SUDO=""
 if [ "$(id -u)" -ne 0 ] && have sudo; then SUDO="sudo"; fi
 
-printf '\n\033[1mFRD GoLive — instalador do servidor\033[0m\n\n'
+printf '\n\033[1mFRD GoLive — instalador do servidor (v2 mesh)\033[0m\n\n'
 
 # --- 1. Dependências ---
 info "Verificando dependências…"
@@ -94,73 +95,50 @@ ok "Código pronto em $DIR"
 
 ENV_FILE="$DIR/server/.env"
 
-# --- 3. Configuração interativa ---
-if confirm "Gerar o .env com segredos aleatórios agora?"; then
-    sh "$DIR/server/gen-env.sh" --force
+# --- 3. Credenciais ---
+if [ -f "$ENV_FILE" ]; then
+    warn ".env já existe em $ENV_FILE — mantendo (use server/gen-env.sh --force para recriar)."
 else
-    [ -f "$ENV_FILE" ] || cp "$DIR/server/.env.example" "$ENV_FILE"
+    info "Gerando .env com segredos aleatórios (ADMIN_TOKEN, SESSION_SECRET)…"
+    sh "$DIR/server/gen-env.sh"
 fi
 
-if confirm "Customizar portas?"; then
-    set_env LIVEKIT_PORT "$(ask 'Porta LiveKit (ws)' '7880')" "$ENV_FILE"
-    set_env TOKEN_PORT "$(ask 'Porta token-service' '8080')" "$ENV_FILE"
+# --- 4. OAuth do Discord (hub/admin) — opcional ---
+if confirm "Configurar o login do Discord (hub/admin) agora?"; then
+    info "Crie o app em https://discord.com/developers/applications (guia: docs/DISCORD-OAUTH.md)."
+    set_env DISCORD_CLIENT_ID "$(ask 'DISCORD_CLIENT_ID' '')" "$ENV_FILE"
+    set_env DISCORD_CLIENT_SECRET "$(ask 'DISCORD_CLIENT_SECRET' '')" "$ENV_FILE"
+    HOST=$(ask "Host público do hub (ex.: golivefrd.seu.com)" "")
+    [ -n "$HOST" ] && set_env DISCORD_REDIRECT_URI "https://$HOST/auth/callback" "$ENV_FILE"
+    set_env ADMIN_DISCORD_IDS "$(ask 'Seu Discord user ID (admin)' '')" "$ENV_FILE"
+    warn "No portal do Discord, cadastre EXATAMENTE o Redirect: https://$HOST/auth/callback"
 fi
 
-if confirm "Customizar o repositório de updates?"; then
-    set_env UPDATE_REPO "$(ask 'UPDATE_REPO' "$REPO")" "$ENV_FILE"
-    set_env UPDATE_BRANCH "$(ask 'UPDATE_BRANCH' 'main')" "$ENV_FILE"
+# --- 5. TURN (opcional, só NAT simétrico/corporativo) ---
+if confirm "Configurar um servidor TURN (só para NAT restritivo)?"; then
+    set_env TURN_URLS "$(ask 'TURN_URLS (ex.: turn:turn.seu.com:3478)' '')" "$ENV_FILE"
+    set_env TURN_USERNAME "$(ask 'TURN_USERNAME' '')" "$ENV_FILE"
+    set_env TURN_CREDENTIAL "$(ask 'TURN_CREDENTIAL' '')" "$ENV_FILE"
 fi
 
-# IP público para o WebRTC (ex.: um VPS que faz relay do UDP para este servidor).
-# Não exige nenhuma mudança no cliente — o LiveKit passa a anunciar este IP nos
-# candidatos ICE. Deixe vazio para autodetecção normal.
-if confirm "A mídia (WebRTC) entra por outro IP público (ex.: VPS de relay)?"; then
-    NODE_IP=$(ask "IP público do WebRTC (vazio = autodetecção)" "")
-    if [ -n "$NODE_IP" ]; then
-        set_env LIVEKIT_NODE_IP "$NODE_IP" "$ENV_FILE"
-        LKY="$DIR/server/livekit.yaml"
-        # Define node_ip (comentado ou não) e desliga a autodetecção.
-        sed -i \
-            -e "s|^  # *node_ip:.*|  node_ip: $NODE_IP|" \
-            -e "s|^  node_ip:.*|  node_ip: $NODE_IP|" \
-            -e "s|^  use_external_ip:.*|  use_external_ip: false|" \
-            "$LKY"
-        ok "LiveKit vai anunciar $NODE_IP nos candidatos ICE."
-        warn "Garanta o relay UDP $NODE_IP:${LIVEKIT_UDP_PORT:-7882} -> este servidor."
-    fi
-fi
-
-if confirm "Configurar o bot de presença do Discord agora?"; then
-    set_env DISCORD_BOT_TOKEN "$(ask 'DISCORD_BOT_TOKEN' '')" "$ENV_FILE"
-fi
-
-COMPOSE="-f docker-compose.yml"
-if confirm "Habilitar o painel admin de atualização (/admin)? (requer socket do Docker)"; then
-    set_env ADMIN_UI on "$ENV_FILE"
-    set_env HOST_REPO_DIR "$DIR" "$ENV_FILE"
-    COMPOSE="-f docker-compose.yml -f docker-compose.admin.yml"
-    warn "Painel admin dá acesso ao Docker do host — mantenha atrás de rede privada."
-fi
-
+# --- 6. Tailscale (opcional) ---
 if confirm "Instalar o Tailscale para acesso privado ao servidor?"; then
     curl -fsSL https://tailscale.com/install.sh | $SUDO sh
     $SUDO tailscale up || warn "Rode 'sudo tailscale up' manualmente para autenticar."
     ok "Tailscale instalado"
 fi
 
-# --- 4. Subir ---
-info "Subindo os containers…"
+# --- 7. Subir ---
+info "Subindo o container…"
 cd "$DIR/server"
-# shellcheck disable=SC2086
-$SUDO docker compose $COMPOSE up -d --build
+$SUDO docker compose up -d --build
 
-TKP=$(grep '^TOKEN_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2); TKP="${TKP:-8080}"
-LKP=$(grep '^LIVEKIT_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2); LKP="${LKP:-7880}"
+PORT=$(grep '^PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2); PORT="${PORT:-8090}"
 
 printf '\n'
 ok "Servidor no ar."
-info "LiveKit (signaling): ws://<host>:$LKP"
-info "token-service:       http://<host>:$TKP  (/health)"
-grep -q '^ADMIN_UI=on' "$ENV_FILE" 2>/dev/null && info "Painel admin:        http://<host>:$TKP/admin"
-info "Segredo p/ o plugin: veja ORG_SECRET em $ENV_FILE"
-printf '\nUse HTTPS/WSS em produção (proxy TLS) e configure o TURN no livekit.yaml.\n'
+info "Health:     http://<host>:$PORT/health"
+info "Config:     http://<host>:$PORT/config   (o instalador/plugin puxa daqui)"
+info "Hub/admin:  http://<host>:$PORT/          (login Discord, se configurado)"
+printf '\nExponha via Cloudflare Tunnel: golivefrd.SEU.com -> http://<host>:%s\n' "$PORT"
+printf '(HTTP e o WebSocket /signaling na MESMA porta — nada de UDP.)\n'
