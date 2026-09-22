@@ -9,6 +9,11 @@ build/
 out/
 *.tsbuildinfo
 
+# Bundle do Vencord gerado pelo instalador (grande; gerado por build:vencord/CI)
+installer/vencord-dist/
+# Saída do electron-builder
+installer/release/
+
 # Ambiente / segredos
 .env
 .env.*
