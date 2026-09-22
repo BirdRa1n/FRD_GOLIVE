@@ -10,6 +10,12 @@
 import { getLocalUser } from "../discordState";
 import { settings } from "../settings";
 import { streamStore } from "../state/streamStore";
+import { pickSource } from "../ui/sourcePicker";
+import {
+    captureNativeSource,
+    getNativeSources,
+    isNativeCaptureAvailable,
+} from "./nativeCapture";
 import { RtcSession } from "./session";
 
 let session: RtcSession | null = null;
@@ -171,6 +177,12 @@ export async function reconnectNow(): Promise<void> {
 
 export async function startScreenShare(): Promise<void> {
     if (!session) throw new Error("Conecte-se a um canal de voz primeiro.");
+
+    // Modo nativo forçado (para regiões onde o Discord bloqueia a captura).
+    if (settings.store.nativeScreenCapture && isNativeCaptureAvailable()) {
+        return startScreenShareNative();
+    }
+
     try {
         await session.shareScreen({
             systemAudio: settings.store.includeSystemAudio,
@@ -181,8 +193,38 @@ export async function startScreenShare(): Promise<void> {
     } catch (e) {
         // Cancelar o seletor de tela do navegador não é um erro real.
         if (e instanceof Error && e.name === "NotAllowedError") return;
+
+        // Falha "dura" (ex.: bloqueio regional): tenta a captura nativa.
+        if (isNativeCaptureAvailable()) {
+            try {
+                await startScreenShareNative();
+                return;
+            } catch (nativeErr) {
+                streamStore.setError(describeError(nativeErr));
+                return;
+            }
+        }
         streamStore.setError(describeError(e));
     }
+}
+
+/** Compartilha a tela usando o desktopCapturer do Electron (contorna o Discord). */
+export async function startScreenShareNative(): Promise<void> {
+    if (!session) throw new Error("Conecte-se a um canal de voz primeiro.");
+
+    const sources = await getNativeSources();
+    if (sources.length === 0) throw new Error("Nenhuma tela/janela disponível para capturar.");
+
+    const chosen = await pickSource(sources);
+    if (!chosen) return; // usuário cancelou o picker
+
+    const stream = await captureNativeSource(chosen.id, {
+        systemAudio: settings.store.includeSystemAudio,
+        maxHeight: Number(settings.store.maxHeight),
+        fps: Number(settings.store.fps),
+    });
+    await session.publishMediaStream(stream);
+    streamStore.setSharing("screen");
 }
 
 export async function startCameraShare(): Promise<void> {

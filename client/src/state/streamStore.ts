@@ -2,6 +2,7 @@
 // Puro (sem Discord/Vencord) — typecheckável isolado.
 
 import type { RemoteStreamInfo } from "../rtc/session";
+import type { NativeSource } from "../types";
 
 export type ConnectionStatus =
     | "idle" // fora de call / desligado
@@ -22,6 +23,8 @@ class StreamStore {
     status: ConnectionStatus = "idle";
     errorMessage: string | null = null;
     sharingKind: SharingKind = null;
+    /** Fontes a escolher no picker de captura nativa (null = picker fechado). */
+    pickerSources: NativeSource[] | null = null;
 
     subscribe(listener: Listener): () => void {
         this.listeners.add(listener);
@@ -75,11 +78,17 @@ class StreamStore {
         this.emit();
     }
 
+    setPicker(sources: NativeSource[] | null): void {
+        this.pickerSources = sources;
+        this.emit();
+    }
+
     reset(): void {
         this.streams.clear();
         this.status = "idle";
         this.errorMessage = null;
         this.sharingKind = null;
+        this.pickerSources = null;
         this.emit();
     }
 

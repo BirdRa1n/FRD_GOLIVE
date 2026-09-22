@@ -22,6 +22,11 @@ export const settings = definePluginSettings({
         description: "Incluir áudio do sistema na transmissão privada (deixa os membros se ouvirem)",
         default: true,
     },
+    nativeScreenCapture: {
+        type: OptionType.BOOLEAN,
+        description: "Captura nativa (desktopCapturer): contorna o bloqueio de compartilhamento de tela do Discord em regiões censuradas",
+        default: false,
+    },
     maxHeight: {
         type: OptionType.SELECT,
         description: "Resolução máxima da captura de tela",

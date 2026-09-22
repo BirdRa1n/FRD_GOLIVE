@@ -94,4 +94,23 @@ Implementado:
 
 Pendente (próximas fases):
 - Painel próprio, não o tile nativo do Discord — por design.
-- Seleção de fonte/janela específica pela UI.
+
+## Captura nativa (regiões censuradas)
+
+Em alguns países o Discord **desabilita a opção de compartilhar tela**. Como o
+plugin captura por conta própria, isso normalmente não nos afeta — mas se o
+`getDisplayMedia` também estiver bloqueado no Discord Desktop, ative **"Captura
+nativa"** nas settings do plugin.
+
+Nesse modo o plugin usa o **`desktopCapturer` do Electron** (via um módulo nativo,
+`native.ts`) e captura a fonte escolhida com `getUserMedia({chromeMediaSource:
+"desktop"})` — **sem passar pelo `getDisplayMedia` do Discord**, contornando o
+bloqueio regional. Um seletor de tela/janela próprio aparece no painel.
+
+Notas:
+- Só funciona no **Discord Desktop** (Electron); no Discord web não há
+  `desktopCapturer`.
+- Mesmo com a opção desligada, se o `getDisplayMedia` falhar com erro "duro" o
+  plugin **tenta a captura nativa automaticamente**.
+- Áudio do sistema por esse caminho depende da plataforma (melhor no Windows);
+  se não suportado, captura só o vídeo.
