@@ -48,20 +48,31 @@ build do Vencord.
 
 O Vencord compila plugins no build (não há runtime loading). Como usamos
 `livekit-client`, ele precisa ser instalado **no repositório do Vencord** para o
-esbuild empacotar:
+esbuild empacotar.
+
+> **Clone o Vencord FORA deste repositório** (ex.: `~/Vencord`). Não clone dentro
+> de `client/`: o `pnpm` "sobe" e acaba usando o `package.json` deste projeto
+> (que não tem script `build`), causando `Command "build" not found`.
 
 ```bash
-git clone https://github.com/Vendicated/Vencord
-cd Vencord
+git clone https://github.com/Vendicated/Vencord ~/Vencord
+cd ~/Vencord
 pnpm install
 pnpm add livekit-client            # dependência do nosso plugin
 
-# vincule este diretório como um userplugin:
-ln -s "/caminho/para/FRD_GOLIVE/client" src/userplugins/frdGoLive
+# vincule a PASTA src/ como o userplugin (é ela que contém o index.tsx):
+mkdir -p src/userplugins
+ln -s /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
 
 pnpm build
 pnpm inject                        # injeta no Discord instalado
 ```
+
+O link é para **`client/src`**, não `client/`: o Vencord espera
+`src/userplugins/frdGoLive/index.tsx`, e o nosso `index.tsx` fica em
+`client/src/`. Linkar `client/` inteiro deixa o `index.tsx` fundo demais e o
+plugin não é reconhecido. Se o build não seguir o symlink, copie no lugar:
+`cp -R /caminho/para/FRD_GOLIVE/client/src ~/Vencord/src/userplugins/frdGoLive`.
 
 Depois, no Discord: Configurações → Vencord → Plugins → **FRDGoLive** → ative e
 preencha `serverUrl`, `tokenServiceUrl` e `orgSecret` (os mesmos do servidor).
