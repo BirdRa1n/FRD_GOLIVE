@@ -41,6 +41,10 @@ export class SignalingClient {
 
     constructor(private readonly h: SignalingHandlers) {}
 
+    get isConnected(): boolean {
+        return this.ws?.readyState === WebSocket.OPEN;
+    }
+
     /** Envia só quando o socket está OPEN — evita InvalidStateError em CONNECTING/CLOSING. */
     private send(obj: unknown): void {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {

@@ -13,6 +13,7 @@ import { getLocalUser } from "../discordState";
 import { settings } from "../settings";
 import { streamStore } from "../state/streamStore";
 import { pickSource } from "../ui/pickerController";
+import { playStreamSound } from "../ui/streamSounds";
 import {
     captureNativeSource,
     getNativeSources,
@@ -96,6 +97,13 @@ function buildSession(): RtcSession {
         onReconnecting: () => streamStore.setStatus("reconnecting"),
         onReconnected: () => streamStore.setStatus("connected"),
         onDisconnected: () => handleUnexpectedDisconnect(),
+        onRemoteVideoStarted: () => playStreamSound("start"),
+        onRemoteVideoStopped: () => playStreamSound("stop"),
+        onLocalSharingStopped: () => {
+            control?.setState(false);
+            streamStore.setSharing(null);
+            playStreamSound("stop");
+        },
     });
 }
 
@@ -256,8 +264,7 @@ export async function startScreenShare(): Promise<void> {
     const q = clampToPolicy(Number(settings.store.maxHeight), Number(settings.store.fps));
     try {
         await s.shareScreen({ systemAudio: settings.store.includeSystemAudio, maxHeight: q.maxHeight, fps: q.fps });
-        control?.setState(true, "screen");
-        streamStore.setSharing("screen");
+        markSharing("screen");
     } catch (e) {
         if (e instanceof Error && e.name === "NotAllowedError") return;
         if (isNativeCaptureAvailable()) {
@@ -285,27 +292,30 @@ export async function startScreenShareNative(): Promise<void> {
         fps: q.fps,
     });
     await s.publishMediaStream(stream);
-    control?.setState(true, "screen");
-    streamStore.setSharing("screen");
+    markSharing("screen");
 }
 
 export async function startCameraShare(): Promise<void> {
     const s = ensureMediaReady();
     try {
         await s.shareCamera();
-        control?.setState(true, "camera");
-        streamStore.setSharing("camera");
+        markSharing("camera");
     } catch (e) {
         if (e instanceof Error && e.name === "NotAllowedError") return;
         streamStore.setError(describeError(e));
     }
 }
 
+function markSharing(kind: "screen" | "camera"): void {
+    control?.setState(true, kind);
+    streamStore.setSharing(kind);
+    playStreamSound("start");
+}
+
+/** O estado/som de "parou" vêm do onLocalSharingStopped da sessão. */
 export async function stopSharing(): Promise<void> {
     if (!session) return;
     await session.stopSharing();
-    control?.setState(false);
-    streamStore.setSharing(null);
 }
 
 /** Chamado quando o canal de voz selecionado muda (ou fica null ao sair). */

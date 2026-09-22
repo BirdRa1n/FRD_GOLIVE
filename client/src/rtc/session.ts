@@ -38,6 +38,15 @@ export interface RtcSessionCallbacks {
     onReconnected?(): void;
     /** Conexão encerrada de vez (LiveKit desistiu ou desconexão explícita). */
     onDisconnected?(): void;
+    /**
+     * Um participante remoto COMEÇOU a publicar vídeo (tela/câmera) depois que já
+     * estávamos na sala. Não dispara para quem já transmitia quando entramos.
+     */
+    onRemoteVideoStarted?(id: string, name: string): void;
+    /** Um participante remoto parou de publicar vídeo. */
+    onRemoteVideoStopped?(id: string, name: string): void;
+    /** A publicação local terminou (botão, overlay do SO ou fim da captura). */
+    onLocalSharingStopped?(): void;
 }
 
 export interface ScreenShareOptions {
@@ -51,6 +60,8 @@ export class RtcSession {
     private room: Room | null = null;
     private readonly streams = new Map<string, MediaStream>();
     private publishedTracks: LocalTrack[] = [];
+    /** true durante disconnect(): suprime eventos de "parou" da limpeza. */
+    private closing = false;
 
     constructor(private readonly cb: RtcSessionCallbacks) {}
 
@@ -80,6 +91,8 @@ export class RtcSession {
         room
             .on(RoomEvent.TrackSubscribed, this.handleSubscribed)
             .on(RoomEvent.TrackUnsubscribed, this.handleUnsubscribed)
+            .on(RoomEvent.TrackPublished, this.handlePublished)
+            .on(RoomEvent.TrackUnpublished, this.handleUnpublished)
             .on(RoomEvent.ParticipantDisconnected, this.handleParticipantLeft)
             .on(RoomEvent.Reconnecting, this.handleReconnecting)
             .on(RoomEvent.Reconnected, this.handleReconnected)
@@ -124,13 +137,14 @@ export class RtcSession {
                 try { mediaTrack.contentHint = "detail"; } catch { /* ok */ }
                 const track = new LocalVideoTrack(mediaTrack);
                 await this.room.localParticipant.publishTrack(track, {
+                    source: Track.Source.ScreenShare,
                     simulcast: false, // tela: uma única camada de alta qualidade
                     videoEncoding: { maxBitrate, maxFramerate: opts.fps },
                 });
                 this.publishedTracks.push(track);
             } else {
                 const track = new LocalAudioTrack(mediaTrack);
-                await this.room.localParticipant.publishTrack(track);
+                await this.room.localParticipant.publishTrack(track, { source: Track.Source.ScreenShareAudio });
                 this.publishedTracks.push(track);
             }
             mediaTrack.addEventListener("ended", () => void this.stopSharing());
@@ -151,11 +165,11 @@ export class RtcSession {
     async publishMediaStream(stream: MediaStream): Promise<void> {
         if (!this.room) throw new Error("Não conectado ao servidor privado.");
         for (const mediaTrack of stream.getTracks()) {
-            const track =
-                mediaTrack.kind === "audio"
-                    ? new LocalAudioTrack(mediaTrack)
-                    : new LocalVideoTrack(mediaTrack);
-            await this.room.localParticipant.publishTrack(track);
+            const isAudio = mediaTrack.kind === "audio";
+            const track = isAudio ? new LocalAudioTrack(mediaTrack) : new LocalVideoTrack(mediaTrack);
+            await this.room.localParticipant.publishTrack(track, {
+                source: isAudio ? Track.Source.ScreenShareAudio : Track.Source.ScreenShare,
+            });
             this.publishedTracks.push(track);
             // Se o usuário parar a captura pelo overlay do SO, encerra a publicação.
             mediaTrack.addEventListener("ended", () => void this.stopSharing());
@@ -163,20 +177,34 @@ export class RtcSession {
     }
 
     async stopSharing(): Promise<void> {
-        if (!this.room) return;
-        for (const track of this.publishedTracks) {
+        if (await this.unpublishAll()) this.cb.onLocalSharingStopped?.();
+    }
+
+    /** Despublica tudo que é local. Retorna true se havia algo publicado. */
+    private async unpublishAll(): Promise<boolean> {
+        if (!this.room || this.publishedTracks.length === 0) return false;
+        // Zera antes do await: os listeners de "ended" das outras tracks não
+        // disparam um segundo stop enquanto este ainda está em andamento.
+        const tracks = this.publishedTracks;
+        this.publishedTracks = [];
+        for (const track of tracks) {
             await this.room.localParticipant.unpublishTrack(track, true);
         }
-        this.publishedTracks = [];
+        return true;
     }
 
     async disconnect(): Promise<void> {
-        await this.stopSharing();
-        if (this.room) {
-            await this.room.disconnect();
-            this.room = null;
+        this.closing = true;
+        try {
+            await this.unpublishAll();
+            if (this.room) {
+                await this.room.disconnect();
+                this.room = null;
+            }
+            this.streams.clear();
+        } finally {
+            this.closing = false;
         }
-        this.streams.clear();
     }
 
     private readonly handleSubscribed = (
@@ -216,6 +244,18 @@ export class RtcSession {
         } else {
             this.cb.onStreamUpdated({ id, name: participant.name || id, stream });
         }
+    };
+
+    private readonly handlePublished = (pub: RemoteTrackPublication, participant: RemoteParticipant): void => {
+        if (pub.kind !== Track.Kind.Video) return;
+        this.cb.onRemoteVideoStarted?.(participant.identity, participant.name || participant.identity);
+    };
+
+    private readonly handleUnpublished = (pub: RemoteTrackPublication, participant: RemoteParticipant): void => {
+        // Na nossa própria saída o LiveKit despublica todo mundo — não é "parou".
+        if (this.closing || this.room?.state !== ConnectionState.Connected) return;
+        if (pub.kind !== Track.Kind.Video) return;
+        this.cb.onRemoteVideoStopped?.(participant.identity, participant.name || participant.identity);
     };
 
     private readonly handleParticipantLeft = (participant: RemoteParticipant): void => {

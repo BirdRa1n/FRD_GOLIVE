@@ -1,6 +1,7 @@
 // Toca o áudio de cada stream remoto num único elemento oculto por stream.
 // Todos os <video> de exibição ficam MUTADOS; assim várias visualizações do
-// mesmo stream (painel, teatro, tile nativo) não geram eco.
+// mesmo stream (painel, teatro, tile nativo) não geram eco. O volume/mute que o
+// espectador escolhe (streamStore) é aplicado aqui.
 
 import { streamStore } from "./streamStore";
 
@@ -27,6 +28,9 @@ export function syncAudioSinks(): void {
             sinks.set(s.id, el);
         }
         if (el.srcObject !== s.stream) el.srcObject = s.stream;
+        const volume = streamStore.getVolume(s.id);
+        if (el.volume !== volume) el.volume = volume;
+        el.muted = streamStore.isMuted(s.id);
     }
 }
 
