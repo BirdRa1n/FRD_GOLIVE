@@ -19,7 +19,7 @@ export const settings = definePluginSettings({
     },
     includeSystemAudio: {
         type: OptionType.BOOLEAN,
-        description: "Incluir áudio do sistema na transmissão privada (deixa os membros se ouvirem)",
+        description: "Incluir áudio do sistema. ATENÇÃO: no modo tela/janela captura o áudio do sistema inteiro (inclui a call). Para áudio SEM a call, compartilhe uma ABA do Chrome.",
         default: true,
     },
     nativeScreenCapture: {
