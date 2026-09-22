@@ -37,17 +37,19 @@ Para validar publish/subscribe fim-a-fim antes do plugin existir, use o
 O Vencord compila plugins **no build**; não há carregamento em runtime. Fluxo:
 
 ```bash
-git clone https://github.com/Vendicated/Vencord
-cd Vencord
+git clone https://github.com/Vendicated/Vencord ~/Vencord   # FORA deste repo
+cd ~/Vencord
 pnpm install
-# vincule/copie este repositório para src/userplugins/frdGoLive
+pnpm add livekit-client
+mkdir -p src/userplugins
+ln -s /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
 pnpm build
 pnpm inject      # injeta no cliente Discord instalado
 ```
 
-Durante o desenvolvimento do plugin, prefira `git clone` do Vencord fora deste
-repo e um symlink de `client/` para `Vencord/src/userplugins/frdGoLive`. Detalhes
-virão no `client/README.md` quando a Fase 2 começar.
+Clone o Vencord **fora** deste repositório (senão o `pnpm` sobe e usa o
+`package.json` daqui, que não tem script `build`). Linke a pasta **`client/src`**
+(que contém o `index.tsx`), não `client/`. Ver `client/README.md` para detalhes.
 
 ## Estilo
 
