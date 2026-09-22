@@ -6,11 +6,18 @@ export function userDataDir(): string {
     return join(app.getPath("userData"), "vencord");
 }
 
-/** Vencord dist pré-compilado (com o plugin) empacotado no app — gerado no CI. */
+/**
+ * Vencord dist pré-compilado (com o plugin). Ordem de resolução:
+ *   1. FRD_VENCORD_DIST (override explícito — útil em dev/CI);
+ *   2. produção: dentro dos resources do app empacotado (extraResources);
+ *   3. dev: installer/vencord-dist (gerado por scripts/build-vencord-dist.mjs).
+ * Em dev, __dirname é dist/lib → sobe dois níveis até a raiz do instalador.
+ */
 export function bundledDistDir(): string {
-    return app.isPackaged
-        ? join(process.resourcesPath, "vencord-dist")
-        : join(__dirname, "..", "..", "vencord-dist");
+    const override = process.env.FRD_VENCORD_DIST;
+    if (override) return override;
+    if (app.isPackaged) return join(process.resourcesPath, "vencord-dist");
+    return join(__dirname, "..", "..", "vencord-dist");
 }
 
 export function installerCliName(): string {

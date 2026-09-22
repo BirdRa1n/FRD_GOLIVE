@@ -1,17 +1,24 @@
 import { spawn } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
 
 import { bundledDistDir, installerCliName, installerCliUrl, userDataDir } from "./paths.js";
 
-/** Copia o Vencord dist empacotado (com o plugin) para o diretório de dados. */
+/** Copia o Vencord dist (com o plugin) para o diretório de dados do instalador. */
 export function ensureBundledDist(): void {
     const src = bundledDistDir();
-    if (!existsSync(src)) {
-        throw new Error("Vencord dist não encontrado no app (bundle do CI ausente). Ver README.");
+    if (!existsSync(src) || readdirSync(src).length === 0) {
+        throw new Error(
+            app.isPackaged
+                ? "Bundle do Vencord ausente neste app. Reinstale a partir do .dmg/.exe oficial."
+                : "vencord-dist ausente. Gere o bundle: `npm run build:vencord` "
+                  + "(ou aponte FRD_VENCORD_DIST para um Vencord/dist já compilado).",
+        );
     }
+    // Recria o dest limpo para não deixar arquivos velhos de um build anterior.
     const dest = join(userDataDir(), "dist");
+    rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
     cpSync(src, dest, { recursive: true });
 }

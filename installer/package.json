@@ -6,8 +6,10 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc && esbuild src/preload.ts --bundle --platform=node --external:electron --outfile=dist/preload.js",
+    "build:vencord": "node scripts/build-vencord-dist.mjs",
     "start": "npm run build && electron .",
-    "dist": "npm run build && electron-builder",
+    "start:full": "npm run build:vencord && npm run start",
+    "dist": "npm run build:vencord && npm run build && electron-builder",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -16,5 +18,9 @@
     "electron-builder": "^25.0.0",
     "esbuild": "^0.24.0",
     "typescript": "^5.6.0"
+  },
+  "allowScripts": {
+    "electron@32.3.3": true,
+    "esbuild@0.24.2": true
   }
 }
