@@ -1,5 +1,5 @@
-// Cliente de signaling (WebSocket) do transporte mesh v2.
-// Depende só de DOM (WebSocket) — typecheckável isolado.
+// Canal de CONTROLE (WebSocket): policy/habilitação + reporte de estado ao admin.
+// A mídia é o SFU (LiveKit); este WS não carrega mídia. Depende só de DOM.
 
 export interface PeerInfo {
     id: string;
