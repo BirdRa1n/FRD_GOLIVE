@@ -1,67 +1,22 @@
-// CSS do painel, injetado como <style> no onStart do plugin.
+// CSS do plugin (chip, overlay nos tiles, teatro, picker), injetado como <style>
+// no start. Cores via variáveis do próprio Discord para seguir o tema do cliente.
 
 const CSS = `
-#frd-golive-root .frd-panel {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    z-index: 3000;
-    width: 340px;
-    max-height: 60vh;
-    display: flex;
-    flex-direction: column;
-    background: var(--background-secondary, #2b2d31);
-    border: 1px solid var(--background-tertiary, #1e1f22);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    color: var(--text-normal, #dbdee1);
-    font-size: 14px;
-    overflow: hidden;
-}
-#frd-golive-root .frd-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: var(--background-tertiary, #1e1f22);
-}
-#frd-golive-root .frd-title {
-    font-weight: 600;
-}
+/* --- Botões e status (chip de conexão, teatro) --- */
 #frd-golive-root .frd-btn {
     border: none;
-    border-radius: 4px;
-    padding: 4px 10px;
+    border-radius: 8px;
+    padding: 6px 12px;
     cursor: pointer;
+    font-weight: 500;
     color: #fff;
     background: var(--brand-500, #5865f2);
 }
-#frd-golive-root .frd-btn-stop {
-    background: var(--status-danger, #da373c);
-}
-#frd-golive-root .frd-btn-secondary {
-    background: var(--background-modifier-selected, #4e5058);
-}
-#frd-golive-root .frd-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-#frd-golive-root .frd-actions {
-    display: flex;
-    gap: 8px;
-    padding: 8px 12px 0;
-}
-#frd-golive-root .frd-actions .frd-btn {
-    flex: 1;
-}
-#frd-golive-root .frd-live {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--status-danger, #f23f43);
-}
+#frd-golive-root .frd-btn:hover { filter: brightness(1.1); }
+#frd-golive-root .frd-btn-stop { background: var(--status-danger, #da373c); }
+#frd-golive-root .frd-btn-secondary { background: var(--background-modifier-selected, #4e5058); }
+#frd-golive-root .frd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+#frd-golive-root .frd-retry { flex-shrink: 0; }
 #frd-golive-root .frd-live-dot {
     width: 8px;
     height: 8px;
@@ -72,128 +27,6 @@ const CSS = `
 @keyframes frd-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.25; }
-}
-#frd-golive-root .frd-picker-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 3100;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, 0.6);
-}
-#frd-golive-root .frd-picker {
-    width: min(720px, 90vw);
-    max-height: 80vh;
-    overflow-y: auto;
-    padding: 16px;
-    border-radius: 8px;
-    background: var(--background-secondary, #2b2d31);
-    color: var(--text-normal, #dbdee1);
-}
-#frd-golive-root .frd-picker-title {
-    font-weight: 600;
-    margin-bottom: 12px;
-}
-#frd-golive-root .frd-picker-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 10px;
-    margin-bottom: 12px;
-}
-#frd-golive-root .frd-picker-item {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 6px;
-    border: 1px solid var(--background-tertiary, #1e1f22);
-    border-radius: 6px;
-    background: var(--background-primary, #313338);
-    color: inherit;
-    cursor: pointer;
-    text-align: left;
-}
-#frd-golive-root .frd-picker-item:hover {
-    border-color: var(--brand-500, #5865f2);
-}
-#frd-golive-root .frd-picker-thumb {
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    object-fit: cover;
-    border-radius: 4px;
-    background: #000;
-}
-#frd-golive-root .frd-picker-name {
-    font-size: 12px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-#frd-golive-root .frd-status {
-    padding: 6px 12px;
-    font-size: 13px;
-    background: var(--background-tertiary, #1e1f22);
-    color: var(--text-muted, #949ba4);
-}
-#frd-golive-root .frd-status-warn {
-    color: var(--text-warning, #f0b232);
-}
-#frd-golive-root .frd-status-error {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    color: var(--text-danger, #f23f43);
-}
-#frd-golive-root .frd-retry {
-    background: var(--brand-500, #5865f2);
-    flex-shrink: 0;
-}
-#frd-golive-root .frd-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px;
-    overflow-y: auto;
-}
-#frd-golive-root .frd-tile {
-    position: relative;
-    border-radius: 6px;
-    overflow: hidden;
-    background: #000;
-}
-#frd-golive-root .frd-video {
-    width: 100%;
-    display: block;
-    aspect-ratio: 16 / 9;
-    object-fit: contain;
-    background: #000;
-}
-#frd-golive-root .frd-name {
-    position: absolute;
-    left: 6px;
-    bottom: 6px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 12px;
-    background: rgba(0, 0, 0, 0.6);
-}
-#frd-golive-root .frd-tile {
-    cursor: pointer;
-}
-#frd-golive-root .frd-tile-expand {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 13px;
-    background: rgba(0, 0, 0, 0.55);
-    opacity: 0;
-    transition: opacity 0.12s;
-}
-#frd-golive-root .frd-tile:hover .frd-tile-expand {
-    opacity: 1;
 }
 
 /* --- Chip discreto de status (canto inferior direito) --- */
@@ -213,12 +46,9 @@ const CSS = `
     color: var(--text-normal, #dbdee1);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
-#frd-golive-root .frd-chip-error {
-    color: var(--text-danger, #f23f43);
-}
+#frd-golive-root .frd-chip-error { color: var(--text-danger, #f23f43); }
 
 /* --- Botão nativo do Discord sequestrado, em estado "transmitindo" --- */
-button.frd-native-active .buttonIcon_e131a9,
 button.frd-native-active svg {
     color: var(--status-danger, #f23f43) !important;
     fill: var(--status-danger, #f23f43) !important;
@@ -233,6 +63,7 @@ button.frd-native-active svg {
     overflow: hidden;
     background: #000;
 }
+.frd-native-overlay:fullscreen { border-radius: 0; }
 .frd-native-video {
     width: 100%;
     height: 100%;
@@ -248,9 +79,7 @@ button.frd-native-active svg {
     opacity: 0;
     transition: opacity 0.12s;
 }
-.frd-native-overlay:hover .frd-native-btns {
-    opacity: 1;
-}
+.frd-native-overlay:hover .frd-native-btns { opacity: 1; }
 .frd-native-btn {
     width: 30px;
     height: 30px;
@@ -263,104 +92,28 @@ button.frd-native-active svg {
     cursor: pointer;
     color: #fff;
     background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
     transition: background 0.12s, transform 0.12s;
 }
-.frd-native-btn:hover:not(:disabled) {
-    background: var(--brand-500, #5865f2);
-}
-.frd-native-btn:active:not(:disabled) {
-    transform: scale(0.94);
-}
-.frd-native-btn:disabled {
-    cursor: default;
-    opacity: 0.6;
-}
-.frd-native-btn svg,
-.frd-icon svg {
-    display: block;
-}
-.frd-icon {
-    display: inline-flex;
-}
-.frd-native-overlay:fullscreen {
-    border-radius: 0;
-}
-
-/* --- Volume da transmissão (tile nativo e teatro) --- */
-.frd-vol {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 10px 3px 3px;
-    border-radius: 10px;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
-}
-.frd-native-overlay > .frd-vol {
+.frd-native-btn:hover { background: var(--brand-500, #5865f2); }
+.frd-native-btn:active { transform: scale(0.94); }
+.frd-native-btn svg { display: block; }
+/* selo de silenciado (definido no menu de botão direito) */
+.frd-native-muted {
     position: absolute;
     left: 8px;
     bottom: 8px;
-    opacity: 0;
-    transition: opacity 0.12s;
-}
-.frd-native-overlay:hover > .frd-vol {
-    opacity: 1;
-}
-/* Mutado: o alto-falante riscado fica visível mesmo sem hover. */
-.frd-native-overlay.frd-muted > .frd-vol {
-    opacity: 1;
-}
-.frd-native-overlay.frd-muted:not(:hover) > .frd-vol .frd-vol-range,
-.frd-native-overlay.frd-muted:not(:hover) > .frd-vol .frd-vol-pct {
+    width: 28px;
+    height: 28px;
     display: none;
-}
-.frd-native-overlay.frd-muted:not(:hover) > .frd-vol {
-    padding-right: 3px;
-}
-.frd-vol .frd-native-btn {
-    background: transparent;
-    backdrop-filter: none;
-}
-.frd-native-overlay.frd-muted .frd-vol-btn {
-    color: var(--status-danger, #f23f43);
-}
-.frd-vol-range {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 88px;
-    height: 4px;
-    margin: 0;
-    border-radius: 2px;
-    cursor: pointer;
-    background: linear-gradient(to right, #fff var(--frd-fill, 100%), rgba(255, 255, 255, 0.28) var(--frd-fill, 100%));
-}
-.frd-vol-range:disabled {
-    cursor: default;
-    opacity: 0.4;
-}
-.frd-vol-range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
+    align-items: center;
+    justify-content: center;
     border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.55);
-    transition: transform 0.1s;
+    color: #fff;
+    background: var(--status-danger, #da373c);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
-.frd-vol-range:hover::-webkit-slider-thumb {
-    transform: scale(1.2);
-}
-.frd-vol-pct {
-    min-width: 34px;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    color: rgba(255, 255, 255, 0.85);
-}
-.frd-vol-inline {
-    background: rgba(255, 255, 255, 0.08);
-}
+.frd-native-muted svg { width: 16px; height: 16px; }
+.frd-native-overlay.frd-muted .frd-native-muted { display: flex; }
 
 /* --- Modo teatro --- */
 #frd-golive-root .frd-theater {
@@ -419,9 +172,7 @@ button.frd-native-active svg {
     background: #000;
     cursor: pointer;
 }
-#frd-golive-root .frd-strip-active {
-    border-color: var(--brand-500, #5865f2);
-}
+#frd-golive-root .frd-strip-active { border-color: var(--brand-500, #5865f2); }
 #frd-golive-root .frd-strip-video {
     width: 100%;
     aspect-ratio: 16 / 9;
@@ -438,11 +189,143 @@ button.frd-native-active svg {
     background: rgba(0, 0, 0, 0.6);
     color: #fff;
 }
-#frd-golive-root .frd-empty {
-    padding: 16px;
+
+/* --- Picker de transmissão (renderizado no Modal nativo do Discord) --- */
+.frd-gl { display: flex; flex-direction: column; gap: 16px; padding-bottom: 4px; }
+.frd-gl-tabs {
+    display: flex;
+    gap: 20px;
+    border-bottom: 1px solid var(--background-modifier-accent, rgba(78, 80, 88, 0.48));
+}
+.frd-gl-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: -1px;
+    padding: 0 0 10px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--interactive-normal, #b5bac1);
+}
+.frd-gl-tab:hover { color: var(--interactive-hover, #dbdee1); }
+.frd-gl-tab-on {
+    color: var(--interactive-active, #fff);
+    border-bottom-color: var(--brand-500, #5865f2);
+}
+.frd-gl-count {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: 12px;
+    line-height: 18px;
     text-align: center;
+    background: var(--background-modifier-accent, rgba(78, 80, 88, 0.48));
     color: var(--text-muted, #949ba4);
 }
+.frd-gl-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px 12px;
+    max-height: 340px;
+    overflow-y: auto;
+    padding: 4px;
+    margin: -4px;
+}
+.frd-gl-source {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    color: var(--interactive-normal, #b5bac1);
+}
+.frd-gl-thumb {
+    display: block;
+    aspect-ratio: 16 / 9;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--background-tertiary, #1e1f22);
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    transition: outline-color 0.15s, transform 0.15s;
+}
+.frd-gl-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.frd-gl-source:hover .frd-gl-thumb { outline-color: var(--background-modifier-accent, rgba(78, 80, 88, 0.8)); }
+.frd-gl-source-on .frd-gl-thumb,
+.frd-gl-source:focus-visible .frd-gl-thumb { outline-color: var(--brand-500, #5865f2); }
+.frd-gl-source-on { color: var(--header-primary, #f2f3f5); }
+.frd-gl-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 500;
+}
+.frd-gl-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frd-gl-appicon { width: 16px; height: 16px; flex: none; }
+.frd-gl-empty {
+    padding: 28px 12px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--text-muted, #949ba4);
+    background: var(--background-secondary, #2b2d31);
+}
+.frd-gl-quality {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    background: var(--background-secondary, #2b2d31);
+}
+.frd-gl-quality-title { font-size: 16px; font-weight: 600; color: var(--header-primary, #f2f3f5); }
+.frd-gl-quality-row { display: flex; flex-wrap: wrap; gap: 16px 28px; }
+.frd-gl-field { display: flex; flex-direction: column; gap: 8px; }
+.frd-gl-eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--header-secondary, #b5bac1);
+}
+.frd-gl-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.frd-gl-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 32px;
+    padding: 0 14px;
+    border: 1px solid var(--background-modifier-accent, rgba(78, 80, 88, 0.48));
+    border-radius: 16px;
+    background: var(--background-primary, #313338);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--interactive-normal, #b5bac1);
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.frd-gl-pill:hover:not(:disabled) { color: var(--interactive-hover, #dbdee1); border-color: var(--interactive-muted, #4e5058); }
+.frd-gl-pill-on,
+.frd-gl-pill-on:hover:not(:disabled) {
+    background: var(--brand-500, #5865f2);
+    border-color: var(--brand-500, #5865f2);
+    color: #fff;
+}
+.frd-gl-pill:disabled { opacity: 0.45; cursor: not-allowed; }
+.frd-gl-lock { flex: none; }
+.frd-gl-hint { font-size: 12px; color: var(--text-muted, #949ba4); }
+.frd-gl-audio { display: flex; align-items: center; margin-right: auto; }
+.frd-gl-audio-label { font-size: 14px; color: var(--text-normal, #dbdee1); }
 `;
 
 let styleEl: HTMLStyleElement | null = null;

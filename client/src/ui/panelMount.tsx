@@ -9,7 +9,6 @@ import { findByPropsLazy } from "@webpack";
 import { React, ReactDOM } from "@webpack/common";
 
 import { PrivateStreamPanel } from "./PrivateStreamPanel";
-import { SourcePicker } from "./SourcePicker";
 import { TheaterView } from "./TheaterView";
 
 type MinimalRoot = { render(node: unknown): void; unmount(): void; };
@@ -30,7 +29,6 @@ function tree(): unknown {
         React.Fragment,
         null,
         React.createElement(PrivateStreamPanel),
-        React.createElement(SourcePicker),
         React.createElement(TheaterView),
     );
 }

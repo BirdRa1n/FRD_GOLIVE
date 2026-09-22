@@ -51,6 +51,7 @@ export interface RtcSessionCallbacks {
 
 export interface ScreenShareOptions {
     systemAudio: boolean;
+    /** Altura máxima em px; 0 = resolução da fonte (sem limite). */
     maxHeight: number;
     fps: number;
 }
@@ -110,24 +111,25 @@ export class RtcSession {
         // janela) NÃO entra, como no compartilhamento nativo. suppressLocalAudioPlayback
         // evita eco local do áudio capturado.
         const stream = await navigator.mediaDevices.getDisplayMedia({
-            video: {
-                width: Math.round((opts.maxHeight * 16) / 9),
-                height: opts.maxHeight,
-                frameRate: opts.fps,
-            },
+            video: opts.maxHeight > 0
+                ? { width: Math.round((opts.maxHeight * 16) / 9), height: opts.maxHeight, frameRate: opts.fps }
+                : { frameRate: opts.fps },
             audio: opts.systemAudio
                 ? ({ suppressLocalAudioPlayback: true } as MediaTrackConstraints)
                 : false,
         });
 
-        await this.publishCapturedStream(stream, opts);
+        await this.publishScreenStream(stream, opts);
     }
 
-    /** Publica um MediaStream de tela (vídeo em alta + áudio scoped) no LiveKit. */
-    private async publishCapturedStream(stream: MediaStream, opts: ScreenShareOptions): Promise<void> {
+    /**
+     * Publica um MediaStream de tela (vídeo em alta + áudio) no LiveKit. Usado
+     * tanto pelo getDisplayMedia quanto pela captura nativa (desktopCapturer).
+     */
+    async publishScreenStream(stream: MediaStream, opts: Pick<ScreenShareOptions, "maxHeight" | "fps">): Promise<void> {
         if (!this.room) throw new Error("Não conectado ao servidor privado.");
 
-        const maxBitrate = opts.maxHeight >= 1440 ? 8_000_000
+        const maxBitrate = opts.maxHeight === 0 || opts.maxHeight >= 1440 ? 8_000_000
             : opts.maxHeight >= 1080 ? 5_000_000
             : 2_500_000;
 
@@ -156,24 +158,6 @@ export class RtcSession {
         const track = await createLocalVideoTrack();
         await this.room.localParticipant.publishTrack(track);
         this.publishedTracks.push(track);
-    }
-
-    /**
-     * Publica tracks de um MediaStream já capturado (ex.: via desktopCapturer do
-     * Electron, contornando o getDisplayMedia do Discord em regiões censuradas).
-     */
-    async publishMediaStream(stream: MediaStream): Promise<void> {
-        if (!this.room) throw new Error("Não conectado ao servidor privado.");
-        for (const mediaTrack of stream.getTracks()) {
-            const isAudio = mediaTrack.kind === "audio";
-            const track = isAudio ? new LocalAudioTrack(mediaTrack) : new LocalVideoTrack(mediaTrack);
-            await this.room.localParticipant.publishTrack(track, {
-                source: isAudio ? Track.Source.ScreenShareAudio : Track.Source.ScreenShare,
-            });
-            this.publishedTracks.push(track);
-            // Se o usuário parar a captura pelo overlay do SO, encerra a publicação.
-            mediaTrack.addEventListener("ended", () => void this.stopSharing());
-        }
     }
 
     async stopSharing(): Promise<void> {

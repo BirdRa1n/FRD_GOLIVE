@@ -12,13 +12,15 @@ import type { NativeSource } from "./types";
 export async function getScreenSources(_: IpcMainInvokeEvent): Promise<NativeSource[]> {
     const sources = await desktopCapturer.getSources({
         types: ["screen", "window"],
-        thumbnailSize: { width: 320, height: 180 },
-        fetchWindowIcons: false,
+        thumbnailSize: { width: 480, height: 270 },
+        fetchWindowIcons: true,
     });
 
     return sources.map(source => ({
         id: source.id,
         name: source.name,
+        kind: source.id.startsWith("screen:") ? "screen" as const : "window" as const,
         thumbnail: source.thumbnail.toDataURL(),
+        appIcon: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : undefined,
     }));
 }

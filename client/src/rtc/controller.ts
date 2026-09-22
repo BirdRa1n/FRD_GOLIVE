@@ -12,7 +12,8 @@
 import { getLocalUser } from "../discordState";
 import { settings } from "../settings";
 import { streamStore } from "../state/streamStore";
-import { pickSource } from "../ui/pickerController";
+import type { NativeSource } from "../types";
+import { openGoLivePicker } from "../ui/GoLiveModal";
 import { playStreamSound } from "../ui/streamSounds";
 import {
     captureNativeSource,
@@ -97,8 +98,8 @@ function buildSession(): RtcSession {
         onReconnecting: () => streamStore.setStatus("reconnecting"),
         onReconnected: () => streamStore.setStatus("connected"),
         onDisconnected: () => handleUnexpectedDisconnect(),
-        onRemoteVideoStarted: () => playStreamSound("start"),
-        onRemoteVideoStopped: () => playStreamSound("stop"),
+        onRemoteVideoStarted: id => playStreamSound("start", id),
+        onRemoteVideoStopped: id => playStreamSound("stop", id),
         onLocalSharingStopped: () => {
             control?.setState(false);
             streamStore.setSharing(null);
@@ -240,59 +241,83 @@ export async function reconnectNow(): Promise<void> {
     }
 }
 
-/** Aplica as quotas do admin (resolução/FPS) sobre o pedido do usuário. */
-function clampToPolicy(maxHeight: number, fps: number): { maxHeight: number; fps: number; } {
-    return {
-        maxHeight: policy.maxHeight > 0 ? Math.min(maxHeight, policy.maxHeight) : maxHeight,
-        fps: policy.maxFps > 0 ? Math.min(fps, policy.maxFps) : fps,
-    };
-}
-
 function ensureMediaReady(): RtcSession {
     if (!policy.enabled) throw new Error("Aguardando liberação do admin — peça acesso no site.");
     if (!session?.isConnected) throw new Error("Conectando à mídia — tente novamente em instantes.");
     return session;
 }
 
-export async function startScreenShare(): Promise<void> {
-    const s = ensureMediaReady();
+/** Garante as quotas do admin mesmo se a escolha vier de fora do picker. */
+function clampToPolicy(maxHeight: number, fps: number): { maxHeight: number; fps: number; } {
+    const capH = policy.maxHeight;
+    return {
+        maxHeight: capH > 0 && (maxHeight === 0 || maxHeight > capH) ? capH : maxHeight,
+        fps: policy.maxFps > 0 ? Math.min(fps, policy.maxFps) : fps,
+    };
+}
 
-    if (settings.store.nativeScreenCapture && isNativeCaptureAvailable()) {
-        return startScreenShareNative();
+/**
+ * Abre o picker (fontes + qualidade + som, estilo Discord) e transmite a tela.
+ * Com o módulo nativo (Discord Desktop) captura pelo desktopCapturer — que
+ * também contorna o bloqueio regional; sem ele, a janela é escolhida no
+ * getDisplayMedia depois do picker.
+ */
+export async function startScreenShare(): Promise<void> {
+    let s: RtcSession;
+    try {
+        s = ensureMediaReady();
+    } catch (e) {
+        streamStore.setError(describeError(e));
+        return;
     }
 
-    const q = clampToPolicy(Number(settings.store.maxHeight), Number(settings.store.fps));
+    const native = isNativeCaptureAvailable();
+    let sources: NativeSource[] | null = null;
+    if (native) {
+        try {
+            sources = await getNativeSources();
+        } catch (e) {
+            streamStore.setError(describeError(e));
+            return;
+        }
+    }
+
+    const choice = await openGoLivePicker({
+        sources,
+        policyMaxHeight: policy.maxHeight,
+        policyMaxFps: policy.maxFps,
+        initial: {
+            maxHeight: Number(settings.store.maxHeight),
+            fps: Number(settings.store.fps),
+            audio: settings.store.includeSystemAudio,
+        },
+        // desktopCapturer não entrega áudio de sistema no macOS
+        audioSupported: !(native && /Mac/i.test(navigator.userAgent)),
+    });
+    if (!choice) return;
+
+    // lembra a escolha para a próxima vez
+    settings.store.maxHeight = choice.maxHeight;
+    settings.store.fps = choice.fps;
+    settings.store.includeSystemAudio = choice.audio;
+
+    const q = clampToPolicy(choice.maxHeight, choice.fps);
     try {
-        await s.shareScreen({ systemAudio: settings.store.includeSystemAudio, maxHeight: q.maxHeight, fps: q.fps });
+        if (choice.source) {
+            const stream = await captureNativeSource(choice.source.id, {
+                systemAudio: choice.audio,
+                maxHeight: q.maxHeight,
+                fps: q.fps,
+            });
+            await s.publishScreenStream(stream, q);
+        } else {
+            await s.shareScreen({ systemAudio: choice.audio, maxHeight: q.maxHeight, fps: q.fps });
+        }
         markSharing("screen");
     } catch (e) {
         if (e instanceof Error && e.name === "NotAllowedError") return;
-        if (isNativeCaptureAvailable()) {
-            try { await startScreenShareNative(); return; }
-            catch (nativeErr) { streamStore.setError(describeError(nativeErr)); return; }
-        }
         streamStore.setError(describeError(e));
     }
-}
-
-/** Compartilha a tela usando o desktopCapturer do Electron (contorna o Discord). */
-export async function startScreenShareNative(): Promise<void> {
-    const s = ensureMediaReady();
-
-    const sources = await getNativeSources();
-    if (sources.length === 0) throw new Error("Nenhuma tela/janela disponível para capturar.");
-
-    const chosen = await pickSource(sources);
-    if (!chosen) return;
-
-    const q = clampToPolicy(Number(settings.store.maxHeight), Number(settings.store.fps));
-    const stream = await captureNativeSource(chosen.id, {
-        systemAudio: settings.store.includeSystemAudio,
-        maxHeight: q.maxHeight,
-        fps: q.fps,
-    });
-    await s.publishMediaStream(stream);
-    markSharing("screen");
 }
 
 export async function startCameraShare(): Promise<void> {
