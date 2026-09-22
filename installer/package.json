@@ -7,9 +7,9 @@
   "scripts": {
     "build": "tsc && esbuild src/preload.ts --bundle --platform=node --external:electron --outfile=dist/preload.js",
     "build:vencord": "node scripts/build-vencord-dist.mjs",
-    "start": "npm run build && electron .",
-    "start:full": "npm run build:vencord && npm run start",
-    "dist": "npm run build:vencord && npm run build && electron-builder",
+    "start": "node scripts/ensure-vencord-dist.mjs && npm run build && electron .",
+    "start:full": "npm run build:vencord && npm run build && electron .",
+    "dist": "node scripts/ensure-vencord-dist.mjs && npm run build && electron-builder",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
