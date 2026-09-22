@@ -25,6 +25,8 @@ class StreamStore {
     sharingKind: SharingKind = null;
     /** Fontes a escolher no picker de captura nativa (null = picker fechado). */
     pickerSources: NativeSource[] | null = null;
+    /** Stream em foco no modo teatro (null = teatro fechado). */
+    focusedId: string | null = null;
 
     subscribe(listener: Listener): () => void {
         this.listeners.add(listener);
@@ -43,7 +45,15 @@ class StreamStore {
     }
 
     remove(id: string): void {
-        if (this.streams.delete(id)) this.emit();
+        if (this.streams.delete(id)) {
+            if (this.focusedId === id) this.focusedId = null;
+            this.emit();
+        }
+    }
+
+    setFocused(id: string | null): void {
+        this.focusedId = id;
+        this.emit();
     }
 
     /** Remove só os streams remotos (ex.: numa queda), preservando status. */
@@ -89,6 +99,7 @@ class StreamStore {
         this.errorMessage = null;
         this.sharingKind = null;
         this.pickerSources = null;
+        this.focusedId = null;
         this.emit();
     }
 

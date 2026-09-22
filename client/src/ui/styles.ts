@@ -178,6 +178,100 @@ const CSS = `
     font-size: 12px;
     background: rgba(0, 0, 0, 0.6);
 }
+#frd-golive-root .frd-tile {
+    cursor: pointer;
+}
+#frd-golive-root .frd-tile-expand {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+#frd-golive-root .frd-tile:hover .frd-tile-expand {
+    opacity: 1;
+}
+
+/* --- Modo teatro --- */
+#frd-golive-root .frd-theater {
+    position: fixed;
+    inset: 0;
+    z-index: 3200;
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.92);
+    color: var(--text-normal, #dbdee1);
+}
+#frd-golive-root .frd-theater-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+}
+#frd-golive-root .frd-theater-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+#frd-golive-root .frd-theater-actions {
+    display: flex;
+    gap: 8px;
+}
+#frd-golive-root .frd-theater-stage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+}
+#frd-golive-root .frd-theater-video {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+}
+#frd-golive-root .frd-theater-strip {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    overflow-x: auto;
+}
+#frd-golive-root .frd-strip-item {
+    position: relative;
+    flex: 0 0 auto;
+    width: 160px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+    cursor: pointer;
+}
+#frd-golive-root .frd-strip-active {
+    border-color: var(--brand-500, #5865f2);
+}
+#frd-golive-root .frd-strip-video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    display: block;
+}
+#frd-golive-root .frd-strip-name {
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+}
 #frd-golive-root .frd-empty {
     padding: 16px;
     text-align: center;

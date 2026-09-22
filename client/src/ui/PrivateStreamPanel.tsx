@@ -17,9 +17,16 @@ function VideoTile({ info }: { info: RemoteStreamInfo; }) {
     }, [info.stream]);
 
     return (
-        <div className="frd-tile">
+        <div
+            className="frd-tile"
+            role="button"
+            tabIndex={0}
+            title="Assistir em tela cheia"
+            onClick={() => streamStore.setFocused(info.id)}
+        >
             <video ref={ref} autoPlay playsInline className="frd-video" />
             <span className="frd-name">{info.name}</span>
+            <span className="frd-tile-expand">⛶</span>
         </div>
     );
 }
