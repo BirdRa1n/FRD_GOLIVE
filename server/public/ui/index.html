@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FRD GoLive — Design system</title>
+<link rel="stylesheet" href="ui.css" />
+<script src="ui.js"></script>
+<style>
+  /* só do catálogo */
+  .spec { display: grid; gap: 14px; }
+  .spec > header { display: grid; gap: 4px; }
+  .demo { background: var(--bg-2); border: 1px solid var(--separator); border-radius: var(--r-xl); padding: 20px; display: grid; gap: 16px; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .swatch { border: 1px solid var(--separator); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+  .swatch i { display: block; height: 52px; }
+  .swatch div { padding: 8px 10px; font-size: 12px; display: grid; }
+  .swatch code { font-family: var(--font-mono); color: var(--text-3); font-size: 11px; }
+  .icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+  .icons div { display: grid; justify-items: center; gap: 6px; padding: 12px 6px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--separator); font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
+  .icons svg { width: 22px; height: 22px; color: var(--text); }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 6px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="container">
+    <a class="brand" href="/"><span class="logo" data-icon="logo"></span>FRD GoLive · Design system</a>
+    <div class="segmented" data-theme-switch aria-label="Tema">
+      <button data-value="system" aria-pressed="true">Sistema</button>
+      <button data-value="light" aria-pressed="false">Claro</button>
+      <button data-value="dark" aria-pressed="false">Escuro</button>
+    </div>
+  </div>
+</header>
+
+<main class="container page">
+  <section class="stack" style="--gap:8px">
+    <span class="eyebrow">Fase 1 · ui.css + ui.js</span>
+    <h1 class="large-title">Componentes <span class="gradient-text">FRD GoLive</span></h1>
+    <p class="subhead">Referência viva do hub, do login, do admin e do instalador. Tudo aqui usa só <span class="mono">/ui/ui.css</span> e <span class="mono">/ui/ui.js</span>, sem build. Troque o tema no topo.</p>
+    <nav class="toc">
+      <a class="chip accent" href="#cores">Cores</a><a class="chip accent" href="#tipografia">Tipografia</a><a class="chip accent" href="#botoes">Botões</a>
+      <a class="chip accent" href="#listas">Listas</a><a class="chip accent" href="#cards">Cards</a><a class="chip accent" href="#controles">Controles</a>
+      <a class="chip accent" href="#dados">Dados</a><a class="chip accent" href="#feedback">Feedback</a><a class="chip accent" href="#icones">Ícones</a>
+    </nav>
+  </section>
+
+  <section class="spec" id="cores">
+    <header><h2 class="title">Cores</h2><p class="subhead">Tokens em <span class="mono">:root</span>, redefinidos no escuro. Componentes nunca usam cor literal.</p></header>
+    <div class="swatches">
+      <div class="swatch"><i style="background:var(--gradient)"></i><div><b>--gradient</b><code>g1 → g2 → g3</code></div></div>
+      <div class="swatch"><i style="background:var(--accent)"></i><div><b>--accent</b><code>#6C5CF5 / #9384FF</code></div></div>
+      <div class="swatch"><i style="background:var(--blurple)"></i><div><b>--blurple</b><code>#5865F2</code></div></div>
+      <div class="swatch"><i style="background:var(--bg)"></i><div><b>--bg</b><code>#F4F3FA / #0B0A12</code></div></div>
+      <div class="swatch"><i style="background:var(--surface)"></i><div><b>--surface</b><code>#FFFFFF / #17151F</code></div></div>
+      <div class="swatch"><i style="background:var(--fill-2)"></i><div><b>--fill-2</b><code>preenchimentos</code></div></div>
+      <div class="swatch"><i style="background:var(--ok)"></i><div><b>--ok</b><code>#1F9D55 / #3DD68C</code></div></div>
+      <div class="swatch"><i style="background:var(--warn)"></i><div><b>--warn</b><code>#C27C00 / #F5B43C</code></div></div>
+      <div class="swatch"><i style="background:var(--danger)"></i><div><b>--danger</b><code>#E0444B / #FF6369</code></div></div>
+    </div>
+  </section>
+
+  <section class="spec" id="tipografia">
+    <header><h2 class="title">Tipografia</h2><p class="subhead">Fonte do sistema (SF no Mac, Segoe no Windows). Nenhuma fonte externa: o hub e o instalador funcionam offline e sem terceiros.</p></header>
+    <div class="demo">
+      <span class="eyebrow">.eyebrow</span>
+      <h3 class="large-title">.large-title — Olá, Dário</h3>
+      <h3 class="title">.title — Transmissões ativas</h3>
+      <p class="headline">.headline — Plugin conectado</p>
+      <p class="subhead">.subhead — Sua tela vai pelo servidor da empresa. A voz continua no Discord.</p>
+      <p class="caption">.caption — atualizado há 2 min · <span class="mono">.mono 81239…7702</span> · <span class="num">.num 00:12:44</span></p>
+    </div>
+  </section>
+
+  <section class="spec" id="botoes">
+    <header><h2 class="title">Botões</h2><p class="subhead">Uma ação principal por tela (<span class="mono">.btn-prominent</span>). <span class="mono">aria-busy="true"</span> mostra carregando.</p></header>
+    <div class="demo">
+      <div class="cluster">
+        <button class="btn btn-prominent">Aplicar modificação</button>
+        <button class="btn">Tinted (padrão)</button>
+        <button class="btn btn-plain">Plain</button>
+        <button class="btn btn-destructive">Revogar</button>
+        <button class="btn btn-destructive btn-filled">Encerrar</button>
+        <button class="btn btn-blurple"><i data-icon="discord"></i>Entrar com Discord</button>
+      </div>
+      <div class="cluster">
+        <button class="btn btn-prominent btn-lg">Grande</button>
+        <button class="btn btn-sm">Pequeno</button>
+        <button class="btn btn-icon" aria-label="Configurações"><i data-icon="settings"></i></button>
+        <button class="btn btn-prominent" aria-busy="true">Aplicando…</button>
+        <button class="btn" disabled>Desabilitado</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="spec" id="listas">
+    <header><h2 class="title">Listas agrupadas</h2><p class="subhead">Equivalente ao <span class="mono">List(.insetGrouped)</span>: <span class="mono">.section-title</span> → <span class="mono">.group</span> → <span class="mono">.row</span>.</p></header>
+    <div class="demo" style="max-width:560px">
+      <div>
+        <p class="section-title">Seu Discord</p>
+        <div class="group">
+          <div class="row"><span class="icon-tile ok" data-icon="monitor"></span><div class="row-body"><div class="row-title">Plugin conectado</div><div class="row-detail">Discord Stable · macOS</div></div><span class="chip ok">agora</span></div>
+          <div class="row"><span class="icon-tile" data-icon="mic"></span><div class="row-body"><div class="row-title">Na call: #engenharia <span class="chip live">AO VIVO</span></div><div class="row-detail">3 pessoas · 1 transmitindo</div></div></div>
+          <div class="row"><div class="row-body"><div class="row-title">Som ao iniciar transmissão</div><div class="row-detail">Sons do próprio Discord</div></div><button class="toggle" role="switch" aria-checked="true" aria-label="Som ao iniciar transmissão"></button></div>
+          <a class="row" href="#listas"><span class="icon-tile neutral" data-icon="settings"></span><div class="row-body"><div class="row-title">Preferências</div></div><span class="row-accessory chevron"></span></a>
+        </div>
+        <p class="section-footer">Rodapé da seção explica a consequência de uma opção.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="spec" id="cards">
+    <header><h2 class="title">Cards</h2></header>
+    <div class="grid-auto" style="--min:260px">
+      <div class="card-hero">
+        <span class="caption" style="color:rgba(255,255,255,.8)">Status do acesso</span>
+        <span class="title" style="font-size:24px">Liberado para transmitir</span>
+        <span class="cluster"><span class="chip">até 1080p</span><span class="chip">30 fps</span></span>
+      </div>
+      <div class="card-hero neutral">
+        <span class="caption" style="color:rgba(255,255,255,.8)">Status do acesso</span>
+        <span class="title" style="font-size:24px">Aguardando o admin</span>
+        <span class="cluster"><button class="btn btn-glass btn-sm">Pedir acesso</button></span>
+      </div>
+      <div class="card">
+        <h3 class="title">.card</h3>
+        <p class="subhead">Superfície neutra para conteúdo agrupado sem lista.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="spec" id="controles">
+    <header><h2 class="title">Controles</h2><p class="subhead">Toggle, segmented e radio cards emitem o evento <span class="mono">change</span> com <span class="mono">detail</span>.</p></header>
+    <div class="demo">
+      <div class="cluster" style="--gap:16px">
+        <button class="toggle" role="switch" aria-checked="false" aria-label="Exemplo desligado"></button>
+        <button class="toggle" role="switch" aria-checked="true" aria-label="Exemplo ligado"></button>
+        <button class="toggle" role="switch" aria-checked="true" disabled aria-label="Exemplo desabilitado"></button>
+        <div class="segmented" id="seg-demo" aria-label="Qualidade">
+          <button data-value="720" aria-pressed="false">720p</button>
+          <button data-value="1080" aria-pressed="true">1080p</button>
+          <button data-value="1440" aria-pressed="false">1440p</button>
+        </div>
+        <span class="caption" id="seg-out">valor: 1080</span>
+      </div>
+      <div class="choice" role="radiogroup" aria-label="Servidor">
+        <button class="choice-card" role="radio" aria-checked="true" data-value="default"><b>Servidor birdra1n</b><span>Pronto pra usar.</span></button>
+        <button class="choice-card" role="radio" aria-checked="false" data-value="own"><b>Meu próprio servidor</b><span>Informe o host da sua empresa.</span></button>
+      </div>
+      <div class="grid-auto" style="--min:220px">
+        <label class="label">Host do servidor<input class="field mono" placeholder="https://golive.suaempresa.com" /></label>
+        <label class="label">Com erro<input class="field" aria-invalid="true" value="ftp://errado" /></label>
+      </div>
+    </div>
+  </section>
+
+  <section class="spec" id="dados">
+    <header><h2 class="title">Dados</h2><p class="subhead">Métricas com sparkline (<span class="mono">FRDUI.sparkline</span>), timeline e tabela.</p></header>
+    <div class="grid-auto" style="--min:170px" id="metrics"></div>
+    <div class="grid-auto" style="--min:300px">
+      <div>
+        <p class="section-title">Histórico do pedido</p>
+        <div class="group timeline">
+          <div class="timeline-item"><span>Acesso liberado por <b>Ana</b></span><time>12 set, 14:03</time></div>
+          <div class="timeline-item"><span>Pedido enviado</span><time>12 set, 13:51</time></div>
+          <div class="timeline-item pending"><span>Pedir 1440p</span><time>—</time></div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Usuário</th><th>Qualidade</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>ana.l</td><td class="num">1080p · 30</td><td><span class="chip ok">liberado</span></td></tr>
+            <tr><td>rafa.t</td><td class="num">720p · 30</td><td><span class="chip warn">pendente</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="group"><div class="empty"><i data-icon="live"></i><b>Nenhuma transmissão agora</b><span>Quando alguém começar, aparece aqui.</span></div></div>
+  </section>
+
+  <section class="spec" id="feedback">
+    <header><h2 class="title">Feedback</h2><p class="subhead">Sheet (<span class="mono">&lt;dialog class="sheet"&gt;</span>), confirmação, toast, avisos e progresso.</p></header>
+    <div class="demo">
+      <div class="cluster">
+        <button class="btn btn-prominent" data-sheet-open="#sheet-demo">Abrir sheet</button>
+        <button class="btn btn-destructive" id="confirm-demo">Confirmação</button>
+        <button class="btn" id="toast-demo">Toast</button>
+      </div>
+      <div class="notice"><i data-icon="info"></i><span>Aviso neutro com informação útil.</span></div>
+      <div class="notice warn"><i data-icon="alert"></i><span>Feche o Discord antes de aplicar a modificação.</span></div>
+      <div class="notice danger"><i data-icon="alert"></i><span>Servidor inacessível. Confira o host e tente de novo.</span></div>
+      <div class="progress" style="--value:62%"><i></i></div>
+      <div class="progress indeterminate"><i></i></div>
+      <div class="cluster"><span class="spinner"></span><span class="caption">.spinner</span>
+        <span class="avatar">DJ</span><span class="avatar" style="background:#6BB7A6">RT</span>
+        <span class="chip">neutro</span><span class="chip ok">ok</span><span class="chip warn">pendente</span><span class="chip danger">erro</span><span class="chip accent">accent</span><span class="chip live">AO VIVO</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="spec" id="icones">
+    <header><h2 class="title">Ícones</h2><p class="subhead"><span class="mono">&lt;i data-icon="nome"&gt;&lt;/i&gt;</span> ou <span class="mono">FRDUI.icon("nome")</span>.</p></header>
+    <div class="icons" id="icons"></div>
+  </section>
+</main>
+
+<dialog class="sheet" id="sheet-demo" aria-labelledby="sheet-demo-title">
+  <div class="sheet-header"><h2 class="title" id="sheet-demo-title">Liberar marina.c</h2><button class="btn btn-icon btn-plain" data-sheet-close aria-label="Fechar"><i data-icon="x"></i></button></div>
+  <div class="sheet-body">
+    <div class="label">Resolução máxima
+      <div class="segmented segmented-block" aria-label="Resolução máxima"><button data-value="720" aria-pressed="false">720p</button><button data-value="1080" aria-pressed="true">1080p</button><button data-value="1440" aria-pressed="false">1440p</button></div>
+    </div>
+    <div class="label">FPS máximo
+      <div class="segmented segmented-block" aria-label="FPS máximo"><button data-value="15" aria-pressed="false">15</button><button data-value="30" aria-pressed="true">30</button><button data-value="60" aria-pressed="false">60</button></div>
+    </div>
+  </div>
+  <div class="sheet-footer"><button class="btn" data-sheet-close>Cancelar</button><button class="btn btn-prominent" data-sheet-close="ok">Liberar</button></div>
+</dialog>
+
+<script>
+  (function () {
+    var ui = window.FRDUI;
+    document.getElementById("seg-demo").addEventListener("change", function (e) {
+      document.getElementById("seg-out").textContent = "valor: " + e.detail.value;
+    });
+    document.getElementById("toast-demo").addEventListener("click", function () {
+      ui.toast("Acesso liberado para marina.c", "ok");
+    });
+    document.getElementById("confirm-demo").addEventListener("click", function () {
+      ui.confirm({ title: "Revogar acesso de ana.l?", message: "A transmissão atual dela para na hora.", confirmLabel: "Revogar", destructive: true })
+        .then(function (ok) { ui.toast(ok ? "Acesso revogado" : "Cancelado", ok ? "danger" : undefined); });
+    });
+    document.getElementById("sheet-demo").addEventListener("close", function (e) {
+      if (e.target.returnValue === "ok") ui.toast("marina.c liberada", "ok");
+    });
+    var metrics = [
+      ["Transmissões", "3", [1, 1, 2, 2, 3, 2, 3, 3]],
+      ["CPU (1 min)", "0,42", [.3, .35, .5, .4, .38, .45, .41, .42]],
+      ["Memória", "38%", [30, 31, 33, 35, 36, 37, 37, 38]],
+      ["Conexões", "11", [4, 6, 8, 7, 9, 10, 12, 11]],
+    ];
+    document.getElementById("metrics").innerHTML = metrics.map(function (m) {
+      return '<div class="metric"><span class="metric-label">' + m[0] + '</span><span class="metric-value">' + m[1] + "</span>" + ui.sparkline(m[2]) + "</div>";
+    }).join("");
+    document.getElementById("icons").innerHTML = ui.icons.map(function (n) {
+      return "<div>" + ui.icon(n) + n + "</div>";
+    }).join("");
+  })();
+</script>
+</body>
+</html>

@@ -5,12 +5,13 @@
   "description": "Instalador FRD GoLive — aplica a modificação no Discord (Mac/Windows).",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc && esbuild src/preload.ts --bundle --platform=node --external:electron --outfile=dist/preload.js",
+    "build": "node scripts/sync-ui.mjs && tsc && esbuild src/preload.ts --bundle --platform=node --external:electron --outfile=dist/preload.js",
     "build:vencord": "node scripts/build-vencord-dist.mjs",
     "start": "node scripts/ensure-vencord-dist.mjs && npm run build && electron .",
     "start:full": "npm run build:vencord && npm run build && electron .",
     "dist": "node scripts/ensure-vencord-dist.mjs && npm run build && electron-builder",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "sync-ui": "node scripts/sync-ui.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.5.0",

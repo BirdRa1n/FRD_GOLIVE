@@ -3,62 +3,101 @@
 <head>
 <meta charset="utf-8" />
 <title>FRD GoLive — Instalador</title>
+<!-- Design system: copiado de server/public/ui no build (scripts/sync-ui.mjs). -->
+<link rel="stylesheet" href="./ui/ui.css" />
+<script src="./ui/ui.js"></script>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; background: #0f1014; color: #dbdee1; margin: 0; padding: 28px; }
-  h1 { font-size: 20px; margin: 0 0 2px; }
-  .muted { color: #949ba4; font-size: 13px; }
-  .card { background: #1a1b20; border: 1px solid #26272e; border-radius: 10px; padding: 16px; margin-top: 16px; }
-  label.opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid #26272e; border-radius: 8px; cursor: pointer; margin-bottom: 8px; }
-  label.opt:hover { border-color: #5865f2; }
-  input[type=text] { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #26272e; background: #0f1014; color: #fff; margin-top: 8px; }
-  button { border: 0; border-radius: 8px; padding: 11px 16px; cursor: pointer; color: #fff; background: #5865f2; font-size: 14px; width: 100%; margin-top: 14px; }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  button.sec { background: #4e5058; }
-  #log { white-space: pre-wrap; font-size: 12px; color: #b5bac1; margin-top: 12px; }
-  .ok { color: #3ba55d; } .err { color: #f23f43; }
-  .hidden { display: none; }
-  details.note { margin-top: 12px; font-size: 12px; color: #b5bac1; }
-  details.note summary { cursor: pointer; color: #949ba4; }
-  details.note ul { margin: 8px 0 0; padding-left: 18px; }
-  details.note li { margin-bottom: 4px; }
+  /* macOS: semáforo sobre o conteúdo (titleBarStyle hiddenInset) — faixa arrastável */
+  .titlebar { height: 0; -webkit-app-region: drag; }
+  .mac .titlebar { height: 34px; }
+  .titlebar-actions { position: fixed; top: 8px; right: 12px; -webkit-app-region: no-drag; z-index: 5; }
+  .mac .titlebar-actions { top: 4px; }
+  main.container { max-width: 520px; }
+  .hero { display: grid; justify-items: start; gap: 12px; }
+  details.notice { display: block; }
+  details.notice summary { cursor: pointer; font-weight: 600; color: var(--text); list-style: none; display: flex; align-items: center; gap: 8px; }
+  details.notice summary::-webkit-details-marker { display: none; }
+  details.notice summary::after { content: "›"; margin-left: auto; font-size: 18px; color: var(--text-3); transition: transform .25s var(--spring); }
+  details.notice[open] summary::after { transform: rotate(90deg); }
+  details.notice ul { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+  #log { white-space: pre-wrap; margin: 0; }
+  .done-icon { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--gradient); box-shadow: var(--glow); animation: pop .6s var(--spring); }
+  .done-icon svg { width: 30px; height: 30px; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } }
 </style>
 </head>
 <body>
-  <h1>FRD GoLive</h1>
-  <p class="muted">Aplica a modificação no Discord para transmissão de tela/câmera privada.</p>
-
-  <div id="step-config" class="card">
-    <label class="opt"><input type="radio" name="server" value="default" checked />
-      <span><b>Usar o servidor birdra1n</b><br><span class="muted">Mais simples. Você libera o acesso depois no site.</span></span></label>
-    <label class="opt"><input type="radio" name="server" value="own" />
-      <span><b>Configurar meu próprio servidor</b><br><span class="muted">Informe o host — ele devolve toda a config.</span></span></label>
-    <input type="text" id="host" class="hidden" placeholder="https://golive.suaempresa.com" />
-
-    <details class="note">
-      <summary>O que a modificação faz (e sobre a senha de administrador)</summary>
-      <ul>
-        <li>Injeta o <b>Vencord</b> (client mod) no seu Discord e ativa o plugin FRD GoLive.</li>
-        <li>Grava as <b>settings do plugin</b> e uma regra de <b>CSP</b> liberando só o domínio do seu servidor.</li>
-        <li>Ao aplicar, o sistema pode <b>pedir sua senha de administrador</b> — é o passo que
-            modifica o app do Discord (no macOS, quando ele está em /Aplicativos). Nada é
-            enviado a terceiros nem alterado fora dos dados do app e do Discord.</li>
-        <li><b>Feche o Discord</b> antes de aplicar; reabra depois.</li>
-      </ul>
-    </details>
-
-    <button id="apply">Aplicar modificação</button>
-    <div id="log"></div>
+  <div class="titlebar"></div>
+  <div class="titlebar-actions">
+    <div class="segmented" data-theme-switch aria-label="Tema">
+      <button data-value="system" aria-pressed="true">Sistema</button>
+      <button data-value="light" aria-pressed="false">Claro</button>
+      <button data-value="dark" aria-pressed="false">Escuro</button>
+    </div>
   </div>
 
-  <div id="step-done" class="card hidden">
-    <p class="ok"><b>✔ Modificação aplicada!</b></p>
-    <p class="muted" id="done-msg"></p>
-    <p class="muted">Agora entre no site para habilitar o uso do servidor. Quando o admin liberar, o Discord já notifica e liga as funções.</p>
-    <button id="open-hub">Abrir navegador (habilitar acesso)</button>
-    <button id="restart" class="sec">Instalar em outro Discord</button>
-  </div>
+  <main class="container page">
+    <header class="hero appear">
+      <span class="logo logo-lg" data-icon="logo"></span>
+      <div class="stack" style="--gap:4px">
+        <h1 class="large-title">Instalar o <span class="gradient-text">FRD GoLive</span></h1>
+        <p class="subhead">Aplica a modificação no Discord para transmitir tela e câmera pelo servidor da sua empresa.</p>
+      </div>
+    </header>
+
+    <section id="step-config" class="stack" style="--gap:18px">
+      <div>
+        <p class="section-title">Servidor</p>
+        <div class="choice" role="radiogroup" aria-label="Servidor" id="server-choice">
+          <button class="choice-card" role="radio" aria-checked="true" data-value="default"><b>Servidor birdra1n</b><span>Mais simples. Você pede acesso no site depois.</span></button>
+          <button class="choice-card" role="radio" aria-checked="false" data-value="own"><b>Meu próprio servidor</b><span>Informe o host — ele devolve toda a config.</span></button>
+        </div>
+      </div>
+
+      <label class="label" id="host-wrap" hidden>Host do servidor
+        <input type="url" id="host" class="field mono" placeholder="https://golive.suaempresa.com" spellcheck="false" autocomplete="off" />
+      </label>
+
+      <div>
+        <p class="section-title">Verificação</p>
+        <div class="group">
+          <div class="row" id="check-row">
+            <span class="icon-tile neutral" id="check-icon" data-icon="server"></span>
+            <div class="row-body"><div class="row-title" id="check-title">Verificando o servidor…</div><div class="row-detail mono" id="check-detail"></div></div>
+            <span class="row-accessory" id="check-acc"><span class="spinner"></span></span>
+          </div>
+        </div>
+      </div>
+
+      <details class="notice">
+        <summary><i data-icon="info" style="color:var(--accent)"></i>O que a modificação faz</summary>
+        <ul>
+          <li>Injeta o <b>Vencord</b> (client mod) no seu Discord e ativa o plugin FRD GoLive.</li>
+          <li>Grava as <b>configurações do plugin</b> e uma regra de <b>CSP</b> liberando só o domínio do seu servidor.</li>
+          <li>O sistema pode <b>pedir sua senha de administrador</b> — é o passo que modifica o app do Discord (no macOS, quando ele está em /Aplicativos). Nada é enviado a terceiros.</li>
+        </ul>
+      </details>
+
+      <div class="notice warn"><i data-icon="alert"></i><span><b>Feche o Discord</b> antes de aplicar e abra de novo depois.</span></div>
+
+      <div class="stack" style="--gap:10px">
+        <button class="btn btn-prominent btn-lg btn-block" id="apply">Aplicar modificação</button>
+        <div class="progress indeterminate" id="progress" hidden><i></i></div>
+        <p class="caption" id="log" role="status"></p>
+      </div>
+    </section>
+
+    <section id="step-done" class="card appear" hidden style="justify-items:center;text-align:center;padding:28px">
+      <span class="done-icon" data-icon="check"></span>
+      <h2 class="large-title">Pronto!</h2>
+      <p class="subhead" id="done-msg"></p>
+      <p class="caption">Agora entre no site para pedir acesso. Quando o admin liberar, o Discord liga as funções sozinho.</p>
+      <div class="stack" style="width:100%;--gap:8px">
+        <button class="btn btn-prominent btn-lg btn-block" id="open-hub">Abrir o site e pedir acesso</button>
+        <button class="btn btn-block" id="restart">Instalar em outro Discord</button>
+      </div>
+    </section>
+  </main>
 
   <script src="./app.js"></script>
 </body>

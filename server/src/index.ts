@@ -1,10 +1,11 @@
 import { createServer } from "node:http";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import { WebSocket, WebSocketServer } from "ws";
 
 import * as discord from "./discord.js";
-import { adminPage, homePage, loginPage } from "./hub.js";
+import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
 import { createToken, livekitConfigured, livekitWsUrl } from "./livekit.js";
 import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
@@ -49,6 +50,8 @@ interface ConnMeta {
     room: string;
     sharing: boolean;
     kind?: "screen" | "camera";
+    /** Início da transmissão atual (ms), para o admin mostrar a duração. */
+    since?: number;
 }
 const meta = new Map<WebSocket, ConnMeta>();
 const rooms = new Map<string, Set<WebSocket>>();
@@ -84,6 +87,10 @@ app.use((req, res, next) => {
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
 });
+
+// Design system (CSS/JS/ícones) compartilhado pelas páginas do hub — e catálogo em /ui/.
+const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
+app.use("/ui", express.static(`${PUBLIC_DIR}/ui`, { maxAge: "1h" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, transport: "sfu" }));
 
@@ -140,12 +147,14 @@ app.get("/policy/:userId", (req, res) => res.json(store.policyFor(req.params.use
 // --- Hub (login Discord + páginas) ---
 app.get("/", (req, res) => {
     const s = getSession(req);
-    if (!s) return res.type("html").send(loginPage(discord.oauthConfigured()));
+    if (!s) return res.type("html").send(loginPage(discord.oauthConfigured(), VERSION));
     res.type("html").send(homePage(s.name, store.policyFor(s.id), isAdmin(s)));
 });
 
 app.get("/login", (_req, res) => {
-    if (!discord.oauthConfigured()) return res.status(500).send("Discord OAuth não configurado.");
+    if (!discord.oauthConfigured()) {
+        return res.status(500).type("html").send(errorPage("Login indisponível", "O login com Discord não está configurado neste servidor.", 500));
+    }
     res.redirect(discord.oauthUrl("s"));
 });
 
@@ -159,7 +168,7 @@ app.get("/auth/callback", async (req, res) => {
         setSessionCookie(req, res, sign({ id: u.id, name: u.name }));
         res.redirect("/");
     } catch (e) {
-        res.status(500).send("Falha no login: " + (e as Error).message);
+        res.status(500).type("html").send(errorPage("Falha no login", (e as Error).message, 500));
     }
 });
 
@@ -181,8 +190,11 @@ app.post("/me/request-access", (req, res) => {
 });
 
 app.get("/admin", (req, res) => {
-    if (!isAdmin(getSession(req))) return res.status(403).send("Acesso negado.");
-    res.type("html").send(adminPage());
+    const s = getSession(req);
+    if (!isAdmin(s)) {
+        return res.status(403).type("html").send(errorPage("Acesso negado", "Esta área é só para admins do servidor.", 403));
+    }
+    res.type("html").send(adminPage(s!.name));
 });
 
 // --- Admin API (aceita sessão de admin OU X-Admin-Token) ---
@@ -208,7 +220,7 @@ app.get("/admin/transmissions", admin, (_req, res) => {
     const active: ActiveTransmission[] = [];
     for (const [ws, m] of meta) {
         if (m.sharing && ws.readyState === WebSocket.OPEN) {
-            active.push({ userId: m.id, name: m.name, room: m.room, kind: m.kind ?? "screen", since: 0 });
+            active.push({ userId: m.id, name: m.name, room: m.room, kind: m.kind ?? "screen", since: m.since ?? 0 });
         }
     }
     res.json(active);
@@ -279,6 +291,8 @@ function handle(ws: WebSocket, msg: ClientMessage): void {
             if (wm?.id === msg.to) send(w, { type: "signal", from: m.id, data: msg.data });
         }
     } else if (msg.type === "state") {
+        if (msg.sharing && !m.sharing) m.since = Date.now();
+        if (!msg.sharing) m.since = undefined;
         m.sharing = msg.sharing;
         m.kind = msg.kind;
     }
