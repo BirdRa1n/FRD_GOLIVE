@@ -10,6 +10,7 @@ import { React, ReactDOM } from "@webpack/common";
 
 import { PrivateStreamPanel } from "./PrivateStreamPanel";
 import { SourcePicker } from "./SourcePicker";
+import { TheaterView } from "./TheaterView";
 
 type MinimalRoot = { render(node: unknown): void; unmount(): void; };
 type ReactDOMLike = {
@@ -30,6 +31,7 @@ function tree(): unknown {
         null,
         React.createElement(PrivateStreamPanel),
         React.createElement(SourcePicker),
+        React.createElement(TheaterView),
     );
 }
 

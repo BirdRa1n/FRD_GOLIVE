@@ -178,6 +178,169 @@ const CSS = `
     font-size: 12px;
     background: rgba(0, 0, 0, 0.6);
 }
+#frd-golive-root .frd-tile {
+    cursor: pointer;
+}
+#frd-golive-root .frd-tile-expand {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    background: rgba(0, 0, 0, 0.55);
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+#frd-golive-root .frd-tile:hover .frd-tile-expand {
+    opacity: 1;
+}
+
+/* --- Chip discreto de status (canto inferior direito) --- */
+#frd-golive-root .frd-chip {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 3000;
+    max-width: 320px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: var(--background-secondary, #2b2d31);
+    color: var(--text-normal, #dbdee1);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+#frd-golive-root .frd-chip-error {
+    color: var(--text-danger, #f23f43);
+}
+
+/* --- Botão nativo do Discord sequestrado, em estado "transmitindo" --- */
+button.frd-native-active .buttonIcon_e131a9,
+button.frd-native-active svg {
+    color: var(--status-danger, #f23f43) !important;
+    fill: var(--status-danger, #f23f43) !important;
+}
+
+/* --- Overlay no tile nativo do Discord --- */
+.frd-native-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    border-radius: inherit;
+    overflow: hidden;
+    background: #000;
+}
+.frd-native-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+}
+.frd-native-btns {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+.frd-native-overlay:hover .frd-native-btns {
+    opacity: 1;
+}
+.frd-native-btn {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #fff;
+    font-size: 15px;
+    line-height: 1;
+    background: rgba(0, 0, 0, 0.6);
+}
+.frd-native-btn:hover {
+    background: var(--brand-500, #5865f2);
+}
+
+/* --- Modo teatro --- */
+#frd-golive-root .frd-theater {
+    position: fixed;
+    inset: 0;
+    z-index: 3200;
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.92);
+    color: var(--text-normal, #dbdee1);
+}
+#frd-golive-root .frd-theater-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+}
+#frd-golive-root .frd-theater-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+#frd-golive-root .frd-theater-actions {
+    display: flex;
+    gap: 8px;
+}
+#frd-golive-root .frd-theater-stage {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+}
+#frd-golive-root .frd-theater-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+#frd-golive-root .frd-theater-strip {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    overflow-x: auto;
+}
+#frd-golive-root .frd-strip-item {
+    position: relative;
+    flex: 0 0 auto;
+    width: 160px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+    cursor: pointer;
+}
+#frd-golive-root .frd-strip-active {
+    border-color: var(--brand-500, #5865f2);
+}
+#frd-golive-root .frd-strip-video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    display: block;
+}
+#frd-golive-root .frd-strip-name {
+    position: absolute;
+    left: 4px;
+    bottom: 4px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+}
 #frd-golive-root .frd-empty {
     padding: 16px;
     text-align: center;
