@@ -16,6 +16,9 @@ usuário habilitar o acesso.
    `VENCORD_DEV_INSTALL=1` (mesmo mecanismo do `pnpm inject`).
 6. Botão **"Abrir navegador"** → `golivefrd.birdra1n.com` para habilitar.
 
+O hub é servido pelo próprio servidor (`server/`); o login usa OAuth do Discord —
+como configurar em [../docs/DISCORD-OAUTH.md](../docs/DISCORD-OAUTH.md).
+
 ## Desenvolvimento
 
 ```bash

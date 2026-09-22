@@ -1,32 +1,30 @@
 # Cliente FRD GoLive (userplugin do Vencord)
 
-> **Status:** Fase 2 — esqueleto funcional. Precisa ser buildado dentro do Vencord.
-
-Userplugin do Vencord que compartilha tela/câmera por um **servidor LiveKit
-privado** (fora do Discord). A voz continua no Discord.
+Userplugin do Vencord que compartilha tela/câmera **cliente↔cliente (P2P/mesh)** por
+um servidor privado de signaling — fora do Discord. A voz continua no Discord.
 
 > 🪟 **No Windows?** Veja o passo a passo dedicado em [WINDOWS.md](WINDOWS.md).
+> 🖱️ **Não quer terminal?** Use o **instalador gráfico** em [../installer/](../installer)
+> — ele aplica a mod e configura o servidor por você.
 
 ## Estrutura
 
 ```
 src/
 ├── index.tsx               # definePlugin: wiring, subscribe em VOICE_CHANNEL_SELECT
-├── settings.ts             # aba de settings (servidor, orgSecret, vídeo)
+├── settings.ts             # aba de settings (transport, servidor, vídeo)
 ├── discordState.ts         # lê canal de voz atual + usuário (stores do Discord)
 ├── rtc/
-│   ├── session.ts          # LiveKit puro (só depende de livekit-client) ✔ typecheckável
-│   └── controller.ts       # orquestra: token → connect → publish/subscribe
+│   ├── meshTransport.ts    # transporte P2P (RTCPeerConnection por peer) — ATUAL
+│   ├── signalingClient.ts  # cliente WS do signaling (offer/answer/ICE, policy)
+│   ├── session.ts          # transporte SFU/LiveKit (legado) ✔ typecheckável
+│   └── controller.ts       # orquestra: config → connect → publish/subscribe
 ├── state/
 │   └── streamStore.ts      # store reativo puro (streams, connected, sharing)
-└── ui/
-    ├── PrivateStreamPanel.tsx  # painel flutuante com os <video> remotos
-    ├── panelMount.tsx          # monta o painel no <body>
-    └── styles.ts               # CSS do painel
+└── ui/                     # painel, teatro, picker, tiles nativos, hijack de botões
 ```
 
-**Camada RTC pura** (`rtc/session.ts` + `state/streamStore.ts`) não importa nada do
-Vencord e é validada isolada:
+**Camada RTC pura** não importa nada do Vencord e é validada isolada:
 
 ```bash
 npm install
@@ -38,81 +36,76 @@ build do Vencord.
 
 ## Como funciona (fluxo)
 
-1. Ao entrar num canal de voz (`VOICE_CHANNEL_SELECT`), o plugin pede um token ao
-   `token-service` (`room = ID do canal de voz`) e conecta no LiveKit.
-2. O painel flutuante aparece (canto inferior direito) listando quem está
-   transmitindo naquela sala.
+1. Ao entrar num canal de voz (`VOICE_CHANNEL_SELECT`), o plugin puxa `GET <host>/config`
+   e conecta no **signaling** (WebSocket), numa sala = **ID do canal de voz**.
+2. Para cada outro participante com o plugin, abre uma conexão **P2P
+   (RTCPeerConnection)**. A mídia vai direto entre os clientes (DTLS‑SRTP).
 3. "Compartilhar tela" captura via `getDisplayMedia` (com áudio do sistema, se
-   ligado nas settings) e publica na sala.
-4. Ao sair do canal, desconecta e limpa o painel.
+   ligado) e envia aos peers. O painel/teatro mostra as transmissões da sala.
+4. Ao sair do canal, desconecta e limpa.
 
-## Build dentro do Vencord
+O admin do servidor precisa **habilitar** o usuário (via hub) para que as funções
+liguem — a policy (enabled + quotas de resolução/FPS) chega pelo próprio WS.
 
-O Vencord compila plugins no build (não há runtime loading). Como usamos
-`livekit-client`, ele precisa ser instalado **no repositório do Vencord** para o
-esbuild empacotar.
+## Instalação
 
-> **Clone o Vencord FORA deste repositório** (ex.: `~/Vencord`). Não clone dentro
-> de `client/`: o `pnpm` "sobe" e acaba usando o `package.json` deste projeto
-> (que não tem script `build`), causando `Command "build" not found`.
+### Opção A — instalador gráfico (recomendado)
+
+Rode o app em [../installer/](../installer): ele aplica a modificação, grava as
+settings + a CSP do domínio e abre o hub. Sem terminal.
+
+### Opção B — build manual dentro do Vencord
+
+O Vencord compila plugins no build (não há runtime loading). Como o plugin importa
+`livekit-client` (transporte legado), instale‑o **no repositório do Vencord**.
+
+> **Clone o Vencord FORA deste repositório** (ex.: `~/Vencord`). Não clone dentro de
+> `client/`: o `pnpm` "sobe" e usa o `package.json` deste projeto (sem script `build`),
+> causando `Command "build" not found`.
 
 ```bash
 git clone https://github.com/Vendicated/Vencord ~/Vencord
 cd ~/Vencord
 pnpm install
-pnpm add livekit-client            # dependência do nosso plugin
+pnpm add livekit-client            # dependência do plugin
 
-# vincule a PASTA src/ como o userplugin (é ela que contém o index.tsx):
+# COPIE a pasta src/ como o userplugin (é ela que contém o index.tsx):
 mkdir -p src/userplugins
-ln -s /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
+cp -R /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
 
 pnpm build
 pnpm inject                        # injeta no Discord instalado
 ```
 
-O link é para **`client/src`**, não `client/`: o Vencord espera
-`src/userplugins/frdGoLive/index.tsx`, e o nosso `index.tsx` fica em
-`client/src/`. Linkar `client/` inteiro deixa o `index.tsx` fundo demais e o
-plugin não é reconhecido. Se o build não seguir o symlink, copie no lugar:
-`cp -R /caminho/para/FRD_GOLIVE/client/src ~/Vencord/src/userplugins/frdGoLive`.
+> **Copie `client/src`, não use symlink** e não copie `client/` inteiro: o Vencord
+> espera `src/userplugins/frdGoLive/index.tsx`. Symlink quebra a resolução dos aliases
+> (`@webpack/common` etc.).
 
 Depois, no Discord: Configurações → Vencord → Plugins → **FRDGoLive** → ative e
-preencha `serverUrl`, `tokenServiceUrl` e `orgSecret` (os mesmos do servidor).
+configure:
+- **Transport**: `Mesh P2P` (padrão).
+- **tokenServiceUrl**: o host do servidor (ex.: `https://golivefrd.SEU.com`) — é de
+  onde o plugin puxa `/config` e conecta no signaling.
 
-> Todos os participantes precisam do plugin com a **mesma** config para se verem.
+> Todos os participantes precisam do plugin apontando para o **mesmo servidor**, e
+> cada um precisa estar **habilitado** pelo admin no hub.
 
-## Estado atual (Fases 2–4)
-
-Implementado:
-- Conexão/assinatura por canal de voz, publicação de tela com áudio do sistema.
-- Reconexão automática: auto-reconnect do LiveKit para quedas transitórias +
-  backoff próprio (busca token novo) quando o LiveKit desiste.
-- Simulcast + qualidade adaptativa (`adaptiveStream`, `dynacast`).
-- Painel com estados de conexão e erros acionáveis (offline, segredo inválido)
-  e botão "Tentar de novo".
-
-- Botões de **compartilhar tela** e **câmera**, com indicador de "🔴 Transmitindo"
-  (tela/câmera) no painel.
-
-Pendente (próximas fases):
-- Painel próprio, não o tile nativo do Discord — por design.
+Ao mudar renderer (UI): `Ctrl/Cmd+R` no Discord. Ao mudar CSP/`native.ts`: reinício
+completo do Discord.
 
 ## Captura nativa (regiões censuradas)
 
-Em alguns países o Discord **desabilita a opção de compartilhar tela**. Como o
-plugin captura por conta própria, isso normalmente não nos afeta — mas se o
-`getDisplayMedia` também estiver bloqueado no Discord Desktop, ative **"Captura
-nativa"** nas settings do plugin.
+Em alguns países o Discord **desabilita compartilhar tela**. Como o plugin captura por
+conta própria, isso normalmente não afeta — mas se o `getDisplayMedia` também estiver
+bloqueado, ative **"Captura nativa"** nas settings.
 
-Nesse modo o plugin usa o **`desktopCapturer` do Electron** (via um módulo nativo,
-`native.ts`) e captura a fonte escolhida com `getUserMedia({chromeMediaSource:
-"desktop"})` — **sem passar pelo `getDisplayMedia` do Discord**, contornando o
-bloqueio regional. Um seletor de tela/janela próprio aparece no painel.
+Nesse modo o plugin usa o **`desktopCapturer` do Electron** (via `native.ts`) e captura
+a fonte com `getUserMedia({chromeMediaSource:"desktop"})` — sem passar pelo
+`getDisplayMedia` do Discord, contornando o bloqueio regional.
 
 Notas:
-- Só funciona no **Discord Desktop** (Electron); no Discord web não há
-  `desktopCapturer`.
-- Mesmo com a opção desligada, se o `getDisplayMedia` falhar com erro "duro" o
-  plugin **tenta a captura nativa automaticamente**.
-- Áudio do sistema por esse caminho depende da plataforma (melhor no Windows);
-  se não suportado, captura só o vídeo.
+- Só no **Discord Desktop** (Electron); no web não há `desktopCapturer`.
+- Se o `getDisplayMedia` falhar com erro "duro", o plugin tenta a captura nativa
+  automaticamente.
+- Áudio do sistema por esse caminho depende da plataforma (melhor no Windows); se não
+  suportado, captura só o vídeo.
