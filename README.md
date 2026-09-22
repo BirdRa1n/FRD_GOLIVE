@@ -2,9 +2,10 @@
 
 Modificação de cliente (plugin Vencord) + servidor auto‑hospedável que permite que
 pessoas na **mesma call de voz do Discord** compartilhem **tela e câmera entre si sem
-que o vídeo passe pelos servidores do Discord**. O vídeo trafega **cliente↔cliente
-(P2P/mesh)** por WebRTC; o servidor privado só faz **signaling/auth/admin** — a
-**voz continua normal, pelo Discord**.
+que o vídeo passe pelos servidores do Discord**. O vídeo trafega por um **SFU privado
+(LiveKit)** da própria organização, que entra por um **IP público definido pelo host**;
+o servidor central faz **hub/login/auth/habilitação/quotas/admin** e **emite os tokens**.
+A **voz continua normal, pelo Discord**.
 
 Foco: **empresas com regras rígidas de privacidade** que não querem dados de
 transmissão (tela/câmera) trafegando pela infraestrutura do Discord.
@@ -17,22 +18,20 @@ paralelo**:
 
 1. O plugin captura tela/câmera com as APIs do navegador (`getDisplayMedia` /
    `getUserMedia`) — as mesmas que o Discord já usa.
-2. Abre uma conexão **P2P (RTCPeerConnection)** com cada participante da sala (sala =
-   **ID do canal de voz do Discord**). A mídia vai direto de um cliente ao outro.
-3. O **servidor** só troca os SDP/ICE (signaling por WebSocket) e nunca vê a mídia
-   (criptografia DTLS‑SRTP ponta a ponta).
+2. Pede um **token** ao servidor (só se o usuário estiver **habilitado** no hub) e
+   publica no **SFU (LiveKit)** privado, numa sala = **ID do canal de voz do Discord**.
+3. Os outros participantes (com o plugin, mesmo servidor, mesmo canal) **assinam** o
+   stream pelo SFU e assistem num painel próprio do plugin.
 4. A **voz segue 100% pelo Discord**. O áudio do sistema **pode** ser incluído no
    stream privado (opcional).
 
 ```
   Usuário A (plugin)                 Servidor privado                Usuário B (plugin)
- ┌──────────────────┐              ┌──────────────────┐            ┌──────────────────┐
- │ getDisplayMedia  │              │  Signaling (WS)  │            │  Painel de vídeo │
- │ tela+áudio sist. │              │  auth · admin    │            │  do plugin       │
- └────────┬─────────┘              └────────┬─────────┘            └─────────┬────────┘
-          │  SDP/ICE  ◀───────────────────── │ ──────────────────▶  SDP/ICE  │
-          └───────────── mídia P2P (WebRTC, DTLS-SRTP) ──────────────────────┘
-        voz ▲                                                            voz ▲
+ ┌──────────────────┐   token/WS   ┌──────────────────┐   token/WS ┌──────────────────┐
+ │ getDisplayMedia  │─────────────▶│  hub/auth/admin  │◀───────────│  Painel de vídeo │
+ │ tela+áudio sist. │──publica────▶│  + SFU (LiveKit) │───assina──▶│  do plugin       │
+ └──────────────────┘  UDP 7882    │  IP público/relay│  UDP 7882  └──────────────────┘
+        voz ▲                      └──────────────────┘                    voz ▲
             └───────────── Discord (gateway + voz nativa) ───────────────────┘
 ```
 
@@ -46,9 +45,10 @@ paralelo**:
 └── docs/       # arquitetura, roadmap e guias
 ```
 
-- **Servidor** ([server/README.md](server/README.md)): um serviço Node, tudo HTTP/WS
-  numa porta só → passa 100% pelo **Cloudflare Tunnel** (sem VPS/UDP). Faz signaling,
-  config (`/config`), auth/quotas e um hub web com login do Discord + painel admin.
+- **Servidor** ([server/README.md](server/README.md)): hub (login Discord) + auth/
+  habilitação + quotas + admin + config, e emite os **tokens do LiveKit**. Sobe o
+  **SFU (LiveKit)** junto. Controle é HTTP/WS (Cloudflare); a **mídia** entra pela
+  **UDP 7882** no **IP público** que o host define (ver [docs/RELAY-UDP.md](docs/RELAY-UDP.md)).
 - **Instalador** ([installer/README.md](installer/README.md)): app gráfico que aplica
   a modificação no Discord sem terminal, puxa a config do host e abre o hub.
 - **Plugin** ([client/README.md](client/README.md)): captura, mesh P2P, tiles
@@ -62,8 +62,9 @@ paralelo**:
 curl -fsSL https://raw.githubusercontent.com/BirdRa1n/FRD_GOLIVE/main/server/install.sh | sh
 ```
 
-Exponha `golivefrd.SEU.com` → `http://SERVIDOR:8090` no Cloudflare Tunnel. Para o
-login do hub/admin, configure o OAuth do Discord: [docs/DISCORD-OAUTH.md](docs/DISCORD-OAUTH.md).
+No Cloudflare Tunnel, exponha **2 rotas HTTP/WS**: `golivefrd.SEU.com`→`:8090` (hub)
+e `media.SEU.com`→`:7880` (WS do LiveKit). A **mídia UDP 7882** entra pelo IP público
+(ver [docs/RELAY-UDP.md](docs/RELAY-UDP.md)). OAuth do hub: [docs/DISCORD-OAUTH.md](docs/DISCORD-OAUTH.md).
 
 **Clientes**: rodam o **instalador** (`installer/`), escolhem o servidor birdra1n ou
 o próprio host, e depois pedem acesso no hub. O admin libera pelo painel.
@@ -72,9 +73,9 @@ o próprio host, e depois pedem acesso no hub. O admin libera pelo painel.
 
 - **Todos os participantes precisam ter o plugin instalado** (via instalador) e
   apontando para o **mesmo servidor**. Quem não tiver não vê a transmissão privada.
-- O servidor é auto‑hospedado pela organização (Docker), atrás do Cloudflare.
-- Mesh **não escala** como um SFU: quem transmite envia uma cópia por espectador.
-  Alvo = grupos pequenos/médios.
+- O servidor é auto‑hospedado pela organização (Docker), atrás do Cloudflare, com a
+  mídia entrando por um IP público (VPS/relay) — ver [docs/RELAY-UDP.md](docs/RELAY-UDP.md).
+- Só quem o admin **habilitar** no hub consegue transmitir/assistir.
 
 ## Aviso legal / ToS
 

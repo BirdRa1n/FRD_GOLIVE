@@ -103,6 +103,26 @@ else
     sh "$DIR/server/gen-env.sh"
 fi
 
+# --- 3b. SFU (LiveKit) — a mídia (vídeo) passa por aqui ---
+info "Configuração da mídia (SFU/LiveKit)."
+LK_URL=$(ask "URL WS do LiveKit que o cliente usa (ex.: wss://media.seu.com ou ws://IP:7880)" "")
+[ -n "$LK_URL" ] && set_env LIVEKIT_WS_URL "$LK_URL" "$ENV_FILE"
+
+# IP público por onde a MÍDIA (UDP 7882) entra — ex.: um VPS que faz relay para cá.
+# O LiveKit passa a anunciar este IP nos candidatos ICE (não muda nada no cliente).
+NODE_IP=$(ask "IP público da mídia/WebRTC (vazio = autodetecção)" "")
+if [ -n "$NODE_IP" ]; then
+    set_env LIVEKIT_NODE_IP "$NODE_IP" "$ENV_FILE"
+    LKY="$DIR/server/livekit.yaml"
+    sed -i \
+        -e "s|^  # *node_ip:.*|  node_ip: $NODE_IP|" \
+        -e "s|^  node_ip:.*|  node_ip: $NODE_IP|" \
+        -e "s|^  use_external_ip:.*|  use_external_ip: false|" \
+        "$LKY"
+    ok "LiveKit vai anunciar $NODE_IP nos candidatos ICE."
+    warn "Garanta o relay UDP $NODE_IP:7882 -> este servidor (ver docs/RELAY-UDP.md)."
+fi
+
 # --- 4. OAuth do Discord (hub/admin) — opcional ---
 if confirm "Configurar o login do Discord (hub/admin) agora?"; then
     info "Crie o app em https://discord.com/developers/applications (guia: docs/DISCORD-OAUTH.md)."

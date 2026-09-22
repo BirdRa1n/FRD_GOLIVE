@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Servidor v2: signaling P2P (mesh) + config + auth/quotas + admin.",
+  "description": "Servidor FRD GoLive: hub/auth/admin/config + emissão de token do LiveKit (SFU).",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
+    "livekit-server-sdk": "^2.9.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

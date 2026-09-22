@@ -5,6 +5,7 @@ import { WebSocket, WebSocketServer } from "ws";
 
 import * as discord from "./discord.js";
 import { adminPage, homePage, loginPage } from "./hub.js";
+import { createToken, livekitConfigured, livekitWsUrl } from "./livekit.js";
 import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
 import type {
@@ -74,24 +75,30 @@ function iceServers() {
 // --- HTTP ---
 const app = express();
 app.use(express.json({ limit: "32kb" }));
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Admin-Token");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    // Responde o preflight (OPTIONS) com 204 — senão cai em 404 e o CORS falha.
+    if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, transport: "mesh" }));
+app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, transport: "sfu" }));
 
 /** Config que o instalador/plugin puxa de um host. */
 app.get("/config", (req, res) => {
     const proto = req.headers["x-forwarded-proto"] === "https" || req.secure ? "wss" : "ws";
     const host = req.headers.host ?? `localhost:${PORT}`;
     const cfg: ClientConfig = {
+        // Canal de controle (policy/presença) — HTTP/WS pelo Cloudflare.
         signalingUrl: PUBLIC_SIGNALING_URL || `${proto}://${host}/signaling`,
+        // Mídia SFU (LiveKit) — a mídia entra pelo IP público definido no livekit.yaml.
+        serverUrl: livekitWsUrl(),
         iceServers: iceServers(),
         version: VERSION,
-        transport: "mesh",
+        transport: "sfu",
     };
     res.json(cfg);
 });
@@ -104,6 +111,28 @@ app.post("/auth/request-access", (req, res) => {
     }
     const u = store.requestAccess(userId, name);
     res.json({ enabled: u.enabled, pending: !u.enabled });
+});
+
+/** Emite um token do LiveKit — só para usuários habilitados no hub. */
+app.post("/token", async (req, res) => {
+    const { room, userId, name } = req.body ?? {};
+    if (typeof room !== "string" || typeof userId !== "string" || typeof name !== "string") {
+        return res.status(400).json({ error: "room, userId e name são obrigatórios" });
+    }
+    if (!livekitConfigured()) {
+        return res.status(503).json({ error: "SFU (LiveKit) não configurado no servidor" });
+    }
+    // registra o pedido (idempotente) e checa a habilitação
+    const u = store.requestAccess(userId, name);
+    if (!u.enabled) {
+        return res.status(403).json({ error: "usuário não habilitado", pending: true });
+    }
+    try {
+        const token = await createToken(room, userId, name);
+        res.json({ token, serverUrl: livekitWsUrl(), policy: store.policyFor(userId) });
+    } catch (e) {
+        res.status(500).json({ error: "falha ao emitir token: " + (e as Error).message });
+    }
 });
 
 app.get("/policy/:userId", (req, res) => res.json(store.policyFor(req.params.userId)));

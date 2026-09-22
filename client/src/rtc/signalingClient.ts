@@ -1,5 +1,5 @@
-// Cliente de signaling (WebSocket) do transporte mesh v2.
-// Depende só de DOM (WebSocket) — typecheckável isolado.
+// Canal de CONTROLE (WebSocket): policy/habilitação + reporte de estado ao admin.
+// A mídia é o SFU (LiveKit); este WS não carrega mídia. Depende só de DOM.
 
 export interface PeerInfo {
     id: string;
@@ -41,12 +41,19 @@ export class SignalingClient {
 
     constructor(private readonly h: SignalingHandlers) {}
 
+    /** Envia só quando o socket está OPEN — evita InvalidStateError em CONNECTING/CLOSING. */
+    private send(obj: unknown): void {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(obj));
+        }
+    }
+
     connect(url: string, room: string, id: string, name: string): Promise<void> {
         return new Promise((resolve, reject) => {
             const ws = new WebSocket(url);
             this.ws = ws;
             ws.onopen = () => {
-                ws.send(JSON.stringify({ type: "join", room, id, name }));
+                this.send({ type: "join", room, id, name });
                 resolve();
             };
             ws.onerror = () => reject(new Error("erro no WebSocket de signaling"));
@@ -72,11 +79,11 @@ export class SignalingClient {
     }
 
     signal(to: string, data: SignalPayload): void {
-        this.ws?.send(JSON.stringify({ type: "signal", to, data }));
+        this.send({ type: "signal", to, data });
     }
 
     setState(sharing: boolean, kind?: "screen" | "camera"): void {
-        this.ws?.send(JSON.stringify({ type: "state", sharing, kind }));
+        this.send({ type: "state", sharing, kind });
     }
 
     close(): void {

@@ -2,27 +2,9 @@ import { definePluginSettings } from "@api/Settings";
 import { OptionType } from "@utils/types";
 
 export const settings = definePluginSettings({
-    transport: {
-        type: OptionType.SELECT,
-        description: "Transporte de mídia: SFU (LiveKit, escala, precisa de porta UDP/VPS) ou Mesh P2P (v2, só Cloudflare, sem VPS para grupos pequenos)",
-        options: [
-            { label: "SFU (LiveKit)", value: "sfu", default: true },
-            { label: "Mesh P2P (v2)", value: "mesh" },
-        ],
-    },
-    serverUrl: {
-        type: OptionType.STRING,
-        description: "URL do servidor LiveKit privado (ex.: wss://media.suaempresa.com)",
-        default: "ws://localhost:7880",
-    },
     tokenServiceUrl: {
         type: OptionType.STRING,
-        description: "URL do token-service (ex.: https://media.suaempresa.com)",
-        default: "http://localhost:8080",
-    },
-    orgSecret: {
-        type: OptionType.STRING,
-        description: "Segredo da organização (credencial de acesso ao servidor privado)",
+        description: "URL do servidor FRD GoLive (hub) — ex.: https://golivefrd.SEU.com. O plugin puxa /config e /token daqui; a URL da mídia (LiveKit) vem da config.",
         default: "",
     },
     includeSystemAudio: {

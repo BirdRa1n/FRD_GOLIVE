@@ -1,7 +1,15 @@
-# Arquitetura v2
+# Arquitetura
 
-Rearquitetura do FRD GoLive de **SFU (LiveKit)** para **P2P/mesh**, com instalador
-Electron, hub web centralizado e camada de auth/admin.
+FRD GoLive = **plugin Vencord + servidor**. A **mídia (vídeo) usa SFU (LiveKit)** e
+entra por um **IP público configurável** (normalmente um VPS que faz relay do UDP →
+servidor de casa). O servidor central faz **hub (login Discord) + auth/habilitação +
+quotas + admin + config** e **emite os tokens do LiveKit**. Instalador Electron aplica
+a modificação no cliente.
+
+> **Nota histórica:** houve uma iteração em que o transporte foi **P2P/mesh** (só
+> Cloudflare, sem VPS). Isso foi **revertido** para SFU (mídia por um IP definido pelo
+> host) — o texto abaixo que menciona "mesh/P2P" reflete aquela fase. O código do mesh
+> foi removido; o transporte atual é `client/src/rtc/session.ts` (LiveKit).
 
 ## Motivação
 
@@ -107,14 +115,16 @@ Um serviço Node único (ou poucos), tudo atrás do Cloudflare (HTTP/WS):
 - Signaling nunca vê a mídia (P2P criptografado DTLS-SRTP ponta a ponta).
 - Admin atrás de auth forte; painel só por rede confiável/Access.
 
-## Histórico: a v1 (SFU) foi removida
+## Estado atual: SFU (LiveKit), com hub central
 
-A primeira versão usava um **SFU (LiveKit)** — toda a mídia passava pelo servidor,
-exigindo porta UDP pública e um relay por VPS (o Cloudflare Tunnel só leva HTTP/WS).
-Isso foi **removido**: o servidor agora é só mesh (signaling/auth/admin).
-
-- O plugin ainda abstrai o transporte atrás de uma interface (`RtcTransport`), e o
-  código do transporte SFU (`client/src/rtc/session.ts`) permanece no cliente para
-  quem quiser plugar um SFU próprio — mas **não há mais servidor SFU neste repo**.
-- Para grupos grandes (onde o mesh não escala), seria preciso reintroduzir um SFU
-  (ex.: LiveKit próprio ou Cloudflare Realtime) como serviço à parte.
+- **Mídia = SFU (LiveKit)** em `server/` (docker-compose sobe o LiveKit junto do hub).
+  Entra pela porta **UDP 7882** no **IP público** `LIVEKIT_NODE_IP` (o host define) —
+  normalmente um VPS que faz relay do UDP para o LiveKit de casa (ver
+  `docs/RELAY-UDP.md`).
+- **Controle** (config/token/policy/estado) é HTTP/WS pelo Cloudflare: rota do hub
+  (`:8090`) + rota do WS do LiveKit (`:7880`).
+- **Acesso gated pela habilitação**: `POST /token` só emite token para usuários
+  habilitados no hub. Sem `orgSecret`. As quotas (resolução/FPS) são aplicadas no
+  cliente a partir da policy.
+- O mesh/P2P foi removido (`meshTransport.ts`); `signalingClient.ts` virou o canal de
+  controle (policy + estado), e a mídia é o `RtcSession` (LiveKit).

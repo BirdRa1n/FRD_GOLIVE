@@ -1,30 +1,37 @@
-// Orquestra a sessão RTC de acordo com o estado do Discord e das configurações.
-// Acopla session.ts (puro) + streamStore (puro) + settings/discordState (Vencord).
+// Orquestra a sessão RTC conforme o estado do Discord e as configurações.
+//
+// Arquitetura: mídia via SFU (LiveKit) + um canal de CONTROLE (WebSocket) para
+// receber a policy (habilitação/quotas) e reportar o estado de transmissão ao
+// admin. A mídia entra no LiveKit pelo IP público definido no servidor.
 //
 // Camadas de resiliência:
-//  1. LiveKit religa sozinho quedas transitórias (onReconnecting/onReconnected).
-//  2. Se o LiveKit desistir (onDisconnected) e o usuário ainda quiser estar no
-//     canal, tentamos reconectar com backoff — buscando um token novo (o antigo
-//     pode ter expirado durante a queda).
+//  1. O LiveKit religa quedas transitórias sozinho.
+//  2. Se o canal de controle cair e o usuário ainda quiser estar no canal,
+//     reconectamos com backoff (buscando config/token novos).
 
 import { getLocalUser } from "../discordState";
 import { settings } from "../settings";
 import { streamStore } from "../state/streamStore";
 import { pickSource } from "../ui/pickerController";
-import { MeshTransport } from "./meshTransport";
 import {
     captureNativeSource,
     getNativeSources,
     isNativeCaptureAvailable,
 } from "./nativeCapture";
 import { RtcSession } from "./session";
+import { type Policy, SignalingClient } from "./signalingClient";
 
-type Transport = RtcSession | MeshTransport;
-let session: Transport | null = null;
+/** Canal de controle (policy/presença). */
+let control: SignalingClient | null = null;
+/** Sessão de mídia (LiveKit). */
+let session: RtcSession | null = null;
 /** Canal em que o usuário QUER estar conectado (null = saída intencional). */
 let desiredChannel: string | null = null;
-/** Suprime a lógica de reconexão durante desconexões que nós mesmos provocamos. */
 let suppressReconnect = false;
+
+let policy: Policy = { enabled: false, maxHeight: 0, maxFps: 0 };
+let mediaServerUrl = "";
+let mediaConnecting = false;
 
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempt = 0;
@@ -37,18 +44,15 @@ function retryDelay(attempt: number): number {
 }
 
 function cancelRetry(): void {
-    if (retryTimer) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-    }
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
 }
 
 /** Traduz erros técnicos em mensagens acionáveis para o usuário. */
 function describeError(e: unknown): string {
     if (e instanceof Error) {
         const m = e.message;
-        if (m.includes("403")) return "Segredo da organização inválido.";
-        if (m.includes("401")) return "Não autorizado pelo servidor privado.";
+        if (m.includes("403")) return "Usuário não habilitado pelo admin — peça acesso no site.";
+        if (m.includes("503")) return "SFU indisponível no servidor (LiveKit não configurado).";
         if (/Failed to fetch|NetworkError|ECONNREFUSED|ENOTFOUND|ETIMEDOUT/i.test(m))
             return "Servidor privado inacessível (offline ou URL incorreta).";
         return m;
@@ -56,17 +60,31 @@ function describeError(e: unknown): string {
     return String(e);
 }
 
-async function fetchToken(room: string, identity: string, name: string): Promise<string> {
-    const base = settings.store.tokenServiceUrl.replace(/\/+$/, "");
-    const res = await fetch(`${base}/token`, {
+interface ClientConfig {
+    signalingUrl: string;
+    serverUrl: string;
+}
+
+function base(): string {
+    return settings.store.tokenServiceUrl.replace(/\/+$/, "");
+}
+
+async function fetchConfig(): Promise<ClientConfig> {
+    const res = await fetch(`${base()}/config`);
+    if (!res.ok) throw new Error(`servidor respondeu ${res.status} em /config`);
+    return await res.json() as ClientConfig;
+}
+
+async function fetchToken(room: string, userId: string, name: string): Promise<{ token: string; serverUrl?: string; }> {
+    const res = await fetch(`${base()}/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room, identity, name, orgSecret: settings.store.orgSecret }),
+        body: JSON.stringify({ room, userId, name }),
     });
-    if (!res.ok) throw new Error(`token-service respondeu ${res.status}`);
-    const data = await res.json() as { token?: string; };
-    if (!data.token) throw new Error("token-service não retornou um token");
-    return data.token;
+    if (!res.ok) throw new Error(`token: servidor respondeu ${res.status}`);
+    const data = await res.json() as { token?: string; serverUrl?: string; };
+    if (!data.token) throw new Error("servidor não retornou um token");
+    return { token: data.token, serverUrl: data.serverUrl };
 }
 
 function buildSession(): RtcSession {
@@ -74,67 +92,57 @@ function buildSession(): RtcSession {
         onStreamAdded: info => streamStore.upsert(info),
         onStreamUpdated: info => streamStore.upsert(info),
         onStreamRemoved: id => streamStore.remove(id),
-        onConnected: () => {
-            retryAttempt = 0;
-            streamStore.setStatus("connected");
-        },
+        onConnected: () => { retryAttempt = 0; streamStore.setStatus("connected"); },
         onReconnecting: () => streamStore.setStatus("reconnecting"),
         onReconnected: () => streamStore.setStatus("connected"),
         onDisconnected: () => handleUnexpectedDisconnect(),
     });
 }
 
-/** Encerra a sessão atual sem disparar reconexão nem mexer no desiredChannel. */
-async function disposeSession(): Promise<void> {
-    if (!session) return;
-    suppressReconnect = true;
+/** Aplica a policy recebida do controle: gate de habilitação + conexão de mídia. */
+function applyPolicy(p: Policy): void {
+    policy = p;
+    if (!p.enabled) {
+        streamStore.setError("Aguardando liberação do admin — peça acesso no site.");
+        return;
+    }
+    streamStore.clearError();
+    void ensureMedia();
+}
+
+/** Conecta a mídia (LiveKit) — só quando o usuário está habilitado. */
+async function ensureMedia(): Promise<void> {
+    if (!policy.enabled || mediaConnecting || session?.isConnected) return;
+    const user = getLocalUser();
+    const room = desiredChannel;
+    if (!user || !room) return;
+
+    mediaConnecting = true;
     try {
-        await session.disconnect();
+        const { token, serverUrl } = await fetchToken(room, user.id, user.username);
+        const url = serverUrl || mediaServerUrl;
+        if (!url) throw new Error("URL do servidor de mídia ausente na config");
+        const s = buildSession();
+        session = s;
+        await s.connect(url, token);
+    } catch (e) {
+        streamStore.setError(describeError(e));
     } finally {
-        session = null;
-        suppressReconnect = false;
+        mediaConnecting = false;
     }
 }
 
-function buildMesh(): MeshTransport {
-    return new MeshTransport({
-        onStreamAdded: info => streamStore.upsert(info),
-        onStreamUpdated: info => streamStore.upsert(info),
-        onStreamRemoved: id => streamStore.remove(id),
-        onConnected: () => { retryAttempt = 0; streamStore.setStatus("connected"); },
-        onDisconnected: () => handleUnexpectedDisconnect(),
-        onPolicy: policy => {
-            if (!policy.enabled) {
-                streamStore.setError("Aguardando liberação do admin — peça acesso em golivefrd.birdra1n.com.");
-            } else {
-                streamStore.clearError();
-                streamStore.setStatus("connected");
-            }
-        },
-    });
-}
-
-interface MeshConfig {
-    signalingUrl: string;
-    iceServers: RTCIceServer[];
-}
-
-async function establishMesh(channelId: string, user: { id: string; username: string; }): Promise<void> {
-    const base = settings.store.tokenServiceUrl.replace(/\/+$/, "");
-    // registra o pedido de acesso (idempotente) para o admin ver o usuário
-    fetch(`${base}/auth/request-access`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, name: user.username }),
-    }).catch(() => { /* melhor esforço */ });
-
-    const res = await fetch(`${base}/config`);
-    if (!res.ok) throw new Error(`servidor respondeu ${res.status} em /config`);
-    const cfg = await res.json() as MeshConfig;
-
-    const mesh = buildMesh();
-    session = mesh;
-    await mesh.connect(cfg.signalingUrl, channelId, user.id, user.username, cfg.iceServers);
+async function teardown(): Promise<void> {
+    suppressReconnect = true;
+    try {
+        if (session) { await session.disconnect().catch(() => { /* ok */ }); }
+        control?.close();
+    } finally {
+        session = null;
+        control = null;
+        mediaConnecting = false;
+        suppressReconnect = false;
+    }
 }
 
 async function establish(channelId: string): Promise<void> {
@@ -142,28 +150,28 @@ async function establish(channelId: string): Promise<void> {
     if (!user) throw new Error("Usuário do Discord indisponível.");
 
     streamStore.setStatus(retryAttempt > 0 ? "reconnecting" : "connecting");
-    await disposeSession();
+    await teardown();
 
-    if (settings.store.transport === "mesh") {
-        await establishMesh(channelId, user);
-        return;
-    }
+    const cfg = await fetchConfig();
+    mediaServerUrl = cfg.serverUrl;
 
-    // SFU (LiveKit)
-    if (!settings.store.orgSecret) {
-        streamStore.setError("Configure o segredo da organização nas configurações do plugin.");
-        return;
-    }
-    const s = buildSession();
-    session = s;
-    const token = await fetchToken(channelId, user.id, user.username);
-    await s.connect(settings.store.serverUrl, token);
+    control = new SignalingClient({
+        onJoined: p => applyPolicy(p),
+        onPolicy: p => applyPolicy(p),
+        onPeers: () => { /* SFU: peers vêm do LiveKit */ },
+        onPeerJoined: () => { /* idem */ },
+        onPeerLeft: () => { /* idem */ },
+        onSignal: () => { /* idem */ },
+        onClose: () => handleUnexpectedDisconnect(),
+    });
+    await control.connect(cfg.signalingUrl, channelId, user.id, user.username);
+    streamStore.setStatus("connected");
 }
 
 function handleUnexpectedDisconnect(): void {
     streamStore.clearStreams();
-    if (suppressReconnect) return; // fomos nós que desconectamos
-    if (!desiredChannel) return; // usuário saiu do canal
+    if (suppressReconnect) return;
+    if (!desiredChannel) return;
     scheduleRetry();
 }
 
@@ -187,7 +195,7 @@ function scheduleRetry(): void {
 }
 
 export async function connectToChannel(channelId: string): Promise<void> {
-    if (desiredChannel === channelId && session?.isConnected) return;
+    if (desiredChannel === channelId && control?.isConnected) return;
 
     cancelRetry();
     desiredChannel = channelId;
@@ -203,10 +211,10 @@ export async function connectToChannel(channelId: string): Promise<void> {
 }
 
 export async function disconnect(): Promise<void> {
-    desiredChannel = null; // marca intenção ANTES do teardown
+    desiredChannel = null;
     cancelRetry();
     retryAttempt = 0;
-    await disposeSession();
+    await teardown();
     streamStore.reset();
 }
 
@@ -224,34 +232,37 @@ export async function reconnectNow(): Promise<void> {
     }
 }
 
-export async function startScreenShare(): Promise<void> {
-    if (!session) throw new Error("Conecte-se a um canal de voz primeiro.");
+/** Aplica as quotas do admin (resolução/FPS) sobre o pedido do usuário. */
+function clampToPolicy(maxHeight: number, fps: number): { maxHeight: number; fps: number; } {
+    return {
+        maxHeight: policy.maxHeight > 0 ? Math.min(maxHeight, policy.maxHeight) : maxHeight,
+        fps: policy.maxFps > 0 ? Math.min(fps, policy.maxFps) : fps,
+    };
+}
 
-    // Modo nativo forçado (para regiões onde o Discord bloqueia a captura).
+function ensureMediaReady(): RtcSession {
+    if (!policy.enabled) throw new Error("Aguardando liberação do admin — peça acesso no site.");
+    if (!session?.isConnected) throw new Error("Conectando à mídia — tente novamente em instantes.");
+    return session;
+}
+
+export async function startScreenShare(): Promise<void> {
+    const s = ensureMediaReady();
+
     if (settings.store.nativeScreenCapture && isNativeCaptureAvailable()) {
         return startScreenShareNative();
     }
 
+    const q = clampToPolicy(Number(settings.store.maxHeight), Number(settings.store.fps));
     try {
-        await session.shareScreen({
-            systemAudio: settings.store.includeSystemAudio,
-            maxHeight: Number(settings.store.maxHeight),
-            fps: Number(settings.store.fps),
-        });
+        await s.shareScreen({ systemAudio: settings.store.includeSystemAudio, maxHeight: q.maxHeight, fps: q.fps });
+        control?.setState(true, "screen");
         streamStore.setSharing("screen");
     } catch (e) {
-        // Cancelar o seletor de tela do navegador não é um erro real.
         if (e instanceof Error && e.name === "NotAllowedError") return;
-
-        // Falha "dura" (ex.: bloqueio regional): tenta a captura nativa.
         if (isNativeCaptureAvailable()) {
-            try {
-                await startScreenShareNative();
-                return;
-            } catch (nativeErr) {
-                streamStore.setError(describeError(nativeErr));
-                return;
-            }
+            try { await startScreenShareNative(); return; }
+            catch (nativeErr) { streamStore.setError(describeError(nativeErr)); return; }
         }
         streamStore.setError(describeError(e));
     }
@@ -259,27 +270,30 @@ export async function startScreenShare(): Promise<void> {
 
 /** Compartilha a tela usando o desktopCapturer do Electron (contorna o Discord). */
 export async function startScreenShareNative(): Promise<void> {
-    if (!session) throw new Error("Conecte-se a um canal de voz primeiro.");
+    const s = ensureMediaReady();
 
     const sources = await getNativeSources();
     if (sources.length === 0) throw new Error("Nenhuma tela/janela disponível para capturar.");
 
     const chosen = await pickSource(sources);
-    if (!chosen) return; // usuário cancelou o picker
+    if (!chosen) return;
 
+    const q = clampToPolicy(Number(settings.store.maxHeight), Number(settings.store.fps));
     const stream = await captureNativeSource(chosen.id, {
         systemAudio: settings.store.includeSystemAudio,
-        maxHeight: Number(settings.store.maxHeight),
-        fps: Number(settings.store.fps),
+        maxHeight: q.maxHeight,
+        fps: q.fps,
     });
-    await session.publishMediaStream(stream);
+    await s.publishMediaStream(stream);
+    control?.setState(true, "screen");
     streamStore.setSharing("screen");
 }
 
 export async function startCameraShare(): Promise<void> {
-    if (!session) throw new Error("Conecte-se a um canal de voz primeiro.");
+    const s = ensureMediaReady();
     try {
-        await session.shareCamera();
+        await s.shareCamera();
+        control?.setState(true, "camera");
         streamStore.setSharing("camera");
     } catch (e) {
         if (e instanceof Error && e.name === "NotAllowedError") return;
@@ -290,6 +304,7 @@ export async function startCameraShare(): Promise<void> {
 export async function stopSharing(): Promise<void> {
     if (!session) return;
     await session.stopSharing();
+    control?.setState(false);
     streamStore.setSharing(null);
 }
 
