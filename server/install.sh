@@ -111,6 +111,25 @@ if confirm "Customizar o repositório de updates?"; then
     set_env UPDATE_BRANCH "$(ask 'UPDATE_BRANCH' 'main')" "$ENV_FILE"
 fi
 
+# IP público para o WebRTC (ex.: um VPS que faz relay do UDP para este servidor).
+# Não exige nenhuma mudança no cliente — o LiveKit passa a anunciar este IP nos
+# candidatos ICE. Deixe vazio para autodetecção normal.
+if confirm "A mídia (WebRTC) entra por outro IP público (ex.: VPS de relay)?"; then
+    NODE_IP=$(ask "IP público do WebRTC (vazio = autodetecção)" "")
+    if [ -n "$NODE_IP" ]; then
+        set_env LIVEKIT_NODE_IP "$NODE_IP" "$ENV_FILE"
+        LKY="$DIR/server/livekit.yaml"
+        # Define node_ip (comentado ou não) e desliga a autodetecção.
+        sed -i \
+            -e "s|^  # *node_ip:.*|  node_ip: $NODE_IP|" \
+            -e "s|^  node_ip:.*|  node_ip: $NODE_IP|" \
+            -e "s|^  use_external_ip:.*|  use_external_ip: false|" \
+            "$LKY"
+        ok "LiveKit vai anunciar $NODE_IP nos candidatos ICE."
+        warn "Garanta o relay UDP $NODE_IP:${LIVEKIT_UDP_PORT:-7882} -> este servidor."
+    fi
+fi
+
 if confirm "Configurar o bot de presença do Discord agora?"; then
     set_env DISCORD_BOT_TOKEN "$(ask 'DISCORD_BOT_TOKEN' '')" "$ENV_FILE"
 fi

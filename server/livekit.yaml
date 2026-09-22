@@ -13,6 +13,11 @@ rtc:
   # Em produção (VPS/servidor com IP público) deixe true para o SFU anunciar o IP
   # externo correto nos candidatos ICE. Em rede local, pode precisar ajustar.
   use_external_ip: true
+  # IP público anunciado nos candidatos ICE. Deixe comentado para autodetecção.
+  # Defina manualmente quando a MÍDIA entra por outro IP — ex.: um VPS que faz
+  # relay do UDP para este servidor (aí ponha o IP do VPS e use_external_ip: false).
+  # O instalador preenche isto se você informar um IP público para o WebRTC.
+  # node_ip: 203.0.113.10
 
 # TURN embutido do LiveKit — essencial em redes corporativas com NAT restritivo.
 # Desligado por padrão (dev). Para habilitar em produção:

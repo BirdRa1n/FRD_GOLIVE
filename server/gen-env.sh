@@ -44,6 +44,9 @@ LIVEKIT_TCP_PORT=7881
 LIVEKIT_UDP_PORT=7882
 TOKEN_PORT=8080
 
+# IP público da mídia WebRTC (ex.: VPS de relay). Vazio = autodetecção.
+LIVEKIT_NODE_IP=
+
 # Verificação de presença via bot (Fase 5) — opcional. Preencha para ativar.
 DISCORD_BOT_TOKEN=
 PRESENCE_ENFORCEMENT=strict
