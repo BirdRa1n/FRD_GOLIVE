@@ -5,6 +5,8 @@
 Userplugin do Vencord que compartilha tela/câmera por um **servidor LiveKit
 privado** (fora do Discord). A voz continua no Discord.
 
+> 🪟 **No Windows?** Veja o passo a passo dedicado em [WINDOWS.md](WINDOWS.md).
+
 ## Estrutura
 
 ```
