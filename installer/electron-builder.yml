@@ -1,0 +1,19 @@
+appId: com.birdra1n.frdgolive
+productName: FRD GoLive
+directories:
+  output: release
+files:
+  - dist/**
+  - renderer/**
+extraResources:
+  # Vencord dist pré-compilado COM o plugin — gerado no CI (ver README).
+  - from: vencord-dist
+    to: vencord-dist
+mac:
+  target: dmg
+  category: public.app-category.utilities
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

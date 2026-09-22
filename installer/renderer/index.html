@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>FRD GoLive — Instalador</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #0f1014; color: #dbdee1; margin: 0; padding: 28px; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  .muted { color: #949ba4; font-size: 13px; }
+  .card { background: #1a1b20; border: 1px solid #26272e; border-radius: 10px; padding: 16px; margin-top: 16px; }
+  label.opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border: 1px solid #26272e; border-radius: 8px; cursor: pointer; margin-bottom: 8px; }
+  label.opt:hover { border-color: #5865f2; }
+  input[type=text] { width: 100%; padding: 9px; border-radius: 8px; border: 1px solid #26272e; background: #0f1014; color: #fff; margin-top: 8px; }
+  button { border: 0; border-radius: 8px; padding: 11px 16px; cursor: pointer; color: #fff; background: #5865f2; font-size: 14px; width: 100%; margin-top: 14px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.sec { background: #4e5058; }
+  #log { white-space: pre-wrap; font-size: 12px; color: #b5bac1; margin-top: 12px; }
+  .ok { color: #3ba55d; } .err { color: #f23f43; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <h1>FRD GoLive</h1>
+  <p class="muted">Aplica a modificação no Discord para transmissão de tela/câmera privada.</p>
+
+  <div id="step-config" class="card">
+    <label class="opt"><input type="radio" name="server" value="default" checked />
+      <span><b>Usar o servidor birdra1n</b><br><span class="muted">Mais simples. Você libera o acesso depois no site.</span></span></label>
+    <label class="opt"><input type="radio" name="server" value="own" />
+      <span><b>Configurar meu próprio servidor</b><br><span class="muted">Informe o host — ele devolve toda a config.</span></span></label>
+    <input type="text" id="host" class="hidden" placeholder="https://golive.suaempresa.com" />
+    <button id="apply">Aplicar modificação</button>
+    <div id="log"></div>
+  </div>
+
+  <div id="step-done" class="card hidden">
+    <p class="ok"><b>✔ Modificação aplicada!</b></p>
+    <p class="muted" id="done-msg"></p>
+    <p class="muted">Agora entre no site para habilitar o uso do servidor. Quando o admin liberar, o Discord já notifica e liga as funções.</p>
+    <button id="open-hub">Abrir navegador (habilitar acesso)</button>
+    <button id="restart" class="sec">Instalar em outro Discord</button>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
