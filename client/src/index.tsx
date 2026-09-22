@@ -30,6 +30,21 @@ export default definePlugin({
         startNativeTiles();
         startNativeControls();
 
+        // Desbloqueia os botões nativos (override do experimento "video guard").
+        // Só com o hijack ligado, pois o hijack é o que impede o Go Live nativo de
+        // rodar — assim os botões ficam nativos, mas a mídia vai pro servidor privado.
+        if (settings.store.hijackNativeControls && settings.store.unlockNativeVideoGate) {
+            try {
+                FluxDispatcher.dispatch({
+                    type: "APEX_EXPERIMENT_OVERRIDE_CREATE",
+                    experimentName: settings.store.videoGuardExperiment,
+                    variantId: -1,
+                });
+            } catch (e) {
+                console.error("[FRD GoLive] falha ao desbloquear o video guard:", e);
+            }
+        }
+
         // Reage a mudanças de streams: players de áudio, overlays nos tiles e
         // estado ativo dos botões nativos.
         storeUnsub = streamStore.subscribe(() => {
