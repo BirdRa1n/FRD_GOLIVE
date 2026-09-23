@@ -127,6 +127,8 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
 
         if (msg.op === OP.IDENTIFY) { member = identify(ws, msg.d); return; }
         if (msg.op === OP.HEARTBEAT) { send(ws, OP.HEARTBEAT_ACK, { t: msg.d?.t }); return; }
+        // Sem resume no PoC: 4006 faz o cliente refazer o identify na hora.
+        if (msg.op === OP.RESUME) { ws.close(4006, "Session no longer valid."); return; }
         if (!member) { ws.close(4003, "Not authenticated."); return; }
         onMessage(member, msg.op, msg.d);
     });
@@ -364,6 +366,13 @@ udp.on("message", (msg, rinfo) => {
     const m = byAddr.get(addrKey(rinfo));
     if (!m) return;
     m.udp = rinfo; // responde pelo socket que o cliente realmente usa para mídia
+
+    // Keepalive do cliente (8 bytes, contador u64): o servidor do Discord devolve o eco.
+    if (msg.length === 8) {
+        udp.send(msg, rinfo.port, rinfo.address);
+        m.stats.byPt.keepalive = (m.stats.byPt.keepalive ?? 0) + 1;
+        return;
+    }
 
     const kind = classify(msg);
     m.stats.packets++;
