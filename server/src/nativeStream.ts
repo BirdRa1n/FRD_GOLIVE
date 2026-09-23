@@ -27,8 +27,9 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 
 import {
-    createExternalSender, DAVE_PROTOCOL_VERSION, decodeClientKeyPackage,
-    encodeServerFrame, externalSenderPackage, parseClientFrame, type ExternalSenderKey,
+    buildAddProposal, buildAnnounceCommit, createExternalSender, DAVE_PROTOCOL_VERSION,
+    decodeClientKeyPackage, encodeServerFrame, externalSenderPackage, parseClientFrame,
+    type ExternalSenderKey,
 } from "./dave.js";
 import { store } from "./store.js";
 import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
@@ -112,6 +113,8 @@ interface Member {
     decryptedSamples: number;
     /** Key package MLS do cliente (op 26), guardado para as Add proposals (op 27). */
     daveKeyPackage?: Buffer;
+    /** channel_id do IDENTIFY → group_id do MLS (BE8). */
+    daveChannelId?: bigint;
 }
 
 interface Room {
@@ -168,17 +171,33 @@ function sendExternalSender(m: Member): void {
 /** Frames binários DAVE do cliente (op 26 key package, 28 commit/welcome, 23 ready, 31). */
 function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
     if (op === 26) {
-        m.daveKeyPackage = payload; // guardado para as Add proposals (op 27), Phase 2 (espectador)
+        m.daveKeyPackage = payload;
         let info = "?(decode falhou)";
         try {
             const kp = decodeClientKeyPackage(payload);
             info = kp ? `cipher_suite=${kp.cipherSuite} credential=${kp.leafNode?.credential?.credentialType}` : info;
         } catch (e) { info = `?(erro: ${(e as Error).message})`; }
         log(`DAVE op26 (key package cru) de ${m.userId}: ${payload.length}B ${info}`);
-        // Solo (transmissor sozinho): o cliente forma o grupo local; não precisamos emitir op 27.
-        // TODO Phase 2 (espectador entra): validar credential (snowflake) + lifetime, e emitir
-        // op 27 (Add proposal externa via proposeExternal) — precisa da GroupInfo/epoch do grupo,
-        // a apurar com dados reais deste op 26. Ver docs/DAVE.md.
+        // Emite o op 27 (Add proposal externo) para este key package — o cliente comita e
+        // estabelece o grupo. group_id = BE8(channel_id). Ver docs/DAVE.md.
+        const chId = m.daveChannelId;
+        if (m.room.dave && chId !== undefined) {
+            const kpBytes = payload;
+            m.room.dave
+                .then(es => buildAddProposal(es, chId, kpBytes))
+                .then(op27 => {
+                    if (op27) { sendDave(m, 27, op27); log(`DAVE op27 (add proposal) → ${m.userId} ${op27.length}B`); }
+                    else log(`DAVE op27: key package não decodificou para ${m.userId}`);
+                })
+                .catch(e => log("DAVE op27 falhou:", e));
+        }
+        return;
+    }
+    if (op === 28) {
+        // Commit (+welcome) do cliente → ecoa como op 29 (announce commit) com transition_id 0.
+        const op29 = buildAnnounceCommit(0, payload);
+        if (op29) { sendDave(m, 29, op29); log(`DAVE op29 (announce commit tid 0) → ${m.userId} ${op29.length}B`); }
+        else log(`DAVE op28: commit não decodificou de ${m.userId}`);
         return;
     }
     log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${payload.length}B — não tratado (TODO Phase 1)`);
@@ -240,6 +259,7 @@ function identify(ws: WebSocket, d: any): Member | null {
         extProbe: { packets: 0, len2: new Map(), seen: new Map() },
     };
     room.members.set(userId, m);
+    try { m.daveChannelId = BigInt(String(d?.channel_id ?? "0")); } catch { /* channel_id inválido */ }
     log(`identify ${userId} na sala ${roomId} (${room.members.size} na sala) streams=${JSON.stringify(d?.streams)} dave=${d?.max_dave_protocol_version}`);
 
     send(ws, OP.READY, {

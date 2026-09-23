@@ -16,8 +16,10 @@
 import {
     decodeMlsMessage,
     encodeExternalSender,
+    encodeMlsMessage,
     getCiphersuiteFromName,
     nobleCryptoProvider,
+    proposeExternal,
     type CiphersuiteImpl,
     type ExternalSender,
     type MLSMessage,
@@ -87,6 +89,51 @@ export function decodeMls(payload: Uint8Array): MLSMessage | undefined {
 /** op 26 = KeyPackage CRU (não é MLSMessage). version(u16) cipher_suite(u16) init_key<V> … */
 export function decodeClientKeyPackage(payload: Uint8Array): KeyPackage | undefined {
     return decodeKeyPackage(payload, 0)?.[0];
+}
+
+/** Varint de tamanho MLS/QUIC (RFC 9420 §2.1.2). */
+function encodeVarint(n: number): Buffer {
+    if (n < 0x40) return Buffer.from([n]);
+    if (n < 0x4000) { const b = Buffer.alloc(2); b.writeUInt16BE(0x4000 | n); return b; }
+    if (n < 0x40000000) { const b = Buffer.alloc(4); b.writeUInt32BE((0x80000000 | n) >>> 0); return b; }
+    throw new Error("varint grande demais");
+}
+
+/**
+ * op 27 (MLS_PROPOSALS): Add proposal externo para o key package do cliente.
+ * Receita libdave: external_proposal(cs, group_id=BE8(channel_id), epoch=0, Add{kp}, signerIndex=0, signKey).
+ * group_id = 8 bytes big-endian do channel_id. Framing: operation_type(0=append) | MLSMessage<V>.
+ */
+export async function buildAddProposal(es: ExternalSenderKey, channelId: bigint, keyPackageBytes: Uint8Array): Promise<Buffer | undefined> {
+    const cs = await ciphersuite();
+    const kp = decodeClientKeyPackage(keyPackageBytes);
+    if (!kp) return undefined;
+    const groupId = Buffer.alloc(8);
+    groupId.writeBigUInt64BE(channelId & 0xffffffffffffffffn);
+    const groupContext = {
+        version: "mls10" as const,
+        cipherSuite: CIPHERSUITE,
+        groupId: new Uint8Array(groupId),
+        epoch: 0n,
+        treeHash: new Uint8Array(),
+        confirmedTranscriptHash: new Uint8Array(),
+        extensions: [{ extensionType: "external_senders" as const, extensionData: encodeExternalSender(es.external) }],
+    };
+    const groupInfo = { groupContext } as unknown as Parameters<typeof proposeExternal>[0];
+    const addProposal = { proposalType: "add" as const, add: { keyPackage: kp } };
+    const msg = await proposeExternal(groupInfo, addProposal, es.signaturePublicKey, es.signKey, cs);
+    const msgBytes = Buffer.from(encodeMlsMessage(msg));
+    return Buffer.concat([Buffer.from([0]), encodeVarint(msgBytes.length), msgBytes]);
+}
+
+/** op 29 (ANNOUNCE_COMMIT_TRANSITION): ecoa o commit do op 28 com transition_id. */
+export function buildAnnounceCommit(transitionId: number, op28Payload: Uint8Array): Buffer | undefined {
+    const r = decodeMlsMessage(op28Payload, 0);
+    if (!r) return undefined;
+    const commitBytes = Buffer.from(op28Payload.subarray(0, r[1]));
+    const tid = Buffer.alloc(2);
+    tid.writeUInt16BE(transitionId & 0xffff);
+    return Buffer.concat([tid, commitBytes]);
 }
 
 // --- TODO Phase 1 (máquina de estados; ver docs/DAVE.md) ------------------------
