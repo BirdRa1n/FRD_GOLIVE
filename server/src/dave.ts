@@ -10,7 +10,8 @@
 // transmissor basta o op 25 + a transição inicial (transition_id 0). Coreografia completa
 // em docs/DAVE.md (fonte: discord/dave-protocol).
 //
-// Ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 (0x0001), provider noble (JS puro).
+// Ciphersuite: MLS_128_DHKEMP256_AES128GCM_SHA256_P256 (0x0002) — confirmado pelos bytes
+// reais do op 26 (init_key P256 de 65B, prefixo 0x04). Provider noble (JS puro).
 
 import {
     decodeMlsMessage,
@@ -21,9 +22,10 @@ import {
     type ExternalSender,
     type MLSMessage,
 } from "ts-mls";
+import { decodeKeyPackage, type KeyPackage } from "ts-mls/keyPackage.js";
 
 export const DAVE_PROTOCOL_VERSION = 1;
-const CIPHERSUITE = "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519" as const;
+const CIPHERSUITE = "MLS_128_DHKEMP256_AES128GCM_SHA256_P256" as const;
 
 let csImplPromise: Promise<CiphersuiteImpl> | null = null;
 /** Implementação da ciphersuite do DAVE (lazy singleton, provider noble). */
@@ -76,9 +78,14 @@ export function parseClientFrame(b: Buffer): { op: number; payload: Buffer; } {
     return { op: b[0], payload: b.subarray(1) };
 }
 
-/** Decodifica um MLSMessage (op 26 = key package, op 28 = commit/welcome, …). */
+/** Decodifica um MLSMessage (op 28 = commit/welcome, …). */
 export function decodeMls(payload: Uint8Array): MLSMessage | undefined {
     return decodeMlsMessage(payload, 0)?.[0];
+}
+
+/** op 26 = KeyPackage CRU (não é MLSMessage). version(u16) cipher_suite(u16) init_key<V> … */
+export function decodeClientKeyPackage(payload: Uint8Array): KeyPackage | undefined {
+    return decodeKeyPackage(payload, 0)?.[0];
 }
 
 // --- TODO Phase 1 (máquina de estados; ver docs/DAVE.md) ------------------------

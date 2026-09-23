@@ -27,7 +27,7 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 
 import {
-    createExternalSender, DAVE_PROTOCOL_VERSION, decodeMls,
+    createExternalSender, DAVE_PROTOCOL_VERSION, decodeClientKeyPackage,
     encodeServerFrame, externalSenderPackage, parseClientFrame, type ExternalSenderKey,
 } from "./dave.js";
 import { store } from "./store.js";
@@ -169,9 +169,12 @@ function sendExternalSender(m: Member): void {
 function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
     if (op === 26) {
         m.daveKeyPackage = payload; // guardado para as Add proposals (op 27), Phase 2 (espectador)
-        let wf = "?(decode falhou)";
-        try { wf = decodeMls(payload)?.wireformat ?? wf; } catch (e) { wf = `?(erro: ${(e as Error).message})`; }
-        log(`DAVE op26 (key package) de ${m.userId}: ${payload.length}B wireformat=${wf} head=${payload.subarray(0, 16).toString("hex")}`);
+        let info = "?(decode falhou)";
+        try {
+            const kp = decodeClientKeyPackage(payload);
+            info = kp ? `cipher_suite=${kp.cipherSuite} credential=${kp.leafNode?.credential?.credentialType}` : info;
+        } catch (e) { info = `?(erro: ${(e as Error).message})`; }
+        log(`DAVE op26 (key package cru) de ${m.userId}: ${payload.length}B ${info}`);
         // Solo (transmissor sozinho): o cliente forma o grupo local; não precisamos emitir op 27.
         // TODO Phase 2 (espectador entra): validar credential (snowflake) + lifetime, e emitir
         // op 27 (Add proposal externa via proposeExternal) — precisa da GroupInfo/epoch do grupo,
