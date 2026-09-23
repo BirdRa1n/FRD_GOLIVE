@@ -27,7 +27,7 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 
 import {
-    buildAddProposal, buildAnnounceCommit, createExternalSender, DAVE_PROTOCOL_VERSION,
+    buildAnnounceCommit, buildProposals, createExternalSender, DAVE_PROTOCOL_VERSION,
     decodeClientKeyPackage, encodeServerFrame, externalSenderPackage, parseClientFrame,
     type ExternalSenderKey,
 } from "./dave.js";
@@ -115,6 +115,8 @@ interface Member {
     daveKeyPackage?: Buffer;
     /** channel_id do IDENTIFY → group_id do MLS (BE8). */
     daveChannelId?: bigint;
+    /** op 27 já enviado (evita comitar duas vezes). */
+    daveProposalsSent?: boolean;
 }
 
 interface Room {
@@ -178,17 +180,15 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
             info = kp ? `cipher_suite=${kp.cipherSuite} credential=${kp.leafNode?.credential?.credentialType}` : info;
         } catch (e) { info = `?(erro: ${(e as Error).message})`; }
         log(`DAVE op26 (key package cru) de ${m.userId}: ${payload.length}B ${info}`);
-        // Emite o op 27 (Add proposal externo) para este key package — o cliente comita e
-        // estabelece o grupo. group_id = BE8(channel_id). Ver docs/DAVE.md.
+        // Emite o op 27 (proposals) uma vez: Add dos PEERS (vazio no solo → o cliente comita
+        // o grupo solo). group_id = BE8(channel_id). Ver docs/DAVE.md.
         const chId = m.daveChannelId;
-        if (m.room.dave && chId !== undefined) {
-            const kpBytes = payload;
+        if (m.room.dave && chId !== undefined && !m.daveProposalsSent) {
+            m.daveProposalsSent = true;
+            const peerKps = peers(m).map(o => o.daveKeyPackage).filter((b): b is Buffer => !!b);
             m.room.dave
-                .then(es => buildAddProposal(es, chId, kpBytes))
-                .then(op27 => {
-                    if (op27) { sendDave(m, 27, op27); log(`DAVE op27 (add proposal) → ${m.userId} ${op27.length}B`); }
-                    else log(`DAVE op27: key package não decodificou para ${m.userId}`);
-                })
+                .then(es => buildProposals(es, chId, peerKps))
+                .then(op27 => { sendDave(m, 27, op27); log(`DAVE op27 (proposals, ${peerKps.length} add) → ${m.userId} ${op27.length}B`); })
                 .catch(e => log("DAVE op27 falhou:", e));
         }
         return;

@@ -100,14 +100,14 @@ function encodeVarint(n: number): Buffer {
 }
 
 /**
- * op 27 (MLS_PROPOSALS): Add proposal externo para o key package do cliente.
- * Receita libdave: external_proposal(cs, group_id=BE8(channel_id), epoch=0, Add{kp}, signerIndex=0, signKey).
- * group_id = 8 bytes big-endian do channel_id. Framing: operation_type(0=append) | MLSMessage<V>.
+ * op 27 (MLS_PROPOSALS): Add proposals externos para os key packages dos OUTROS membros.
+ * O membro solo é fundador do próprio pending group, então adicioná-lo seria leaf duplicada —
+ * por isso `keyPackages` traz só os PEERS. Vazio (solo) => op 27 vazio, e o cliente comita o
+ * grupo solo (epoch 0→1). Receita libdave: external_proposal(cs, group_id=BE8(channel_id),
+ * epoch=0, Add{kp}, signerIndex=0, signKey). Framing: operation_type(0=append) | MLSMessage<V>.
  */
-export async function buildAddProposal(es: ExternalSenderKey, channelId: bigint, keyPackageBytes: Uint8Array): Promise<Buffer | undefined> {
+export async function buildProposals(es: ExternalSenderKey, channelId: bigint, keyPackages: Uint8Array[]): Promise<Buffer> {
     const cs = await ciphersuite();
-    const kp = decodeClientKeyPackage(keyPackageBytes);
-    if (!kp) return undefined;
     const groupId = Buffer.alloc(8);
     groupId.writeBigUInt64BE(channelId & 0xffffffffffffffffn);
     const groupContext = {
@@ -120,10 +120,16 @@ export async function buildAddProposal(es: ExternalSenderKey, channelId: bigint,
         extensions: [{ extensionType: "external_senders" as const, extensionData: encodeExternalSender(es.external) }],
     };
     const groupInfo = { groupContext } as unknown as Parameters<typeof proposeExternal>[0];
-    const addProposal = { proposalType: "add" as const, add: { keyPackage: kp } };
-    const msg = await proposeExternal(groupInfo, addProposal, es.signaturePublicKey, es.signKey, cs);
-    const msgBytes = Buffer.from(encodeMlsMessage(msg));
-    return Buffer.concat([Buffer.from([0]), encodeVarint(msgBytes.length), msgBytes]);
+    const msgs: Buffer[] = [];
+    for (const kpBytes of keyPackages) {
+        const kp = decodeClientKeyPackage(kpBytes);
+        if (!kp) continue;
+        const addProposal = { proposalType: "add" as const, add: { keyPackage: kp } };
+        const msg = await proposeExternal(groupInfo, addProposal, es.signaturePublicKey, es.signKey, cs);
+        msgs.push(Buffer.from(encodeMlsMessage(msg)));
+    }
+    const body = Buffer.concat(msgs);
+    return Buffer.concat([Buffer.from([0]), encodeVarint(body.length), body]); // operation_type append + vetor<V>
 }
 
 /** op 29 (ANNOUNCE_COMMIT_TRANSITION): ecoa o commit do op 28 com transition_id. */
