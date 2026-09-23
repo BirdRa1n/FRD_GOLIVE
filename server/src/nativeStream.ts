@@ -276,7 +276,10 @@ function sendWants(m: Member): void {
     const viewers = peers(m);
     let px = Math.max(0, ...viewers.map(v => v.wantPixels));
     if (!px && NATIVE_STREAM_ALWAYS_WANT === "1") px = FULL_HD_PIXELS;
-    send(m.ws, OP.MEDIA_SINK_WANTS, { any: 100, pixelCounts: { [m.video.video_ssrc]: px } }, m);
+    // Pedido explícito por SSRC (como o espectador do Discord manda) — só com "any"
+    // o nativo não aloca bitrate ao vídeo (stats: sinkWant "100 (any)", bitrateTarget 0).
+    const ssrc = m.video.video_ssrc;
+    send(m.ws, OP.MEDIA_SINK_WANTS, { any: 100, [ssrc]: px ? 100 : 0, pixelCounts: { [ssrc]: px } }, m);
 }
 
 function peers(m: Member): Member[] {
