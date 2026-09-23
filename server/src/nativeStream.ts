@@ -39,8 +39,9 @@ const {
     NATIVE_STREAM_ALLOW_ANY = "0",
     // Estimativa de banda (REMB) anunciada a quem transmite — teto do encoder.
     NATIVE_STREAM_REMB_BPS = "8000000",
-    // ID da extensão transport-wide-cc no RTP do cliente; vazio = detecta sozinho.
-    NATIVE_STREAM_TWCC_EXT_ID = "",
+    // ID da extensão transport-wide-cc no RTP do cliente (5 no Discord desktop atual);
+    // vazio = detecta sozinho nos pacotes de vídeo.
+    NATIVE_STREAM_TWCC_EXT_ID = "5",
     // JSON mesclado no op 4 (SESSION_DESCRIPTION); valor null remove o campo.
     // Ex.: {"dave_protocol_version":null,"secure_frames_version":null}
     NATIVE_STREAM_SESSION_OVERRIDE = "",
@@ -368,19 +369,24 @@ function openRtp(msg: Buffer, key: Buffer): { exts: Map<number, Buffer>; payload
 
 const nowUs = () => Number(process.hrtime.bigint() / 1000n);
 
-/** Registra a chegada para o transport-cc (e detecta o ID da extensão nos primeiros pacotes). */
-function trackTwcc(m: Member, exts: Map<number, Buffer>, arrivalUs: number): void {
+/**
+ * Registra a chegada para o transport-cc. Sem ID configurado, detecta nos pacotes
+ * de VÍDEO/RTX — o áudio (opus) do cliente não carrega a extensão transport-wide.
+ */
+function trackTwcc(m: Member, exts: Map<number, Buffer>, arrivalUs: number, isAudio: boolean): void {
     if (m.twccExtId === undefined) {
+        if (isAudio) return;
         const p = m.extProbe;
         p.packets++;
         for (const [id, v] of exts) {
             p.seen.set(id, v.length);
             if (v.length === 2) p.len2.set(id, (p.len2.get(id) ?? 0) + 1);
         }
-        if (p.packets < 50) return;
+        if (p.packets < 20) return;
         const hit = [...p.len2].find(([, n]) => n >= p.packets * 0.9);
-        log(`extensões RTP de ${m.userId}: ${JSON.stringify(Object.fromEntries(p.seen))} → transport-cc id=${hit?.[0] ?? "não encontrado"}`);
-        m.twccExtId = hit ? hit[0] : -1;
+        log(`extensões RTP (vídeo) de ${m.userId}: ${JSON.stringify(Object.fromEntries(p.seen))} → transport-cc id=${hit?.[0] ?? "não encontrado"}`);
+        if (hit) m.twccExtId = hit[0];
+        else m.extProbe = { packets: 0, len2: new Map(), seen: new Map() }; // tenta de novo
         return;
     }
     const v = exts.get(m.twccExtId);
@@ -417,7 +423,7 @@ udp.on("message", (msg, rinfo) => {
     m.stats.byPt[kind] = (m.stats.byPt[kind] ?? 0) + 1;
     if (kind.startsWith("pt")) {
         const rtp = openRtp(msg, m.room.key);
-        if (rtp) trackTwcc(m, rtp.exts, nowUs());
+        if (rtp) trackTwcc(m, rtp.exts, nowUs(), kind === "pt120");
         diagnose(m, rtp?.payload, kind);
     } else if (!m.streamer && msg[1] === 205 && (msg[0] & 0x1f) === 15) {
         return; // transport-cc do espectador: quem dá o feedback a quem transmite é o servidor
@@ -475,7 +481,7 @@ const TWCC_INTERVAL_MS = 100;
 setInterval(() => {
     for (const room of rooms.values()) {
         for (const m of room.members.values()) {
-            if (!m.udp || !(m.twccExtId! >= 0)) continue;
+            if (!m.udp || m.twccExtId === undefined) continue;
             const fb = m.twcc.build(SERVER_SSRC, m.audioSsrc);
             if (fb) udp.send(encryptRtcp(fb, room), m.udp.port, m.udp.address);
         }
