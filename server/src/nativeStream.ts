@@ -369,9 +369,16 @@ function onMessage(m: Member, op: number, d: any): void {
             // Cliente pronto para a transição → executa (op 22). Só ocorre com DAVE_ON.
             log(`DAVE op23 (transition_ready) de ${m.userId} tid=${d?.transition_id}`);
             send(m.ws, OP.EXECUTE_TRANSITION, { transition_id: d?.transition_id ?? 0 }, m);
-            // Novo epoch → o transmissor re-chaveia; peça um keyframe fresco para o viewer
-            // conseguir montar um quadro decodificável no epoch novo.
-            requestKeyframe(m.room);
+            // Novo epoch → o transmissor re-chaveia e PAUSA a mídia. Re-ativa o encoder no
+            // epoch novo: re-envia o sink want (pixels) e pede um keyframe fresco, com um
+            // pequeno delay para a transição assentar dos dois lados.
+            {
+                const room = m.room;
+                setTimeout(() => {
+                    for (const o of room.members.values()) if (o.streamer) sendWants(o);
+                    requestKeyframe(room);
+                }, 600);
+            }
             break;
 
         case OP.RESUME:
