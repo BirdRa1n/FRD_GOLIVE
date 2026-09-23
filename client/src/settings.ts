@@ -56,6 +56,13 @@ export const settings = definePluginSettings({
         default: "2026-08-video-guard",
     },
 
+    streamProbe: {
+        type: OptionType.BOOLEAN,
+        description: "[Diagnóstico] Registrar o protocolo do Go Live NATIVO do Discord no console (FRDStreamProbe.copy() copia o log). Só leitura. Desligue os botões nativos (hijack) para o Go Live nativo rodar.",
+        default: false,
+        restartNeeded: true,
+    },
+
     // --- Escondidas: lembradas automaticamente, sem mexer em Configurações ---
     // Qualidade/som agora são escolhidos no picker de transmissão; guardamos a
     // última escolha para abrir o picker já nela.
