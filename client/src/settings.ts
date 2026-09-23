@@ -29,6 +29,12 @@ export const settings = definePluginSettings({
         stickToMarkers: false,
         default: 60,
     },
+    excludeDiscordAudio: {
+        type: OptionType.BOOLEAN,
+        description: "Transmitir o som SEM o áudio do Discord (a call não vai para a live — ninguém se escuta). Windows 10 2004+. Desligue só se o som da transmissão falhar.",
+        default: true,
+        restartNeeded: true,
+    },
     nativeTileOverlay: {
         type: OptionType.BOOLEAN,
         description: "Mostrar a transmissão privada dentro do tile do participante na call (desligue se quebrar após um update do Discord)",

@@ -6,8 +6,17 @@
 
 import type { NativeSource } from "../types";
 
+export interface AudioCaps {
+    /** Dá para transmitir o som SEM o áudio do Discord (a call). */
+    excludesDiscord: boolean;
+    reason?: string;
+}
+
 interface NativeApi {
     getScreenSources(): Promise<NativeSource[]>;
+    getAudioCaps?(): Promise<AudioCaps>;
+    prepareCapture?(sourceId: string, sourceName: string, audio: boolean): Promise<void>;
+    cancelCapture?(): Promise<void>;
 }
 
 /** Acessa o módulo nativo exposto pelo Vencord (só existe no Discord Desktop). */
@@ -34,11 +43,47 @@ export function getNativeSources(): Promise<NativeSource[]> {
     return getNative().getScreenSources();
 }
 
+/** Se esta máquina consegue transmitir o som sem o áudio do Discord. */
+export async function getAudioCaps(): Promise<AudioCaps> {
+    const api = getNative();
+    if (!api.getAudioCaps) return { excludesDiscord: false, reason: "Atualize o plugin (reinstale pelo instalador)." };
+    return api.getAudioCaps();
+}
+
 export interface NativeCaptureOptions {
     systemAudio: boolean;
     /** Altura máxima em px; 0 = resolução da fonte. */
     maxHeight: number;
     fps: number;
+}
+
+/**
+ * Captura a fonte com o áudio do sistema SEM o áudio do Discord (Windows).
+ * O módulo nativo reserva o próximo getDisplayMedia para esta fonte e responde
+ * com o dispositivo "loopbackWithoutChrome" — que, com o serviço de áudio no
+ * processo principal, exclui a árvore inteira do Discord (inclusive a call).
+ */
+export async function captureWithoutDiscordAudio(
+    source: NativeSource,
+    opts: Omit<NativeCaptureOptions, "systemAudio">,
+): Promise<MediaStream> {
+    const api = getNative();
+    if (!api.prepareCapture) throw new Error("Captura de áudio sem o Discord indisponível nesta versão do plugin.");
+    await api.prepareCapture(source.id, source.name, true);
+    try {
+        return await navigator.mediaDevices.getDisplayMedia({
+            video: opts.maxHeight > 0
+                ? { height: { max: opts.maxHeight }, width: { max: Math.round((opts.maxHeight * 16) / 9) }, frameRate: { max: opts.fps } }
+                : { frameRate: { max: opts.fps } },
+            // Não silenciar o som local de quem transmite; e pedir para excluir o
+            // próprio app (honrado pelo Electron 43+, e forçado pelo nosso handler).
+            audio: { suppressLocalAudioPlayback: false, restrictOwnAudio: true } as MediaTrackConstraints,
+            systemAudio: "include",
+        } as DisplayMediaStreamOptions);
+    } catch (e) {
+        await api.cancelCapture?.();
+        throw e;
+    }
 }
 
 export async function captureNativeSource(
@@ -58,8 +103,9 @@ export async function captureNativeSource(
         },
     };
 
-    // ATENÇÃO: o desktopCapturer captura o áudio do SISTEMA INTEIRO — inclui a call
-    // do Discord. Para áudio SEM a call, use getDisplayMedia compartilhando uma ABA.
+    // ATENÇÃO: aqui o áudio é o do SISTEMA INTEIRO — inclui a call do Discord.
+    // Só é usado quando o usuário desliga "separar o áudio do Discord"; o padrão
+    // é captureWithoutDiscordAudio.
     if (opts.systemAudio) {
         try {
             return await navigator.mediaDevices.getUserMedia({
