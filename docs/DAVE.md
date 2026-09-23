@@ -91,10 +91,24 @@ Qualidade por-ssrc e `any` = **100** (percentual); a contagem de pixels vai **s�
    transporte com `secret_key`; a camada DAVE é interna e passa intacta). Consequência:
    com DAVE ligado, **o servidor também deixa de ver o vídeo** — E2EE real.
 
-### Biblioteca MLS (a decidir na Phase 1)
-- **`ts-mls`** (TypeScript puro) — mantém o servidor sem deps nativas/WASM; **verificar**
-  suporte a external senders e à ciphersuite 0x0001.
-- **`@wireapp/core-crypto`** (Rust/WASM) — suporte maduro a external senders; peso do WASM.
+### Biblioteca MLS — **escolhida e validada: `ts-mls`** (v1.6.4)
+TypeScript puro (RFC 9420), roda em Node sem deps nativas/WASM — mantém o `server/` na
+mesma toolchain (tsc). API confirmada (inspeção dos `.d.ts`):
+- **External sender:** `ExternalSender { signaturePublicKey, credential }` + `encodeExternalSender`
+  (payload do op 25); `proposeExternal(groupInfo, proposal, sigPub, sigPriv, cs)` e
+  `proposeAddExternal(...)` — o servidor cria propostas externas assinadas sem ser membro
+  do grupo (papel external sender + DS; op 27).
+- **Ciphersuite 0x0001** (`MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`) presente; provider
+  **`noble`** (JS puro).
+- Peças RFC 9420: `keyPackage` (decode op 26), `createCommit`, `groupInfo`, `processMessages`,
+  `extension`/`defaultExtensionType` (extensão `external_senders`), codec TLS.
+
+**Risco aberto (trabalho de integração da Phase 1):** o *framing DAVE* em volta dos objetos
+MLS (headers/prefixos por opcode, ex.: `transition_id` nos payloads binários) tem que casar
+com o `libdave` do Discord — a `ts-mls` dá os objetos MLS (RFC 9420), mas o embrulho
+específico do DAVE é nosso. Referência: `libdave`.
+- Descartada: **`@wireapp/core-crypto`** (Rust/WASM) — external senders maduros, mas peso do
+  WASM e storage persistente que não precisamos.
 - Referência de wire-format: **`libdave`** (C++, do próprio Discord).
 
 ## Plano faseado (validação primeiro)
