@@ -62,6 +62,12 @@ export const settings = definePluginSettings({
         default: false,
         restartNeeded: true,
     },
+    nativeStreamEndpoint: {
+        type: OptionType.STRING,
+        description: "[Experimental] Enviar o Go Live NATIVO para o servidor privado — ex.: golivefrd.SEU.com/dstream. Quem transmite e quem assiste precisam disto. Vazio = desligado. Desligue os botões nativos (hijack).",
+        default: "",
+        restartNeeded: true,
+    },
 
     // --- Escondidas: lembradas automaticamente, sem mexer em Configurações ---
     // Qualidade/som agora são escolhidos no picker de transmissão; guardamos a

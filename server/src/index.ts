@@ -7,6 +7,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
 import { createToken, livekitConfigured, livekitWsUrl } from "./livekit.js";
+import { handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, startNativeStreamUdp } from "./nativeStream.js";
 import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
 import type {
@@ -240,7 +241,20 @@ app.get("/admin/metrics", admin, (_req, res) => {
 
 // --- WebSocket signaling ---
 const httpServer = createServer(app);
-const wss = new WebSocketServer({ server: httpServer, path: "/signaling" });
+const wss = new WebSocketServer({ noServer: true });
+
+// Upgrades roteados à mão: com `path`, o ws recusaria (400) qualquer outro caminho.
+httpServer.on("upgrade", (req, socket, head) => {
+    const path = (req.url ?? "").split("?")[0];
+    if (path === "/signaling") {
+        wss.handleUpgrade(req, socket, head, ws => wss.emit("connection", ws, req));
+    } else if (nativeStreamEnabled() && path.startsWith(NATIVE_STREAM_PATH)) {
+        handleNativeStreamUpgrade(req, socket, head);
+    } else {
+        socket.destroy();
+    }
+});
+if (nativeStreamEnabled()) startNativeStreamUdp();
 
 wss.on("connection", ws => {
     ws.on("message", raw => {

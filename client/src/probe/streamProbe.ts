@@ -82,14 +82,20 @@ function hostOf(url: string): string {
 
 // --- 1. Flux -------------------------------------------------------------------
 
-function onFlux(payload: { type: string; endpoint?: string | null; }): void {
-    if (payload.type === "STREAM_SERVER_UPDATE" && payload.endpoint) {
-        streamHosts.add(hostOf(payload.endpoint.startsWith("wss://") ? payload.endpoint : `wss://${payload.endpoint}`));
-    }
+function onFlux(payload: { type: string; }): void {
     record(`flux:${payload.type}`, payload);
 }
 
+function markStreamHost(action: { type?: string; endpoint?: string | null; }): boolean {
+    if (active && action.type === "STREAM_SERVER_UPDATE" && action.endpoint) {
+        streamHosts.add(hostOf(action.endpoint.startsWith("wss://") ? action.endpoint : `wss://${action.endpoint}`));
+    }
+    return false;
+}
+
 function hookFlux(): void {
+    // Interceptor roda antes do Discord abrir o WS → o "open" já sai marcado como stream.
+    FluxDispatcher.addInterceptor(markStreamHost);
     for (const ev of FLUX_EVENTS) FluxDispatcher.subscribe(ev as any, onFlux);
     undo.push(() => { for (const ev of FLUX_EVENTS) FluxDispatcher.unsubscribe(ev as any, onFlux); });
 }
@@ -209,6 +215,8 @@ function hookNativeVoice(): void {
     }
     try {
         const voice = native.requireModule("discord_voice");
+        // Obs.: requireModule devolve um objeto novo a cada chamada (same-object=false),
+        // então isto lista a API mas não pega as chamadas que o Discord faz.
         wrapObject("discord_voice", voice, 0);
         // Mesmo objeto em chamadas futuras? (se não for, só o que já foi embrulhado conta)
         record("native:same-object", native.requireModule("discord_voice") === voice);
