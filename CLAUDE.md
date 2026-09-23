@@ -44,7 +44,7 @@ server/            hub/auth/admin/config + token do LiveKit (Node, Docker)
   public/ui/       DESIGN SYSTEM: ui.css (tokens/componentes), ui.js (tema, segmented,
                    sheet, toast, ícones), index.html (catálogo em /ui/)
   livekit.yaml     config do SFU (udp_port 7882 mux, node_ip = IP público da mídia)
-docs/              arquitetura, roadmap, OAuth do Discord, relay UDP
+docs/              arquitetura, roadmap, OAuth do Discord, relay UDP, experimento Go Live nativo
 ```
 
 ## Build & testes
