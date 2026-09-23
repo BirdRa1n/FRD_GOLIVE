@@ -369,6 +369,9 @@ function onMessage(m: Member, op: number, d: any): void {
             // Cliente pronto para a transição → executa (op 22). Só ocorre com DAVE_ON.
             log(`DAVE op23 (transition_ready) de ${m.userId} tid=${d?.transition_id}`);
             send(m.ws, OP.EXECUTE_TRANSITION, { transition_id: d?.transition_id ?? 0 }, m);
+            // Novo epoch → o transmissor re-chaveia; peça um keyframe fresco para o viewer
+            // conseguir montar um quadro decodificável no epoch novo.
+            requestKeyframe(m.room);
             break;
 
         case OP.RESUME:
