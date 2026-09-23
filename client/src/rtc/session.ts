@@ -114,8 +114,10 @@ export class RtcSession {
             video: opts.maxHeight > 0
                 ? { width: Math.round((opts.maxHeight * 16) / 9), height: opts.maxHeight, frameRate: opts.fps }
                 : { frameRate: opts.fps },
+            // restrictOwnAudio: pede ao navegador para tirar o áudio do próprio
+            // app (a call) do som capturado, onde houver suporte.
             audio: opts.systemAudio
-                ? ({ suppressLocalAudioPlayback: true } as MediaTrackConstraints)
+                ? ({ suppressLocalAudioPlayback: true, restrictOwnAudio: true } as MediaTrackConstraints)
                 : false,
         });
 

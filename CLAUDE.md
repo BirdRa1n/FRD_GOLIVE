@@ -102,9 +102,19 @@ curl -s http://localhost:8090/config   # signalingUrl (controle) + serverUrl (Li
   O nome do experimento rotaciona → é setting.
 - **Go Live nativo é ininterceptável**: a captura acontece no módulo nativo
   `discord_voice` (C++), fora do JS. Provado por hook — não há `MediaStream` em JS.
-- **Áudio**: o navegador NÃO isola áudio de app nativo. Só existe: aba do Chrome
-  (scoped, sem call) / tela ou desktopCapturer (sistema todo, com a call) / janela
-  (sem áudio). macOS não entrega áudio de sistema ao navegador.
+- **Áudio da transmissão sem a call (Windows)**: o `desktopCapturer`/loopback comum pega
+  o sistema inteiro — a call vaza e quem assiste se escuta. Solução (`native.ts`):
+  captura via `getDisplayMedia` com o nosso handler respondendo
+  `audio: "loopbackWithoutChrome"` (WASAPI process loopback que EXCLUI a árvore do
+  processo que captura). Por padrão quem captura é o *serviço de áudio* (processo
+  próprio) e a voz (`discord_voice`) toca no *renderer* — fora dessa árvore. Por isso o
+  `native.ts` desliga `AudioServiceOutOfProcess` (envolvendo `app.commandLine.appendSwitch`
+  para mesclar com o `--disable-features` do Discord): o serviço vai pro processo
+  principal e a árvore excluída vira o Discord inteiro. O Electron 42 (Discord atual)
+  repassa qualquer string de `audio` como device id; o 43+ também mapeia
+  `restrictOwnAudio`. Requer Windows 10 2004+; o `getAudioCaps()` confere se a flag pegou.
+  macOS: sem som (o desktopCapturer não entrega; o CATap do Chromium só exclui o pid do
+  serviço de áudio, não o renderer).
 - **Injeções no DOM do Discord** (tiles nativos, hijack dos botões) usam
   `MutationObserver` + intervalo porque o Discord re-renderiza; ancorar em atributos
   estáveis (`data-selenium-video-tile="<userId>"`), não em classes hasheadas.

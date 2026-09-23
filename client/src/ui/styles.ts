@@ -325,7 +325,10 @@ button.frd-native-active svg {
 .frd-gl-lock { flex: none; }
 .frd-gl-hint { font-size: 12px; color: var(--text-muted, #949ba4); }
 .frd-gl-audio { display: flex; align-items: center; margin-right: auto; }
-.frd-gl-audio-label { font-size: 14px; color: var(--text-normal, #dbdee1); }
+.frd-gl-audio-label { display: flex; flex-direction: column; font-size: 14px; color: var(--text-normal, #dbdee1); }
+.frd-gl-audio-note { font-size: 12px; color: var(--text-muted, #949ba4); }
+.frd-gl-audio-note:empty { display: none; }
+.frd-gl-audio-warn { color: var(--text-warning, #f0b232); }
 `;
 
 let styleEl: HTMLStyleElement | null = null;

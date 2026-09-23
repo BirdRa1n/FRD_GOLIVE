@@ -15,8 +15,13 @@ import { streamStore } from "../state/streamStore";
 import type { NativeSource } from "../types";
 import { openGoLivePicker } from "../ui/GoLiveModal";
 import { playStreamSound } from "../ui/streamSounds";
+import { showToast, Toasts } from "@webpack/common";
+
 import {
+    type AudioCaps,
     captureNativeSource,
+    captureWithoutDiscordAudio,
+    getAudioCaps,
     getNativeSources,
     isNativeCaptureAvailable,
 } from "./nativeCapture";
@@ -247,6 +252,31 @@ function ensureMediaReady(): RtcSession {
     return session;
 }
 
+/**
+ * Captura a fonte escolhida. Com som: sem o áudio do Discord quando suportado;
+ * se essa captura falhar, transmite só o vídeo (nunca cai para o áudio COM a
+ * call sem o usuário ter pedido).
+ */
+async function captureSource(
+    source: NativeSource,
+    wantAudio: boolean,
+    caps: AudioCaps,
+    legacyLoopback: boolean,
+    q: { maxHeight: number; fps: number; },
+): Promise<MediaStream> {
+    if (wantAudio && caps.excludesDiscord) {
+        try {
+            return await captureWithoutDiscordAudio(source, q);
+        } catch (e) {
+            if (e instanceof Error && e.name === "NotAllowedError") throw e;
+            console.warn("[FRD GoLive] som sem o Discord falhou; transmitindo só o vídeo:", e);
+            showToast("Não foi possível capturar o som sem o áudio do Discord — transmitindo só o vídeo.", Toasts.Type.FAILURE);
+            return captureNativeSource(source.id, { systemAudio: false, ...q });
+        }
+    }
+    return captureNativeSource(source.id, { systemAudio: wantAudio && legacyLoopback, ...q });
+}
+
 /** Garante as quotas do admin mesmo se a escolha vier de fora do picker. */
 function clampToPolicy(maxHeight: number, fps: number): { maxHeight: number; fps: number; } {
     const capH = policy.maxHeight;
@@ -273,14 +303,30 @@ export async function startScreenShare(): Promise<void> {
 
     const native = isNativeCaptureAvailable();
     let sources: NativeSource[] | null = null;
+    let caps: AudioCaps = { excludesDiscord: false };
     if (native) {
         try {
-            sources = await getNativeSources();
+            [sources, caps] = await Promise.all([
+                getNativeSources(),
+                getAudioCaps().catch(() => ({ excludesDiscord: false, reason: "Não foi possível verificar o áudio." })),
+            ]);
         } catch (e) {
             streamStore.setError(describeError(e));
             return;
         }
     }
+
+    // Som da transmissão: o padrão é SEM o áudio do Discord (a call não vaza).
+    // "Separar" desligado no Windows → áudio do sistema inteiro (com a call), avisando.
+    const isWin = /Windows/i.test(navigator.userAgent);
+    const legacyLoopback = native && isWin && !settings.store.excludeDiscordAudio;
+    const audio = !native
+        ? { supported: true, note: "Sem o áudio da call, onde o sistema permitir." }
+        : caps.excludesDiscord
+            ? { supported: true, note: "Sem o áudio da call — quem assiste não escuta a si mesmo." }
+            : legacyLoopback
+                ? { supported: true, note: "Inclui o áudio da call do Discord.", warn: true }
+                : { supported: false, reason: caps.reason ?? "Som indisponível nesta máquina." };
 
     const choice = await openGoLivePicker({
         sources,
@@ -291,8 +337,10 @@ export async function startScreenShare(): Promise<void> {
             fps: Number(settings.store.fps),
             audio: settings.store.includeSystemAudio,
         },
-        // desktopCapturer não entrega áudio de sistema no macOS
-        audioSupported: !(native && /Mac/i.test(navigator.userAgent)),
+        audioSupported: audio.supported,
+        audioBlockedReason: audio.reason,
+        audioNote: audio.note,
+        audioNoteWarn: audio.warn,
     });
     if (!choice) return;
 
@@ -304,11 +352,7 @@ export async function startScreenShare(): Promise<void> {
     const q = clampToPolicy(choice.maxHeight, choice.fps);
     try {
         if (choice.source) {
-            const stream = await captureNativeSource(choice.source.id, {
-                systemAudio: choice.audio,
-                maxHeight: q.maxHeight,
-                fps: q.fps,
-            });
+            const stream = await captureSource(choice.source, choice.audio, caps, legacyLoopback, q);
             await s.publishScreenStream(stream, q);
         } else {
             await s.shareScreen({ systemAudio: choice.audio, maxHeight: q.maxHeight, fps: q.fps });

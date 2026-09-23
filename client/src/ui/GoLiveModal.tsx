@@ -24,8 +24,14 @@ export interface GoLivePickerOptions {
     policyMaxFps: number;
     /** Última escolha do usuário. */
     initial: { maxHeight: number; fps: number; audio: boolean; };
-    /** false no macOS com captura nativa: o desktopCapturer não entrega áudio. */
+    /** Dá para compartilhar som nesta máquina. */
     audioSupported: boolean;
+    /** Por que não dá (quando audioSupported = false). */
+    audioBlockedReason?: string;
+    /** Observação sobre o som (ex.: "sem o áudio da call"). */
+    audioNote?: string;
+    /** A observação é um alerta (ex.: o som INCLUI a call). */
+    audioNoteWarn?: boolean;
 }
 
 const RESOLUTIONS = [
@@ -175,14 +181,19 @@ function GoLiveDialog({ modalProps, opts, onDone }: {
                 },
             ]}
             actionBarInput={
-                <div className="frd-gl-audio" title={opts.audioSupported ? undefined : "O macOS não permite capturar o som do sistema."}>
+                <div className="frd-gl-audio" title={opts.audioSupported ? opts.audioNote : opts.audioBlockedReason}>
                     <Checkbox
                         value={audio}
                         disabled={!opts.audioSupported}
                         onChange={(_e: unknown, v: boolean) => setAudio(v)}
                         size={18}
                     >
-                        <span className="frd-gl-audio-label">Compartilhar som{!opts.audioSupported && " (indisponível no macOS)"}</span>
+                        <span className="frd-gl-audio-label">
+                            Compartilhar som
+                            <span className={"frd-gl-audio-note" + (opts.audioNoteWarn ? " frd-gl-audio-warn" : "")}>
+                                {opts.audioSupported ? opts.audioNote : opts.audioBlockedReason}
+                            </span>
+                        </span>
                     </Checkbox>
                 </div>
             }
