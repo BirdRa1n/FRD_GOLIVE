@@ -26,6 +26,10 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 
+import {
+    createExternalSender, DAVE_PROTOCOL_VERSION, decodeMls,
+    encodeServerFrame, externalSenderPackage, parseClientFrame, type ExternalSenderKey,
+} from "./dave.js";
 import { store } from "./store.js";
 import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
 
@@ -45,7 +49,13 @@ const {
     // JSON mesclado no op 4 (SESSION_DESCRIPTION); valor null remove o campo.
     // Ex.: {"dave_protocol_version":null,"secure_frames_version":null}
     NATIVE_STREAM_SESSION_OVERRIDE = "",
+    // DAVE v1 (E2EE/MLS) — experimental, Phase 1. "1" liga: op 4 anuncia
+    // dave_protocol_version 1 e o servidor entra como external sender (ver dave.ts).
+    // Padrão desligado = comportamento atual (dave 0, sem MLS). Ver docs/DAVE.md.
+    NATIVE_STREAM_DAVE = "0",
 } = process.env;
+
+const DAVE_ON = NATIVE_STREAM_DAVE === "1";
 
 export const NATIVE_STREAM_PATH = "/dstream";
 const UDP_PORT = Number(NATIVE_STREAM_UDP_PORT);
@@ -100,7 +110,12 @@ interface Member {
     decryptedSamples: number;
 }
 
-interface Room { id: string; key: Buffer; members: Map<string, Member>; /** Nonce dos pacotes que o servidor cifra. */ nonce: number; /** Último PLI enviado (throttle). */ lastPli?: number; }
+interface Room {
+    id: string; key: Buffer; members: Map<string, Member>;
+    /** Nonce dos pacotes que o servidor cifra. */ nonce: number;
+    /** Último PLI enviado (throttle). */ lastPli?: number;
+    /** External sender do DAVE para a sala (só com DAVE_ON). */ dave?: Promise<ExternalSenderKey>;
+}
 
 const rooms = new Map<string, Room>();
 const byAddr = new Map<string, Member>();
@@ -128,6 +143,33 @@ function send(ws: WebSocket, op: number, d: unknown, m?: Member): void {
     ws.send(JSON.stringify(msg));
 }
 
+/** Envia um dispatch binário DAVE (op 25/27/29/30) — [seq u16][op][payload], seq compartilhado. */
+function sendDave(m: Member, op: number, payload: Uint8Array): void {
+    if (m.ws.readyState !== WebSocket.OPEN) return;
+    m.ws.send(encodeServerFrame(m.seq++, op, payload));
+}
+
+/** op 25 (MLS_EXTERNAL_SENDER): anuncia o external sender da sala ao membro. */
+function sendExternalSender(m: Member): void {
+    m.room.dave?.then(es => {
+        sendDave(m, 25, externalSenderPackage(es));
+        log(`DAVE op25 (external sender) → ${m.userId}`);
+    }).catch(e => log("DAVE op25 falhou:", e));
+}
+
+/** Frames binários DAVE do cliente (op 26 key package, 28 commit/welcome, 23 ready, 31). */
+function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
+    if (op === 26) {
+        const msg = decodeMls(payload);
+        log(`DAVE op26 (key package) de ${m.userId}: ${payload.length}B wireformat=${msg?.wireformat ?? "?(decode falhou)"}`);
+        // TODO Phase 1: validar credential (snowflake do user_id) + lifetime + assinatura,
+        // e emitir op 27 (Add proposal externa) via proposeExternal. Depois op 28/29/30 +
+        // transição (op 24/21/22/23). Ver docs/DAVE.md.
+        return;
+    }
+    log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${payload.length}B — não tratado (TODO Phase 1)`);
+}
+
 function onConnection(ws: WebSocket, req: IncomingMessage): void {
     log("conexão", req.url, req.headers["cf-connecting-ip"] ?? req.socket.remoteAddress);
     let member: Member | null = null;
@@ -137,10 +179,9 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
     ws.on("message", (raw, isBinary) => {
         if (isBinary) {
             // Frame binário C→S = DAVE/MLS: [op u8][payload] (sem seq no sentido cliente→servidor).
-            // Hoje dave_protocol_version=0, então isto não deve chegar; logamos para o Phase 0
-            // do DAVE (docs/DAVE.md). Tratamento MLS ainda não implementado.
-            const b = raw as Buffer;
-            log(`DAVE C→S op ${b[0]} (${DAVE_OP[b[0]] ?? "?"}) ${b.length}B — não tratado`);
+            const { op, payload } = parseClientFrame(raw as Buffer);
+            if (DAVE_ON && member) { handleDaveBinary(member, op, payload); return; }
+            log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${(raw as Buffer).length}B — não tratado`);
             return;
         }
         let msg: { op: number; d: any; };
@@ -172,6 +213,7 @@ function identify(ws: WebSocket, d: any): Member | null {
 
     let room = rooms.get(roomId);
     if (!room) { room = { id: roomId, key: randomBytes(32), members: new Map(), nonce: 0 }; rooms.set(roomId, room); }
+    if (DAVE_ON) room.dave ??= createExternalSender();
     room.members.get(userId)?.ws.close(4005, "Replaced.");
 
     const base = nextSsrc; nextSsrc += 3;
@@ -220,6 +262,7 @@ function onMessage(m: Member, op: number, d: any): void {
             log(`select_protocol ${m.userId} mode=${d?.mode} codecs=${(d?.codecs ?? []).map((c: any) => `${c.name}${c.encode === false ? "(dec)" : ""}`).join(",")}`);
             send(m.ws, OP.SESSION_DESCRIPTION, sessionDescription(m));
             sendWants(m);
+            if (DAVE_ON) sendExternalSender(m);
             break;
 
         case OP.VIDEO: {
@@ -268,8 +311,8 @@ function sessionDescription(m: Member): Record<string, unknown> {
         mode: MODE,
         secret_key: [...m.room.key],
         media_session_id: randomBytes(16).toString("hex"),
-        dave_protocol_version: 0,
-        secure_frames_version: 0,
+        dave_protocol_version: DAVE_ON ? DAVE_PROTOCOL_VERSION : 0,
+        secure_frames_version: DAVE_ON ? 1 : 0,
     };
     if (NATIVE_STREAM_SESSION_OVERRIDE) {
         try {

@@ -13,11 +13,13 @@
 // Ciphersuite: MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519 (0x0001), provider noble (JS puro).
 
 import {
+    decodeMlsMessage,
     encodeExternalSender,
     getCiphersuiteFromName,
     nobleCryptoProvider,
     type CiphersuiteImpl,
     type ExternalSender,
+    type MLSMessage,
 } from "ts-mls";
 
 export const DAVE_PROTOCOL_VERSION = 1;
@@ -72,6 +74,11 @@ export function encodeServerFrame(seq: number, op: number, payload: Uint8Array):
 /** Lê um frame binário cliente→servidor (op 26/28/23/31): [op u8][payload]. */
 export function parseClientFrame(b: Buffer): { op: number; payload: Buffer; } {
     return { op: b[0], payload: b.subarray(1) };
+}
+
+/** Decodifica um MLSMessage (op 26 = key package, op 28 = commit/welcome, …). */
+export function decodeMls(payload: Uint8Array): MLSMessage | undefined {
+    return decodeMlsMessage(payload, 0)?.[0];
 }
 
 // --- TODO Phase 1 (máquina de estados; ver docs/DAVE.md) ------------------------
