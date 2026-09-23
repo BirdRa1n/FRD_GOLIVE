@@ -42,10 +42,11 @@ export interface ExternalSenderKey {
 }
 
 /**
- * Gera o external sender do servidor. `identity` vai no credential basic — o Discord valida
- * o credential do external sender; por ora vazio (TODO Phase 1: casar com o libdave).
+ * Gera o external sender do servidor. `identity` vai no credential basic. O libdave usa
+ * exatamente `{0x00, 0x01, 0x01, 0x00}` (cpp/test/external_sender.cpp) — por isso o op 25
+ * real tem 74B (com identity vazia dava 70B).
  */
-export async function createExternalSender(identity: Uint8Array = new Uint8Array()): Promise<ExternalSenderKey> {
+export async function createExternalSender(identity: Uint8Array = new Uint8Array([0x00, 0x01, 0x01, 0x00])): Promise<ExternalSenderKey> {
     const cs = await ciphersuite();
     const { publicKey, signKey } = await cs.signature.keygen();
     return {

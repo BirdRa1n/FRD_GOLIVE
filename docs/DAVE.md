@@ -141,11 +141,30 @@ op27 (servidor: Add proposal do key package do cliente)
 → op29 (servidor: echo do commit + transition_id)
 → op23 (cliente: ready)   → op22 (servidor: execute_transition)  → mídia E2EE flui
 ```
-**Bloqueio atual — op 27:** o Add proposal externo precisa casar `group_id`/epoch com
-o grupo local (solo) que o cliente criou. A spec **não** documenta a derivação do
-`group_id` — é detalhe do `libdave`. Próximo passo: achar a derivação do group_id no
-`libdave` (discord/libdave) e montar o Add proposal (a `ts-mls` tem `proposeExternal`,
-mas exige um GroupContext/GroupInfo com o group_id certo + a extensão external_senders).
+**op 27 — receita completa (extraída do `discord/libdave`, cpp/test/external_sender.cpp
+e cpp/src/mls/session.cpp):**
+- **group_id** = 8 bytes **big-endian** de `BigInt(channel_id)` (`session.cpp`:
+  `groupId_ = BigEndianBytesFrom(groupId)`; `DaveSessionManager.ts`:
+  `Init(version, BigInt(groupId), selfUserId, key)`). O `channel_id` vem do **IDENTIFY**.
+- **credential do external sender** = basic, identity `{0x00,0x01,0x01,0x00}` (já aplicado
+  em `createExternalSender`).
+- **signerIndex** (índice na extensão external_senders) = **0**.
+- **epoch** do Add proposal no bootstrap = **0**.
+- **ProposeAdd** = `external_proposal(ciphersuite, group_id, epoch, Proposal{Add{keyPackage}},
+  signerIndex=0, signKey)`. Na `ts-mls`: `proposeExternal(groupInfo, addProposal, sigPub,
+  signKey, cs)` com um `groupInfo.groupContext` fabricado:
+  `{version:"mls10", cipherSuite:P256, groupId, epoch:0n, treeHash:[], confirmedTranscriptHash:[],
+  extensions:[{extensionType:"external_senders", extensionData: encodeExternalSender(es.external)}]}`
+  (external proposal não assina sobre tree/transcript, então esses ficam vazios). O
+  `addProposal` = `{proposalType:"add", add:{keyPackage: decodeKeyPackage(op26)}}`.
+- **framing do op 27**: `operation_type(u8=0 append) | MLSMessage proposal_messages<V>`
+  (vetor TLS `<V>` de um MLSMessage `mls_public_message`).
+- **op 28 → op 29**: op 29 = `transition_id(u16) | commit_message` — ecoa o primeiro
+  MLSMessage do op 28 (o commit) de volta com o transition_id (0). (Welcome/op30 não é
+  necessário no membro solo.) Depois o cliente manda **op 23** e nós **op 22**.
+- **Ordem**: no dump real (com espectador) o op24/op21 vieram **depois** do op28; pode ser
+  preciso mover a nossa transição para depois do op29 (hoje mandamos cedo, e o cliente
+  aceitou, mas revisar se travar).
 
 ## Plano faseado (validação primeiro)
 
