@@ -3,6 +3,7 @@ import definePlugin from "@utils/types";
 
 import { getCurrentVoiceChannelId } from "./discordState";
 import { disconnect, onVoiceChannelChange } from "./rtc/controller";
+import { startStreamProbe, stopStreamProbe } from "./probe/streamProbe";
 import { settings } from "./settings";
 import { clearAudioSinks, syncAudioSinks } from "./state/audioSink";
 import { streamStore } from "./state/streamStore";
@@ -32,6 +33,9 @@ export default definePlugin({
     },
 
     start() {
+        // Diagnóstico do Go Live nativo — cedo, antes de o Discord abrir o WS de mídia.
+        if (settings.store.streamProbe) startStreamProbe();
+
         // Volume/silenciar por pessoa (menu de botão direito) sobrevivem a reinícios.
         streamStore.hydratePrefs(settings.store.streamPrefs);
         prefsUnsub = streamStore.subscribePrefs(() => {
@@ -46,7 +50,8 @@ export default definePlugin({
         // Desbloqueia os botões nativos (override do experimento "video guard").
         // Só com o hijack ligado, pois o hijack é o que impede o Go Live nativo de
         // rodar — assim os botões ficam nativos, mas a mídia vai pro servidor privado.
-        if (settings.store.hijackNativeControls && settings.store.unlockNativeVideoGate) {
+        // Com a sonda ligada também, para o Go Live nativo poder ser testado.
+        if ((settings.store.hijackNativeControls || settings.store.streamProbe) && settings.store.unlockNativeVideoGate) {
             try {
                 FluxDispatcher.dispatch({
                     type: "APEX_EXPERIMENT_OVERRIDE_CREATE",
@@ -85,5 +90,6 @@ export default definePlugin({
         clearAudioSinks();
         unmountPanel();
         removeStyles();
+        stopStreamProbe();
     },
 });
