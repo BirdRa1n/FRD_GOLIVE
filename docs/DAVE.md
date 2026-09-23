@@ -116,6 +116,37 @@ específico do DAVE é nosso. Referência: `libdave`.
   WASM e storage persistente que não precisamos.
 - Referência de wire-format: **`libdave`** (C++, do próprio Discord).
 
+## Parâmetros DAVE v1 (confirmados, discord/dave-protocol)
+- MLS 1.0; ciphersuite **DHKEMP256_AES128GCM_SHA256_P256** (0x0002).
+- **Uma** extensão de grupo: `external_senders` (com o external sender do voice gateway).
+- Sem extensões de leaf node. Credential: **basic** apenas.
+
+## Estado da Phase 1 (2026-09-23, testado ao vivo)
+Negociação DAVE v1 **funciona** com o flag `NATIVE_STREAM_DAVE=1` + cliente com
+`nativeStreamDave` ligado. Log do cliente confirmou:
+```
+DAVE protocol init with protocol version: 1
+Received MLS external sender package          (nosso op25 aceito)
+Preparing DAVE protocol epoch: 1              (nosso op24 aceito)
+Preparing DAVE protocol transition: 0         (nosso op21 aceito)
+DAVE protocol state update: {version:1, epochAuthenticator:""}
+Got MLS key package, sending to RTC server    (cliente enviou op26)
+```
+O cliente entra em v1 e envia o key package, mas **trava** esperando o **op 27**
+(Add proposal) para fazer o commit e estabelecer o epoch. Sequência exata que falta
+(membro solo, confirmada na spec):
+```
+op27 (servidor: Add proposal do key package do cliente)
+→ op28 (cliente: commit + welcome)
+→ op29 (servidor: echo do commit + transition_id)
+→ op23 (cliente: ready)   → op22 (servidor: execute_transition)  → mídia E2EE flui
+```
+**Bloqueio atual — op 27:** o Add proposal externo precisa casar `group_id`/epoch com
+o grupo local (solo) que o cliente criou. A spec **não** documenta a derivação do
+`group_id` — é detalhe do `libdave`. Próximo passo: achar a derivação do group_id no
+`libdave` (discord/libdave) e montar o Add proposal (a `ts-mls` tem `proposeExternal`,
+mas exige um GroupContext/GroupInfo com o group_id certo + a extensão external_senders).
+
 ## Plano faseado (validação primeiro)
 
 - **Phase 0 — plumbing binário** *(esqueleto neste commit)*: `DAVE_OP`, parse/log dos
