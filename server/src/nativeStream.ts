@@ -36,6 +36,9 @@ const {
     NATIVE_STREAM_ALWAYS_WANT = "1",
     // Aceita qualquer usuário (sem checar a habilitação no hub). Só para teste.
     NATIVE_STREAM_ALLOW_ANY = "0",
+    // JSON mesclado no op 4 (SESSION_DESCRIPTION); valor null remove o campo.
+    // Ex.: {"dave_protocol_version":null,"secure_frames_version":null}
+    NATIVE_STREAM_SESSION_OVERRIDE = "",
 } = process.env;
 
 export const NATIVE_STREAM_PATH = "/dstream";
@@ -185,15 +188,7 @@ function onMessage(m: Member, op: number, d: any): void {
 
         case OP.SELECT_PROTOCOL:
             log(`select_protocol ${m.userId} mode=${d?.mode} codecs=${(d?.codecs ?? []).map((c: any) => `${c.name}${c.encode === false ? "(dec)" : ""}`).join(",")}`);
-            send(m.ws, OP.SESSION_DESCRIPTION, {
-                audio_codec: "opus",
-                video_codec: NATIVE_STREAM_VIDEO_CODEC,
-                mode: MODE,
-                secret_key: [...m.room.key],
-                media_session_id: randomBytes(16).toString("hex"),
-                dave_protocol_version: 0,
-                secure_frames_version: 0,
-            });
+            send(m.ws, OP.SESSION_DESCRIPTION, sessionDescription(m));
             sendWants(m);
             break;
 
@@ -231,6 +226,29 @@ function onMessage(m: Member, op: number, d: any): void {
         default:
             log(`op ${op} de ${m.userId} (não tratado)`, JSON.stringify(d)?.slice(0, 300));
     }
+}
+
+function sessionDescription(m: Member): Record<string, unknown> {
+    const d: Record<string, unknown> = {
+        audio_codec: "opus",
+        video_codec: NATIVE_STREAM_VIDEO_CODEC,
+        mode: MODE,
+        secret_key: [...m.room.key],
+        media_session_id: randomBytes(16).toString("hex"),
+        dave_protocol_version: 0,
+        secure_frames_version: 0,
+    };
+    if (NATIVE_STREAM_SESSION_OVERRIDE) {
+        try {
+            for (const [k, v] of Object.entries(JSON.parse(NATIVE_STREAM_SESSION_OVERRIDE) as Record<string, unknown>)) {
+                if (v === null) delete d[k]; else d[k] = v;
+            }
+        } catch (e) {
+            log("NATIVE_STREAM_SESSION_OVERRIDE inválido:", e);
+        }
+    }
+    log(`session_description ${m.userId}: ${JSON.stringify({ ...d, secret_key: "[32]" })}`);
+    return d;
 }
 
 /** op 15 para quem transmite: quantos pixels os espectadores querem (0 = encoder parado). */
