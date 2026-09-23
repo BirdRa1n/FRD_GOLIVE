@@ -8,6 +8,8 @@
 
 import { FluxDispatcher } from "@webpack/common";
 
+import { settings } from "../settings";
+
 let endpoint = "";
 let installed = false;
 let wsPatched = false;
@@ -40,6 +42,7 @@ function patchIdentifyDave(): void {
         try {
             if (
                 endpoint &&
+                !settings.store.nativeStreamDave && // com DAVE ligado, deixa o cliente anunciar max_dave real
                 typeof data === "string" &&
                 data.includes("\"max_dave_protocol_version\"") &&
                 typeof this.url === "string" &&

@@ -69,6 +69,8 @@ const OP = {
     SPEAKING: 5, HEARTBEAT_ACK: 6, RESUME: 7, HELLO: 8, CLIENTS_CONNECT: 11, VIDEO: 12,
     CLIENT_DISCONNECT: 13, MEDIA_SINK_WANTS: 15, VOICE_BACKEND_VERSION: 16, CLIENT_FLAGS: 18,
     CLIENT_PLATFORM: 20,
+    // DAVE (JSON): transição de protocolo/epoch. Ver docs/DAVE.md.
+    PREPARE_TRANSITION: 21, EXECUTE_TRANSITION: 22, TRANSITION_READY: 23, PREPARE_EPOCH: 24,
 } as const;
 /** Opcodes DAVE (E2EE/MLS), frames binários no gateway. Ver docs/DAVE.md. */
 const DAVE_OP: Record<number, string> = {
@@ -78,7 +80,7 @@ const DAVE_OP: Record<number, string> = {
     30: "MLS_WELCOME", 31: "MLS_INVALID_COMMIT_WELCOME",
 };
 /** Ops que o Discord manda com `seq` (despachos retomáveis). */
-const SEQ_OPS = new Set<number>([OP.SPEAKING, OP.CLIENTS_CONNECT, OP.VIDEO, OP.CLIENT_DISCONNECT, OP.MEDIA_SINK_WANTS, OP.CLIENT_FLAGS, OP.CLIENT_PLATFORM]);
+const SEQ_OPS = new Set<number>([OP.SPEAKING, OP.CLIENTS_CONNECT, OP.VIDEO, OP.CLIENT_DISCONNECT, OP.MEDIA_SINK_WANTS, OP.CLIENT_FLAGS, OP.CLIENT_PLATFORM, OP.PREPARE_TRANSITION, OP.EXECUTE_TRANSITION, OP.PREPARE_EPOCH]);
 
 type VideoStream = Record<string, unknown> & { ssrc?: number; rtx_ssrc?: number; };
 
@@ -108,6 +110,8 @@ interface Member {
     extProbe: { packets: number; len2: Map<number, number>; seen: Map<number, number>; };
     stats: UdpStats;
     decryptedSamples: number;
+    /** Key package MLS do cliente (op 26), guardado para as Add proposals (op 27). */
+    daveKeyPackage?: Buffer;
 }
 
 interface Room {
@@ -153,18 +157,24 @@ function sendDave(m: Member, op: number, payload: Uint8Array): void {
 function sendExternalSender(m: Member): void {
     m.room.dave?.then(es => {
         sendDave(m, 25, externalSenderPackage(es));
-        log(`DAVE op25 (external sender) → ${m.userId}`);
+        // Transição inicial para DAVE v1 (transition_id 0, epoch 1). O cliente forma o grupo
+        // solo, (re)gera key package e responde op 23 → aí executamos (op 22). Ver docs/DAVE.md.
+        send(m.ws, OP.PREPARE_EPOCH, { protocol_version: DAVE_PROTOCOL_VERSION, epoch: 1 }, m);
+        send(m.ws, OP.PREPARE_TRANSITION, { transition_id: 0, protocol_version: DAVE_PROTOCOL_VERSION }, m);
+        log(`DAVE op25 + op24/op21 (external sender + prepare transition 0) → ${m.userId}`);
     }).catch(e => log("DAVE op25 falhou:", e));
 }
 
 /** Frames binários DAVE do cliente (op 26 key package, 28 commit/welcome, 23 ready, 31). */
 function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
     if (op === 26) {
+        m.daveKeyPackage = payload; // guardado para as Add proposals (op 27), Phase 2 (espectador)
         const msg = decodeMls(payload);
         log(`DAVE op26 (key package) de ${m.userId}: ${payload.length}B wireformat=${msg?.wireformat ?? "?(decode falhou)"}`);
-        // TODO Phase 1: validar credential (snowflake do user_id) + lifetime + assinatura,
-        // e emitir op 27 (Add proposal externa) via proposeExternal. Depois op 28/29/30 +
-        // transição (op 24/21/22/23). Ver docs/DAVE.md.
+        // Solo (transmissor sozinho): o cliente forma o grupo local; não precisamos emitir op 27.
+        // TODO Phase 2 (espectador entra): validar credential (snowflake) + lifetime, e emitir
+        // op 27 (Add proposal externa via proposeExternal) — precisa da GroupInfo/epoch do grupo,
+        // a apurar com dados reais deste op 26. Ver docs/DAVE.md.
         return;
     }
     log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${payload.length}B — não tratado (TODO Phase 1)`);
@@ -294,6 +304,12 @@ function onMessage(m: Member, op: number, d: any): void {
             if (!m.streamer && m.wantPixels > 0) requestKeyframe(m.room);
             break;
         }
+
+        case OP.TRANSITION_READY:
+            // Cliente pronto para a transição → executa (op 22). Só ocorre com DAVE_ON.
+            log(`DAVE op23 (transition_ready) de ${m.userId} tid=${d?.transition_id}`);
+            send(m.ws, OP.EXECUTE_TRANSITION, { transition_id: d?.transition_id ?? 0 }, m);
+            break;
 
         case OP.RESUME:
             m.ws.close(4006, "Session no longer valid."); // sem resume no PoC → cliente refaz o identify

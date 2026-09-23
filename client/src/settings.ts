@@ -68,6 +68,12 @@ export const settings = definePluginSettings({
         default: "",
         restartNeeded: true,
     },
+    nativeStreamDave: {
+        type: OptionType.BOOLEAN,
+        description: "[Experimental] Negociar DAVE v1 (E2EE) com o servidor privado em vez de desligá-lo (Caminho A). Só ligue quando o servidor tiver NATIVE_STREAM_DAVE=1. Ver docs/DAVE.md.",
+        default: false,
+        restartNeeded: true,
+    },
 
     // --- Escondidas: lembradas automaticamente, sem mexer em Configurações ---
     // Qualidade/som agora são escolhidos no picker de transmissão; guardamos a
