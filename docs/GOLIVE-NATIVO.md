@@ -29,7 +29,20 @@ enviando a mídia para o servidor privado em vez do servidor do Discord.
 
 - Sinalização, repasse de **áudio** da transmissão entre duas contas e controle
   de banda funcionaram pelo servidor privado.
-- **Vídeo não saiu do encoder nativo.** O experimento parou aqui.
+- **Vídeo não saiu do encoder nativo.** Diagnóstico fechado (2026-09-23, sessão
+  seguinte): o sintoma é `bitrateTarget: 0` no encoder de vídeo **mesmo com**
+  captura OK (`frameRateInput` ~30), sink want correto e transporte com 8 Mbps
+  (`receiverBitrateEstimate` do nosso REMB). O alocador nativo dá bitrate ao áudio
+  (`bitrateTarget: 128000`) e **0 ao vídeo**.
+- Tentativas que **ajudaram nas bordas mas não destravaram**: REMB, transport-cc
+  (`twcc.ts`), sink want por pixel, PLI/keyframe (`requestKeyframe`), Caminho A
+  (forçar `max_dave_protocol_version: 0` no IDENTIFY, em `nativeStreamRedirect.ts`).
+- **Captura do protocolo real** (sonda, redirect desligado) revelou a única
+  diferença cripto relevante: o fluxo real que produz vídeo roda **DAVE v1 +
+  secure_frames v1**; o nosso servidor força os dois a `0`. Hipótese de trabalho:
+  **o encoder de vídeo nativo só aloca bitrate com o caminho DAVE/secure-frames
+  ativo.** Próximo passo = implementar o DAVE v1 (delivery service MLS) para
+  validar/destravar. Protocolo capturado e plano faseado em [DAVE.md](DAVE.md).
 
 ## Achados úteis para o produto atual
 
