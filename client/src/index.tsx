@@ -3,7 +3,7 @@ import definePlugin from "@utils/types";
 
 import { getCurrentVoiceChannelId } from "./discordState";
 import { disconnect, onVoiceChannelChange } from "./rtc/controller";
-import { setNativeStreamEndpoint } from "./probe/nativeStreamRedirect";
+import { isNativeStreamConnection, setNativeStreamEndpoint } from "./probe/nativeStreamRedirect";
 import { startStreamProbe, stopStreamProbe } from "./probe/streamProbe";
 import { settings } from "./settings";
 import { clearAudioSinks, syncAudioSinks } from "./state/audioSink";
@@ -27,6 +27,21 @@ export default definePlugin({
         "Compartilhamento de tela/câmera privado via servidor próprio (LiveKit), sem que o vídeo passe pelos servidores do Discord. Voz continua no Discord.",
     authors: [{ name: "Dário Jr", id: 0n }],
     settings,
+
+    patches: [
+        {
+            // RTCConnection._maybeRefuseDaveDowngrade(stage, version, transitionId):
+            // aceita DAVE 0 só quando a conexão é com o nosso servidor (ver nativeStreamRedirect).
+            find: "Refusing DAVE protocol downgrade to version",
+            predicate: () => !!settings.store.nativeStreamEndpoint,
+            replacement: {
+                match: /(_maybeRefuseDaveDowngrade\(\i,(\i),\i\)\{if\(0!==\2)/,
+                replace: "$1||$self.allowDaveDowngrade(this)",
+            },
+        },
+    ],
+
+    allowDaveDowngrade: isNativeStreamConnection,
 
     // Botão direito num usuário da call: volume/silenciar da transmissão privada.
     contextMenus: {
