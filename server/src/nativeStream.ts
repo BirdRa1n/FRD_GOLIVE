@@ -20,7 +20,7 @@
 //
 // É um experimento: sem simulcast, sem estimativa de banda própria, sem resume.
 
-import { createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { createSocket, type RemoteInfo } from "node:dgram";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -36,6 +36,8 @@ const {
     NATIVE_STREAM_ALWAYS_WANT = "1",
     // Aceita qualquer usuário (sem checar a habilitação no hub). Só para teste.
     NATIVE_STREAM_ALLOW_ANY = "0",
+    // Estimativa de banda (REMB) anunciada a quem transmite — teto do encoder.
+    NATIVE_STREAM_REMB_BPS = "8000000",
     // JSON mesclado no op 4 (SESSION_DESCRIPTION); valor null remove o campo.
     // Ex.: {"dave_protocol_version":null,"secure_frames_version":null}
     NATIVE_STREAM_SESSION_OVERRIDE = "",
@@ -82,7 +84,7 @@ interface Member {
     decryptedSamples: number;
 }
 
-interface Room { id: string; key: Buffer; members: Map<string, Member>; }
+interface Room { id: string; key: Buffer; members: Map<string, Member>; /** Nonce dos pacotes que o servidor cifra. */ nonce: number; }
 
 const rooms = new Map<string, Room>();
 const byAddr = new Map<string, Member>();
@@ -150,7 +152,7 @@ function identify(ws: WebSocket, d: any): Member | null {
     }
 
     let room = rooms.get(roomId);
-    if (!room) { room = { id: roomId, key: randomBytes(32), members: new Map() }; rooms.set(roomId, room); }
+    if (!room) { room = { id: roomId, key: randomBytes(32), members: new Map(), nonce: 0 }; rooms.set(roomId, room); }
     room.members.get(userId)?.ws.close(4005, "Replaced.");
 
     const base = nextSsrc; nextSsrc += 3;
@@ -388,6 +390,55 @@ udp.on("message", (msg, rinfo) => {
         m.stats.forwarded++;
     }
 });
+
+// --- RTCP do servidor ------------------------------------------------------------
+//
+// O nativo limita o vídeo pela estimativa de banda que o RECEPTOR informa
+// (stats: receiverBitrateEstimate). Sem ela a meta do encoder fica 0 e todo
+// quadro é descartado (framesDroppedEncoderQueue) — o áudio não depende disso.
+// O servidor do Discord manda esse feedback; nós mandamos um REMB periódico.
+
+const SERVER_SSRC = 1;
+const REMB_INTERVAL_MS = 1000;
+
+/** RTCP cifrado no modo rtpsize: AAD = 8 bytes de cabeçalho; depois cifra + tag(16) + nonce(4). */
+function encryptRtcp(plain: Buffer, room: Room): Buffer {
+    room.nonce = (room.nonce + 1) >>> 0;
+    const nonce = Buffer.alloc(4);
+    nonce.writeUInt32BE(room.nonce);
+    const c = createCipheriv("aes-256-gcm", room.key, Buffer.concat([nonce, Buffer.alloc(8)]));
+    c.setAAD(plain.subarray(0, 8));
+    const enc = Buffer.concat([c.update(plain.subarray(8)), c.final()]);
+    return Buffer.concat([plain.subarray(0, 8), enc, c.getAuthTag(), nonce]);
+}
+
+/** PSFB (206) FMT 15 "REMB": bitrate = mantissa(18 bits) << exp(6 bits). */
+function buildRemb(bps: number, ssrcs: number[]): Buffer {
+    let exp = 0;
+    let mantissa = Math.max(0, Math.floor(bps));
+    while (mantissa > 0x3ffff) { mantissa >>>= 1; exp++; }
+    const b = Buffer.alloc(20 + 4 * ssrcs.length);
+    b[0] = 0x80 | 15;
+    b[1] = 206;
+    b.writeUInt16BE(b.length / 4 - 1, 2);
+    b.writeUInt32BE(SERVER_SSRC, 4);
+    b.writeUInt32BE(0, 8); // media SSRC: sempre 0 no REMB
+    b.write("REMB", 12, "ascii");
+    b.writeUInt32BE(((ssrcs.length & 0xff) << 24 | (exp & 0x3f) << 18 | mantissa) >>> 0, 16);
+    ssrcs.forEach((ssrc, i) => b.writeUInt32BE(ssrc >>> 0, 20 + 4 * i));
+    return b;
+}
+
+setInterval(() => {
+    const bps = Number(NATIVE_STREAM_REMB_BPS);
+    for (const room of rooms.values()) {
+        for (const m of room.members.values()) {
+            if (!m.streamer || !m.udp || !m.video?.video_ssrc) continue;
+            const ssrcs = [m.video.video_ssrc, ...(m.video.rtx_ssrc ? [m.video.rtx_ssrc] : [])];
+            udp.send(encryptRtcp(buildRemb(bps, ssrcs), room), m.udp.port, m.udp.address);
+        }
+    }
+}, REMB_INTERVAL_MS).unref();
 
 setInterval(() => {
     for (const room of rooms.values()) {
