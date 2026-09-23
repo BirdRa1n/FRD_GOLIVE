@@ -397,15 +397,14 @@ function trackTwcc(m: Member, exts: Map<number, Buffer>, arrivalUs: number, isAu
     if (v?.length === 2) m.twcc.record(v.readUInt16BE(0), arrivalUs);
 }
 
-function diagnose(m: Member, plain: Buffer | undefined, kind: string): void {
+function diagnose(m: Member, plain: Buffer | undefined, kind: string, ssrc: number): void {
     const pt = Number(kind.slice(2));
-    const codec = { 103: "H265", 105: "H264", 107: "VP8", 120: "opus" }[pt];
-    if (!codec || codec === "opus" || m.decryptedSamples >= 5) return;
+    if (pt === 120 || m.decryptedSamples >= 5) return; // opus não interessa aqui
     m.decryptedSamples++;
-    if (!plain) { log(`decifrar ${codec} de ${m.userId}: FALHOU (chave/layout errado?)`); return; }
+    const codec = ({ 103: "H265", 104: "H265", 105: "H264", 107: "VP8" } as Record<number, string>)[pt] ?? `pt${pt}`;
+    if (!plain) { log(`decifrar ${codec} ssrc ${ssrc} de ${m.userId}: FALHOU (chave/layout errado?)`); return; }
     const dave = plain.length >= 2 && plain.readUInt16BE(plain.length - 2) === 0xfafa;
-    const nal = codec === "H264" ? `nal=${plain[0] & 0x1f}` : codec === "H265" ? `nal=${(plain[0] >> 1) & 0x3f}` : "";
-    log(`decifrou ${codec} de ${m.userId}: ${plain.length}B ${nal} dave=${dave} head=${plain.subarray(0, 8).toString("hex")}`);
+    log(`decifrou ${codec} ssrc ${ssrc} de ${m.userId}: ${plain.length}B dave=${dave} head=${plain.subarray(0, 8).toString("hex")}`);
 }
 
 udp.on("message", (msg, rinfo) => {
@@ -428,7 +427,7 @@ udp.on("message", (msg, rinfo) => {
     if (kind.startsWith("pt")) {
         const rtp = openRtp(msg, m.room.key);
         if (rtp) trackTwcc(m, rtp.exts, nowUs(), kind === "pt120");
-        diagnose(m, rtp?.payload, kind);
+        diagnose(m, rtp?.payload, kind, msg.readUInt32BE(8));
     } else if (!m.streamer && msg[1] === 205 && (msg[0] & 0x1f) === 15) {
         return; // transport-cc do espectador: quem dá o feedback a quem transmite é o servidor
     }
