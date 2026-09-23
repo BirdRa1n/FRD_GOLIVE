@@ -106,7 +106,7 @@ function encodeVarint(n: number): Buffer {
  * grupo solo (epoch 0→1). Receita libdave: external_proposal(cs, group_id=BE8(channel_id),
  * epoch=0, Add{kp}, signerIndex=0, signKey). Framing: operation_type(0=append) | MLSMessage<V>.
  */
-export async function buildProposals(es: ExternalSenderKey, channelId: bigint, keyPackages: Uint8Array[]): Promise<Buffer> {
+export async function buildProposals(es: ExternalSenderKey, channelId: bigint, epoch: bigint, keyPackages: Uint8Array[]): Promise<Buffer> {
     const cs = await ciphersuite();
     const groupId = Buffer.alloc(8);
     groupId.writeBigUInt64BE(channelId & 0xffffffffffffffffn);
@@ -114,7 +114,7 @@ export async function buildProposals(es: ExternalSenderKey, channelId: bigint, k
         version: "mls10" as const,
         cipherSuite: CIPHERSUITE,
         groupId: new Uint8Array(groupId),
-        epoch: 0n,
+        epoch,
         treeHash: new Uint8Array(),
         confirmedTranscriptHash: new Uint8Array(),
         extensions: [{ extensionType: "external_senders" as const, extensionData: encodeExternalSender(es.external) }],
@@ -132,14 +132,20 @@ export async function buildProposals(es: ExternalSenderKey, channelId: bigint, k
     return Buffer.concat([Buffer.from([0]), encodeVarint(body.length), body]); // operation_type append + vetor<V>
 }
 
-/** op 29 (ANNOUNCE_COMMIT_TRANSITION): ecoa o commit do op 28 com transition_id. */
-export function buildAnnounceCommit(transitionId: number, op28Payload: Uint8Array): Buffer | undefined {
+/** op 28 = commit MLSMessage [+ Welcome MLSMessage]. Separa os dois (welcome só quando há Add). */
+export function splitCommitWelcome(op28Payload: Uint8Array): { commit: Buffer; welcome?: Buffer; } {
     const r = decodeMlsMessage(op28Payload, 0);
-    if (!r) return undefined;
-    const commitBytes = Buffer.from(op28Payload.subarray(0, r[1]));
+    if (!r) return { commit: Buffer.from(op28Payload) };
+    const commit = Buffer.from(op28Payload.subarray(0, r[1]));
+    const rest = op28Payload.subarray(r[1]);
+    return { commit, welcome: rest.length ? Buffer.from(rest) : undefined };
+}
+
+/** Prefixa transition_id(u16) — usado no op 29 (commit) e no op 30 (welcome). */
+export function withTransitionId(transitionId: number, mlsBytes: Uint8Array): Buffer {
     const tid = Buffer.alloc(2);
     tid.writeUInt16BE(transitionId & 0xffff);
-    return Buffer.concat([tid, commitBytes]);
+    return Buffer.concat([tid, Buffer.from(mlsBytes)]);
 }
 
 // --- TODO Phase 1 (máquina de estados; ver docs/DAVE.md) ------------------------

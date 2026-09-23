@@ -27,9 +27,9 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 
 import {
-    buildAnnounceCommit, buildProposals, createExternalSender, DAVE_PROTOCOL_VERSION,
-    decodeClientKeyPackage, encodeServerFrame, externalSenderPackage, parseClientFrame,
-    type ExternalSenderKey,
+    buildProposals, createExternalSender, DAVE_PROTOCOL_VERSION, decodeClientKeyPackage,
+    encodeServerFrame, externalSenderPackage, parseClientFrame, splitCommitWelcome,
+    withTransitionId, type ExternalSenderKey,
 } from "./dave.js";
 import { store } from "./store.js";
 import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
@@ -117,6 +117,8 @@ interface Member {
     daveChannelId?: bigint;
     /** op 27 já enviado (evita comitar duas vezes). */
     daveProposalsSent?: boolean;
+    /** Já entrou no grupo MLS (committer após solo commit; viewer após welcome). */
+    daveJoined?: boolean;
 }
 
 interface Room {
@@ -124,6 +126,10 @@ interface Room {
     /** Nonce dos pacotes que o servidor cifra. */ nonce: number;
     /** Último PLI enviado (throttle). */ lastPli?: number;
     /** External sender do DAVE para a sala (só com DAVE_ON). */ dave?: Promise<ExternalSenderKey>;
+    /** Committer do grupo MLS (o 1º membro / transmissor). */ daveCommitter?: Member;
+    /** Epoch atual do grupo (conta commits vistos). */ daveEpoch?: number;
+    /** transition_id atual (incrementa por transição). */ daveTransition?: number;
+    /** Viewer cujo Add está no op 27 pendente (aguarda o welcome). */ davePendingAdd?: Member;
 }
 
 const rooms = new Map<string, Room>();
@@ -180,24 +186,47 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
             info = kp ? `cipher_suite=${kp.cipherSuite} credential=${kp.leafNode?.credential?.credentialType}` : info;
         } catch (e) { info = `?(erro: ${(e as Error).message})`; }
         log(`DAVE op26 (key package cru) de ${m.userId}: ${payload.length}B ${info}`);
-        // Emite o op 27 (proposals) uma vez: Add dos PEERS (vazio no solo → o cliente comita
-        // o grupo solo). group_id = BE8(channel_id). Ver docs/DAVE.md.
-        const chId = m.daveChannelId;
-        if (m.room.dave && chId !== undefined && !m.daveProposalsSent) {
-            m.daveProposalsSent = true;
-            const peerKps = peers(m).map(o => o.daveKeyPackage).filter((b): b is Buffer => !!b);
-            m.room.dave
-                .then(es => buildProposals(es, chId, peerKps))
-                .then(op27 => { sendDave(m, 27, op27); log(`DAVE op27 (proposals, ${peerKps.length} add) → ${m.userId} ${op27.length}B`); })
-                .catch(e => log("DAVE op27 falhou:", e));
+        const room = m.room;
+        if (!room.dave || m.daveChannelId === undefined) return;
+        if (!room.daveCommitter) {
+            // 1º membro = committer. op 27 vazio → comita o próprio grupo (solo bootstrap).
+            room.daveCommitter = m; room.daveEpoch = 0; room.daveTransition = 0;
+            if (!m.daveProposalsSent) {
+                m.daveProposalsSent = true;
+                const chId = m.daveChannelId;
+                room.dave.then(es => buildProposals(es, chId, 0n, []))
+                    .then(op27 => { sendDave(m, 27, op27); log(`DAVE op27 (solo, 0 add) → ${m.userId} ${op27.length}B`); })
+                    .catch(e => log("DAVE op27 (solo) falhou:", e));
+            }
+        } else if (m !== room.daveCommitter && !m.daveJoined && !room.davePendingAdd) {
+            // Viewer entrou: manda ao committer o op 27 com o Add do viewer, no epoch atual.
+            const committer = room.daveCommitter;
+            const chId = committer.daveChannelId ?? m.daveChannelId;
+            const epoch = BigInt(room.daveEpoch ?? 0);
+            const kp = payload;
+            room.davePendingAdd = m;
+            room.dave.then(es => buildProposals(es, chId, epoch, [kp]))
+                .then(op27 => { sendDave(committer, 27, op27); log(`DAVE op27 (add viewer ${m.userId}, epoch ${epoch}) → committer ${committer.userId} ${op27.length}B`); })
+                .catch(e => { room.davePendingAdd = undefined; log("DAVE op27 (viewer) falhou:", e); });
         }
         return;
     }
     if (op === 28) {
-        // Commit (+welcome) do cliente → ecoa como op 29 (announce commit) com transition_id 0.
-        const op29 = buildAnnounceCommit(0, payload);
-        if (op29) { sendDave(m, 29, op29); log(`DAVE op29 (announce commit tid 0) → ${m.userId} ${op29.length}B`); }
-        else log(`DAVE op28: commit não decodificou de ${m.userId}`);
+        const room = m.room;
+        const { commit, welcome } = splitCommitWelcome(payload);
+        const tid = room.daveTransition ?? 0;
+        const op29 = withTransitionId(tid, commit);
+        for (const o of room.members.values()) if (o.daveJoined || o === room.daveCommitter) sendDave(o, 29, op29);
+        log(`DAVE op29 (announce commit, tid ${tid}) → grupo ${op29.length}B`);
+        if (welcome && room.davePendingAdd) {
+            sendDave(room.davePendingAdd, 30, withTransitionId(tid, welcome));
+            log(`DAVE op30 (welcome, tid ${tid}) → viewer ${room.davePendingAdd.userId}`);
+            room.davePendingAdd.daveJoined = true;
+            room.davePendingAdd = undefined;
+        }
+        m.daveJoined = true;
+        room.daveEpoch = (room.daveEpoch ?? 0) + 1;
+        room.daveTransition = tid + 1;
         return;
     }
     log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${payload.length}B — não tratado (TODO Phase 1)`);
