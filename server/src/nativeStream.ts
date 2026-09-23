@@ -60,6 +60,13 @@ const OP = {
     CLIENT_DISCONNECT: 13, MEDIA_SINK_WANTS: 15, VOICE_BACKEND_VERSION: 16, CLIENT_FLAGS: 18,
     CLIENT_PLATFORM: 20,
 } as const;
+/** Opcodes DAVE (E2EE/MLS), frames binários no gateway. Ver docs/DAVE.md. */
+const DAVE_OP: Record<number, string> = {
+    21: "PREPARE_TRANSITION", 22: "EXECUTE_TRANSITION", 23: "TRANSITION_READY",
+    24: "PREPARE_EPOCH", 25: "MLS_EXTERNAL_SENDER", 26: "MLS_KEY_PACKAGE",
+    27: "MLS_PROPOSALS", 28: "MLS_COMMIT_WELCOME", 29: "MLS_ANNOUNCE_COMMIT_TRANSITION",
+    30: "MLS_WELCOME", 31: "MLS_INVALID_COMMIT_WELCOME",
+};
 /** Ops que o Discord manda com `seq` (despachos retomáveis). */
 const SEQ_OPS = new Set<number>([OP.SPEAKING, OP.CLIENTS_CONNECT, OP.VIDEO, OP.CLIENT_DISCONNECT, OP.MEDIA_SINK_WANTS, OP.CLIENT_FLAGS, OP.CLIENT_PLATFORM]);
 
@@ -129,8 +136,11 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
 
     ws.on("message", (raw, isBinary) => {
         if (isBinary) {
+            // Frame binário C→S = DAVE/MLS: [op u8][payload] (sem seq no sentido cliente→servidor).
+            // Hoje dave_protocol_version=0, então isto não deve chegar; logamos para o Phase 0
+            // do DAVE (docs/DAVE.md). Tratamento MLS ainda não implementado.
             const b = raw as Buffer;
-            log(`binário do cliente (op ${b[0]}, ${b.length} bytes) — DAVE? ignorado`);
+            log(`DAVE C→S op ${b[0]} (${DAVE_OP[b[0]] ?? "?"}) ${b.length}B — não tratado`);
             return;
         }
         let msg: { op: number; d: any; };
@@ -280,11 +290,11 @@ function sendWants(m: Member): void {
     const viewers = peers(m);
     let px = Math.max(0, ...viewers.map(v => v.wantPixels));
     if (!px && NATIVE_STREAM_ALWAYS_WANT === "1") px = FULL_HD_PIXELS;
-    // O espectador do Discord pede a CONTAGEM DE PIXELS desejada por SSRC (1080p =
-    // 2073600), não "100". Mandar "100" fazia o alocador dar bitrateTarget 0 (encoder
-    // parado, todo frame na framesDroppedEncoderQueue) mesmo com 8 Mbps no transporte.
+    // Formato real do Discord (capturado, ver docs/DAVE.md): a qualidade por-ssrc e o
+    // `any` são 100; a contagem de pixels vai SÓ em pixelCounts. (O sink want não é o que
+    // destrava o bitrateTarget — isso depende do DAVE; ver docs/DAVE.md.)
     const ssrc = m.video.video_ssrc;
-    send(m.ws, OP.MEDIA_SINK_WANTS, { any: px, [ssrc]: px, pixelCounts: { [ssrc]: px } }, m);
+    send(m.ws, OP.MEDIA_SINK_WANTS, { any: 100, [ssrc]: px ? 100 : 0, pixelCounts: { [ssrc]: px } }, m);
 }
 
 function peers(m: Member): Member[] {
