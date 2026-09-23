@@ -166,6 +166,23 @@ e cpp/src/mls/session.cpp):**
   preciso mover a nossa transição para depois do op29 (hoje mandamos cedo, e o cliente
   aceitou, mas revisar se travar).
 
+## ✅ RESULTADO Phase 1 — hipótese confirmada (2026-09-23)
+Com o handshake DAVE v1 completo, o **vídeo destravou**. Log do servidor:
+```
+DAVE op27 (proposals, 0 add) → 2B          (op27 vazio: solo comita o próprio grupo)
+DAVE op29 (announce commit tid 0) → 405B   (cliente enviou op28 commit; ecoamos op29)
+decifrou H265 ssrc 1005 ...                (VÍDEO! pt104 sustentado ~122 kbps)
+```
+**O encoder de vídeo nativo exige DAVE/secure-frames ativo para alocar bitrate.** Com o
+grupo MLS estabelecido, `bitrateTarget` saiu de 0 e o H265 fluiu sustentado. Sequência
+solo que funciona: op25 → op24/op21 → (cliente op26 ×2) → **op27 vazio** → (cliente op28
+commit) → **op29** (echo do commit + transition_id 0) → mídia. (O cliente não precisou
+mandar op23/nós op22 no solo — comitou e começou a cifrar.)
+
+**Falta (Phase 2):** espectador. Quando um viewer entra e deposita seu key package, o op27
+ao committer leva o Add proposal do viewer (não vazio); viewer recebe op30 (welcome); o
+servidor repassa os frames E2EE e valida se ele renderiza.
+
 ## Plano faseado (validação primeiro)
 
 - **Phase 0 — plumbing binário** *(esqueleto neste commit)*: `DAVE_OP`, parse/log dos
