@@ -16,8 +16,13 @@ Os clientes formam um grupo MLS e derivam chaves por-emissor; cada frame de míd
 **depois** do codec (camada interna, marcador `0xfafa`). O servidor de mídia entra como
 **external sender + delivery service (DS)**: relaya as mensagens MLS e coordena as
 transições de epoch, mas **nunca** aprende a chave do grupo (E2EE de verdade — nem o
-servidor vê o vídeo). Ciphersuite: **MLS 0x0001**
-(`MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`).
+servidor vê o vídeo). Ciphersuite: **MLS 0x0002** (`MLS_128_DHKEMP256_AES128GCM_SHA256_P256`, **P256/ECDSA**) —
+confirmado pelos bytes reais do op 26 (init_key P256 de 65B, prefixo `0x04`). **Não** é a
+0x0001/X25519. O external sender (op 25) também é P256.
+
+> **op 26 = KeyPackage CRU**, não um MLSMessage embrulhado. Head real:
+> `00 01` (version mls10) · `00 02` (cipher_suite P256) · `40 41 04…` (init_key 65B). Decodifica
+> com `decodeKeyPackage`, não `decodeMlsMessage`.
 
 ## Protocolo real capturado (2026-09-23)
 
