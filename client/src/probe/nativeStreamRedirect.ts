@@ -10,6 +10,7 @@ import { FluxDispatcher } from "@webpack/common";
 
 let endpoint = "";
 let installed = false;
+let wsPatched = false;
 
 function interceptor(action: { type?: string; endpoint?: string | null; streamKey?: string; }): boolean {
     if (endpoint && action.type === "STREAM_SERVER_UPDATE") {
@@ -17,6 +18,45 @@ function interceptor(action: { type?: string; endpoint?: string | null; streamKe
         action.endpoint = endpoint;
     }
     return false; // nunca bloqueia o evento
+}
+
+/**
+ * Caminho A: fazer o cliente anunciar `max_dave_protocol_version: 0` já no IDENTIFY,
+ * em vez de anunciar suporte a DAVE e depois aceitar um downgrade forçado pelo servidor
+ * (op 4 com `dave_protocol_version: 0`, o que dispara "Refusing DAVE protocol downgrade"
+ * / close 4804 e pode deixar o encoder de vídeo nativo travado numa transição pendente).
+ *
+ * O IDENTIFY (op 0) do gateway de stream é um frame de texto enviado pelo JS no WS.
+ * Envolvemos `WebSocket.prototype.send` e reescrevemos o campo SÓ para sockets do nosso
+ * endpoint — as conexões com o Discord seguem intactas (E2EE preservada lá).
+ */
+function patchIdentifyDave(): void {
+    if (wsPatched) return;
+    wsPatched = true;
+
+    const proto = WebSocket.prototype;
+    const originalSend = proto.send;
+    proto.send = function (this: WebSocket, data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+        try {
+            if (
+                endpoint &&
+                typeof data === "string" &&
+                data.includes("\"max_dave_protocol_version\"") &&
+                typeof this.url === "string" &&
+                this.url.includes(endpoint)
+            ) {
+                const msg = JSON.parse(data);
+                if (msg?.op === 0 && msg.d && msg.d.max_dave_protocol_version) {
+                    msg.d.max_dave_protocol_version = 0;
+                    console.log("[FRD GoLive] IDENTIFY: max_dave_protocol_version → 0 (Caminho A)");
+                    return originalSend.call(this, JSON.stringify(msg));
+                }
+            }
+        } catch {
+            // qualquer erro: manda o frame original intacto
+        }
+        return originalSend.call(this, data);
+    };
 }
 
 /**
@@ -37,4 +77,6 @@ export function setNativeStreamEndpoint(target: string): void {
         FluxDispatcher.addInterceptor(interceptor);
         installed = true;
     }
+    // Escopo do patch é `this.url.includes(endpoint)`; sem endpoint vira no-op.
+    if (endpoint) patchIdentifyDave();
 }
