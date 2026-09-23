@@ -74,7 +74,10 @@ interface Member {
     video?: { audio_ssrc: number; video_ssrc: number; rtx_ssrc?: number; streams: VideoStream[]; };
     /** Pixels que este espectador quer do vídeo de quem transmite. */
     wantPixels: number;
+    /** Destino para enviar a este membro: o último endereço de onde veio mídia (ou discovery). */
     udp?: RemoteInfo;
+    /** Todos os endereços que fizeram IP discovery — o cliente pode descobrir por mais de um socket. */
+    addrs: Set<string>;
     stats: UdpStats;
     decryptedSamples: number;
 }
@@ -152,6 +155,7 @@ function identify(ws: WebSocket, d: any): Member | null {
     const m: Member = {
         ws, userId, room, audioSsrc: base, videoSsrc: base + 1, rtxSsrc: base + 2, seq: 0,
         streamer: false, wantPixels: 0, stats: { packets: 0, bytes: 0, byPt: {}, forwarded: 0 }, decryptedSamples: 0,
+        addrs: new Set(),
     };
     room.members.set(userId, m);
     log(`identify ${userId} na sala ${roomId} (${room.members.size} na sala) streams=${JSON.stringify(d?.streams)} dave=${d?.max_dave_protocol_version}`);
@@ -268,7 +272,7 @@ function leave(m: Member): void {
     const { room } = m;
     if (room.members.get(m.userId) !== m) return;
     room.members.delete(m.userId);
-    if (m.udp) byAddr.delete(addrKey(m.udp));
+    for (const a of m.addrs) byAddr.delete(a);
     for (const o of room.members.values()) {
         send(o.ws, OP.CLIENT_DISCONNECT, { user_id: m.userId }, o);
         if (o.streamer) sendWants(o);
@@ -293,8 +297,8 @@ function ipDiscovery(msg: Buffer, rinfo: RemoteInfo): boolean {
     const ssrc = msg.readUInt32BE(4);
     const m = findBySsrc(ssrc);
     if (!m) { log(`ip discovery de ssrc desconhecido ${ssrc} (${addrKey(rinfo)})`); return true; }
-    if (m.udp) byAddr.delete(addrKey(m.udp));
-    m.udp = rinfo;
+    m.udp ??= rinfo;
+    m.addrs.add(addrKey(rinfo));
     byAddr.set(addrKey(rinfo), m);
 
     const res = Buffer.alloc(74);
@@ -359,6 +363,7 @@ udp.on("message", (msg, rinfo) => {
     if (ipDiscovery(msg, rinfo)) return;
     const m = byAddr.get(addrKey(rinfo));
     if (!m) return;
+    m.udp = rinfo; // responde pelo socket que o cliente realmente usa para mídia
 
     const kind = classify(msg);
     m.stats.packets++;
