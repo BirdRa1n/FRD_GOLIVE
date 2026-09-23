@@ -93,7 +93,7 @@ interface Member {
     decryptedSamples: number;
 }
 
-interface Room { id: string; key: Buffer; members: Map<string, Member>; /** Nonce dos pacotes que o servidor cifra. */ nonce: number; }
+interface Room { id: string; key: Buffer; members: Map<string, Member>; /** Nonce dos pacotes que o servidor cifra. */ nonce: number; /** Último PLI enviado (throttle). */ lastPli?: number; }
 
 const rooms = new Map<string, Room>();
 const byAddr = new Map<string, Member>();
@@ -236,6 +236,9 @@ function onMessage(m: Member, op: number, d: any): void {
             m.wantPixels = counts.length ? Math.max(...counts) : 0;
             log(`sink_wants ${m.userId} → ${m.wantPixels}px ${JSON.stringify(d)}`);
             for (const o of peers(m)) if (o.streamer) sendWants(o);
+            // Espectador quer vídeo: força um keyframe no transmissor, senão o receptor
+            // entra no meio do GOP e estoura em video-stream-receiver-ready-timeout (Erro 2012).
+            if (!m.streamer && m.wantPixels > 0) requestKeyframe(m.room);
             break;
         }
 
@@ -475,6 +478,36 @@ function buildRemb(bps: number, ssrcs: number[]): Buffer {
     b.writeUInt32BE(((ssrcs.length & 0xff) << 24 | (exp & 0x3f) << 18 | mantissa) >>> 0, 16);
     ssrcs.forEach((ssrc, i) => b.writeUInt32BE(ssrc >>> 0, 20 + 4 * i));
     return b;
+}
+
+/** PLI (PSFB 206, FMT 1): pede um keyframe ao transmissor. media ssrc = ssrc do vídeo dele. */
+function buildPli(videoSsrc: number): Buffer {
+    const b = Buffer.alloc(12);
+    b[0] = 0x80 | 1; // V=2, FMT=1 (PLI)
+    b[1] = 206;      // PSFB
+    b.writeUInt16BE(2, 2); // length em words - 1
+    b.writeUInt32BE(SERVER_SSRC, 4);
+    b.writeUInt32BE(videoSsrc >>> 0, 8);
+    return b;
+}
+
+/**
+ * Pede um keyframe aos transmissores da sala (novo espectador / voltou a querer vídeo).
+ * Rajada de 3 (0/400/1000ms) porque o relay UDP hairpin perde o primeiro; throttle 1/s.
+ */
+function requestKeyframe(room: Room): void {
+    const now = Date.now();
+    if (now - (room.lastPli ?? 0) < 1000) return;
+    room.lastPli = now;
+    for (const s of room.members.values()) {
+        if (!s.streamer || !s.udp || !s.video?.video_ssrc) continue;
+        const ssrc = s.video.video_ssrc;
+        const fire = () => { if (s.udp) udp.send(encryptRtcp(buildPli(ssrc), room), s.udp.port, s.udp.address); };
+        log(`pli → ${s.userId} (video ssrc ${ssrc})`);
+        fire();
+        setTimeout(fire, 400).unref();
+        setTimeout(fire, 1000).unref();
+    }
 }
 
 const TWCC_INTERVAL_MS = 100;
