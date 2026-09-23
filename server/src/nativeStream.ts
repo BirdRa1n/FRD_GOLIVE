@@ -119,6 +119,8 @@ interface Member {
     daveProposalsSent?: boolean;
     /** Já entrou no grupo MLS (committer após solo commit; viewer após welcome). */
     daveJoined?: boolean;
+    /** Debounce do Add do viewer (usa o ÚLTIMO key package). */
+    daveAddTimer?: ReturnType<typeof setTimeout>;
 }
 
 interface Room {
@@ -198,16 +200,21 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
                     .then(op27 => { sendDave(m, 27, op27); log(`DAVE op27 (solo, 0 add) → ${m.userId} ${op27.length}B`); })
                     .catch(e => log("DAVE op27 (solo) falhou:", e));
             }
-        } else if (m !== room.daveCommitter && !m.daveJoined && !room.davePendingAdd) {
-            // Viewer entrou: manda ao committer o op 27 com o Add do viewer, no epoch atual.
-            const committer = room.daveCommitter;
-            const chId = committer.daveChannelId ?? m.daveChannelId;
-            const epoch = BigInt(room.daveEpoch ?? 0);
-            const kp = payload;
-            room.davePendingAdd = m;
-            room.dave.then(es => buildProposals(es, chId, epoch, [kp]))
-                .then(op27 => { sendDave(committer, 27, op27); log(`DAVE op27 (add viewer ${m.userId}, epoch ${epoch}) → committer ${committer.userId} ${op27.length}B`); })
-                .catch(e => { room.davePendingAdd = undefined; log("DAVE op27 (viewer) falhou:", e); });
+        } else if (m !== room.daveCommitter && !m.daveJoined) {
+            // Viewer: o cliente descarta a chave privada do key package anterior a cada op 26,
+            // então usamos o ÚLTIMO (debounce, pega depois dos 2 iniciais). Só então op 27.
+            if (m.daveAddTimer) clearTimeout(m.daveAddTimer);
+            m.daveAddTimer = setTimeout(() => {
+                const committer = room.daveCommitter;
+                const chId = committer?.daveChannelId ?? m.daveChannelId;
+                const kp = m.daveKeyPackage;
+                if (!committer || chId === undefined || !kp || !room.dave) return;
+                const epoch = BigInt(room.daveEpoch ?? 0);
+                room.davePendingAdd = m;
+                room.dave.then(es => buildProposals(es, chId, epoch, [kp]))
+                    .then(op27 => { sendDave(committer, 27, op27); log(`DAVE op27 (add viewer ${m.userId}, epoch ${epoch}) → committer ${committer.userId} ${op27.length}B`); })
+                    .catch(e => { room.davePendingAdd = undefined; log("DAVE op27 (viewer) falhou:", e); });
+            }, 400);
         }
         return;
     }
