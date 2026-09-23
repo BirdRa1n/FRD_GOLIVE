@@ -75,7 +75,7 @@ if "%COUNT%"=="0" (
 
 rem Os latest*.yml precisam ser da mesma versao (senao o update aponta pro lugar errado).
 for %%y in ("release\latest*.yml") do (
-    findstr /r /c:"^version: %VERSION%$" "%%~y" >nul || (
+    findstr /r /c:"^version: %VERSION%$" "%%~y" >nul 2>nul || findstr /r /c:"^version: %VERSION%" "%%~y" >nul || (
         echo [X] %%~nxy nao e da versao %VERSION% - recompile antes de publicar.
         exit /b 1
     )
