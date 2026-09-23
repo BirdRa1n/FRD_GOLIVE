@@ -27,6 +27,7 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { store } from "./store.js";
+import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
 
 const {
     NATIVE_STREAM_PUBLIC_IP = "",
@@ -38,6 +39,8 @@ const {
     NATIVE_STREAM_ALLOW_ANY = "0",
     // Estimativa de banda (REMB) anunciada a quem transmite — teto do encoder.
     NATIVE_STREAM_REMB_BPS = "8000000",
+    // ID da extensão transport-wide-cc no RTP do cliente; vazio = detecta sozinho.
+    NATIVE_STREAM_TWCC_EXT_ID = "",
     // JSON mesclado no op 4 (SESSION_DESCRIPTION); valor null remove o campo.
     // Ex.: {"dave_protocol_version":null,"secure_frames_version":null}
     NATIVE_STREAM_SESSION_OVERRIDE = "",
@@ -80,6 +83,11 @@ interface Member {
     udp?: RemoteInfo;
     /** Todos os endereços que fizeram IP discovery — o cliente pode descobrir por mais de um socket. */
     addrs: Set<string>;
+    /** Feedback transport-cc para o que este membro envia. */
+    twcc: TwccRecorder;
+    twccExtId?: number;
+    /** Detecção do ID: quantos pacotes trouxeram cada ID com 2 bytes. */
+    extProbe: { packets: number; len2: Map<number, number>; seen: Map<number, number>; };
     stats: UdpStats;
     decryptedSamples: number;
 }
@@ -160,6 +168,9 @@ function identify(ws: WebSocket, d: any): Member | null {
         ws, userId, room, audioSsrc: base, videoSsrc: base + 1, rtxSsrc: base + 2, seq: 0,
         streamer: false, wantPixels: 0, stats: { packets: 0, bytes: 0, byPt: {}, forwarded: 0 }, decryptedSamples: 0,
         addrs: new Set(),
+        twcc: new TwccRecorder(),
+        twccExtId: NATIVE_STREAM_TWCC_EXT_ID ? Number(NATIVE_STREAM_TWCC_EXT_ID) : undefined,
+        extProbe: { packets: 0, len2: new Map(), seen: new Map() },
     };
     room.members.set(userId, m);
     log(`identify ${userId} na sala ${roomId} (${room.members.size} na sala) streams=${JSON.stringify(d?.streams)} dave=${d?.max_dave_protocol_version}`);
@@ -325,38 +336,59 @@ function classify(msg: Buffer): string {
 }
 
 /**
- * Decifra (só para diagnóstico) um RTP aead_aes256_gcm_rtpsize:
- * AAD = cabeçalho fixo + CSRCs + 4 bytes do cabeçalho de extensão; nonce = 4
- * bytes finais (IV = nonce + 8 zeros); tag = 16 bytes antes do nonce.
+ * Abre um RTP aead_aes256_gcm_rtpsize: AAD = cabeçalho fixo + CSRCs + 4 bytes do
+ * cabeçalho de extensão; nonce = 4 bytes finais (IV = nonce + 8 zeros); tag = 16
+ * bytes antes do nonce. O corpo da extensão vem cifrado junto com o payload.
  */
-function decryptRtp(msg: Buffer, key: Buffer): Buffer | null {
+function openRtp(msg: Buffer, key: Buffer): { exts: Map<number, Buffer>; payload: Buffer; } | null {
     try {
         const cc = msg[0] & 0x0f;
-        let aadLen = 12 + cc * 4;
-        if (msg[0] & 0x10) aadLen += 4;
+        const hasExt = !!(msg[0] & 0x10);
+        const extHdr = 12 + cc * 4;
+        const aadLen = extHdr + (hasExt ? 4 : 0);
         const nonce = msg.subarray(msg.length - 4);
         const tag = msg.subarray(msg.length - 20, msg.length - 4);
-        const iv = Buffer.concat([nonce, Buffer.alloc(8)]);
-        const d = createDecipheriv("aes-256-gcm", key, iv);
+        const d = createDecipheriv("aes-256-gcm", key, Buffer.concat([nonce, Buffer.alloc(8)]));
         d.setAAD(msg.subarray(0, aadLen));
         d.setAuthTag(tag);
-        let plain = Buffer.concat([d.update(msg.subarray(aadLen, msg.length - 20)), d.final()]);
-        if (msg[0] & 0x10) {
-            const extWords = msg.readUInt16BE(12 + cc * 4 + 2);
-            plain = plain.subarray(extWords * 4); // corpo da extensão vem cifrado junto
-        }
-        return plain;
+        const plain = Buffer.concat([d.update(msg.subarray(aadLen, msg.length - 20)), d.final()]);
+        if (!hasExt) return { exts: new Map(), payload: plain };
+        const extLen = msg.readUInt16BE(extHdr + 2) * 4;
+        return {
+            exts: parseHeaderExtensions(msg.readUInt16BE(extHdr), plain.subarray(0, extLen)),
+            payload: plain.subarray(extLen),
+        };
     } catch {
         return null;
     }
 }
 
-function diagnose(m: Member, msg: Buffer, kind: string): void {
+const nowUs = () => Number(process.hrtime.bigint() / 1000n);
+
+/** Registra a chegada para o transport-cc (e detecta o ID da extensão nos primeiros pacotes). */
+function trackTwcc(m: Member, exts: Map<number, Buffer>, arrivalUs: number): void {
+    if (m.twccExtId === undefined) {
+        const p = m.extProbe;
+        p.packets++;
+        for (const [id, v] of exts) {
+            p.seen.set(id, v.length);
+            if (v.length === 2) p.len2.set(id, (p.len2.get(id) ?? 0) + 1);
+        }
+        if (p.packets < 50) return;
+        const hit = [...p.len2].find(([, n]) => n >= p.packets * 0.9);
+        log(`extensões RTP de ${m.userId}: ${JSON.stringify(Object.fromEntries(p.seen))} → transport-cc id=${hit?.[0] ?? "não encontrado"}`);
+        m.twccExtId = hit ? hit[0] : -1;
+        return;
+    }
+    const v = exts.get(m.twccExtId);
+    if (v?.length === 2) m.twcc.record(v.readUInt16BE(0), arrivalUs);
+}
+
+function diagnose(m: Member, plain: Buffer | undefined, kind: string): void {
     const pt = Number(kind.slice(2));
     const codec = { 103: "H265", 105: "H264", 107: "VP8", 120: "opus" }[pt];
     if (!codec || codec === "opus" || m.decryptedSamples >= 5) return;
     m.decryptedSamples++;
-    const plain = decryptRtp(msg, m.room.key);
     if (!plain) { log(`decifrar ${codec} de ${m.userId}: FALHOU (chave/layout errado?)`); return; }
     const dave = plain.length >= 2 && plain.readUInt16BE(plain.length - 2) === 0xfafa;
     const nal = codec === "H264" ? `nal=${plain[0] & 0x1f}` : codec === "H265" ? `nal=${(plain[0] >> 1) & 0x3f}` : "";
@@ -380,7 +412,13 @@ udp.on("message", (msg, rinfo) => {
     m.stats.packets++;
     m.stats.bytes += msg.length;
     m.stats.byPt[kind] = (m.stats.byPt[kind] ?? 0) + 1;
-    if (kind.startsWith("pt")) diagnose(m, msg, kind);
+    if (kind.startsWith("pt")) {
+        const rtp = openRtp(msg, m.room.key);
+        if (rtp) trackTwcc(m, rtp.exts, nowUs());
+        diagnose(m, rtp?.payload, kind);
+    } else if (!m.streamer && msg[1] === 205 && (msg[0] & 0x1f) === 15) {
+        return; // transport-cc do espectador: quem dá o feedback a quem transmite é o servidor
+    }
 
     // Quem transmite → todos; espectador → só quem transmite (RTCP: NACK/PLI/RR).
     const targets = m.streamer ? peers(m) : peers(m).filter(o => o.streamer);
@@ -428,6 +466,18 @@ function buildRemb(bps: number, ssrcs: number[]): Buffer {
     ssrcs.forEach((ssrc, i) => b.writeUInt32BE(ssrc >>> 0, 20 + 4 * i));
     return b;
 }
+
+const TWCC_INTERVAL_MS = 100;
+
+setInterval(() => {
+    for (const room of rooms.values()) {
+        for (const m of room.members.values()) {
+            if (!m.udp || !(m.twccExtId! >= 0)) continue;
+            const fb = m.twcc.build(SERVER_SSRC, m.audioSsrc);
+            if (fb) udp.send(encryptRtcp(fb, room), m.udp.port, m.udp.address);
+        }
+    }
+}, TWCC_INTERVAL_MS).unref();
 
 setInterval(() => {
     const bps = Number(NATIVE_STREAM_REMB_BPS);
