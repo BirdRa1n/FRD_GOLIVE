@@ -27,9 +27,9 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 
 import {
-    buildProposals, createExternalSender, DAVE_PROTOCOL_VERSION, decodeClientKeyPackage,
+    buildProposals, createExternalSender, DAVE_PROTOCOL_VERSION, decodeClientKeyPackage, decodeMls,
     encodeServerFrame, externalSenderPackage, parseClientFrame, splitCommitWelcome,
-    withTransitionId, type ExternalSenderKey,
+    withTransitionId, type DaveProposalOp, type ExternalSenderKey,
 } from "./dave.js";
 import { store } from "./store.js";
 import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
@@ -140,6 +140,8 @@ interface Member {
     daveProposalsSent?: boolean;
     /** Já entrou no grupo MLS (committer após solo commit; viewer após welcome). */
     daveJoined?: boolean;
+    /** Leaf index no ratchet tree MLS (atribuído no commit que o adicionou; libera no Remove). */
+    daveLeaf?: number;
     /** Debounce do Add do viewer (usa o ÚLTIMO key package). */
     daveAddTimer?: ReturnType<typeof setTimeout>;
     /** Pares (PT, ssrc) de vídeo já vistos (diag). */
@@ -147,6 +149,15 @@ interface Member {
     /** Maior seq recebido por ssrc, para os RTCP Receiver Reports. */
     seqBySsrc?: Map<number, { maxSeq: number; cycles: number; }>;
 }
+
+/**
+ * Proposta MLS em fila — a spec ("Commit Ordering" / "Member Add") exige que o gateway
+ * serialize: broadcasts de op 27 um-por-epoch, primeiro commit do epoch vence.
+ */
+type DaveProposal =
+    | { kind: "bootstrap"; chId: bigint }
+    | { kind: "add"; member: Member; chId: bigint }
+    | { kind: "remove"; leaf: number; chId: bigint };
 
 interface Room {
     id: string; key: Buffer; members: Map<string, Member>;
@@ -156,7 +167,19 @@ interface Room {
     /** Committer do grupo MLS (o 1º membro / transmissor). */ daveCommitter?: Member;
     /** Epoch atual do grupo (conta commits vistos). */ daveEpoch?: number;
     /** transition_id atual (incrementa por transição). */ daveTransition?: number;
-    /** Viewer cujo Add está no op 27 pendente (aguarda o welcome). */ davePendingAdd?: Member;
+    /** Grupo formado (primeiro commit broadcast) — sem isso, só o bootstrap está em voo. */ daveBootstrapped?: boolean;
+    /** Propostas enfileiradas (adds/removes), processadas uma por epoch. */ daveQueue?: DaveProposal[];
+    /** Proposta atualmente em voo (op 27 enviado, aguardando o primeiro op 28 do epoch). */ daveInFlight?: DaveProposal;
+    /** Timeout de segurança do op 27 em voo (committer não respondeu). */ daveInFlightTimer?: ReturnType<typeof setTimeout>;
+    /** op 23 (transition_ready) ainda pendentes da última transição anunciada (op 29/30).
+     * Enquanto existir, o próximo op 27 NÃO sai: proposals do epoch N+1 só são válidas para
+     * membros que já aplicaram o commit do epoch N. (Nunca há gate no tid 0 — o cliente não
+     * manda op 23 para a transição inicial; confirmado em 16h de logs de produção.) */
+    daveReady?: { tid: number; users: Set<string>; };
+    daveReadyTimer?: ReturnType<typeof setTimeout>;
+    /** Próxima leaf a alocar / leaves livres (Remove) — a MLS reutiliza a menor leaf em branco. */
+    daveNextLeaf?: number;
+    daveFreeLeaves?: number[];
 }
 
 const rooms = new Map<string, Room>();
@@ -202,13 +225,208 @@ function sendExternalSender(m: Member): void {
         sendDave(m, 25, externalSenderPackage(es));
         // Transição inicial para DAVE v1 (transition_id 0, epoch 1). O cliente forma o grupo
         // solo, (re)gera key package e responde op 23 → aí executamos (op 22). Ver docs/DAVE.md.
-        send(m.ws, OP.PREPARE_EPOCH, { protocol_version: DAVE_PROTOCOL_VERSION, epoch: 1 }, m);
-        send(m.ws, OP.PREPARE_TRANSITION, { transition_id: 0, protocol_version: DAVE_PROTOCOL_VERSION }, m);
+        sendDavePrepare(m);
         log(`DAVE op25 + op24/op21 (external sender + prepare transition 0) → ${m.userId}`);
     }).catch(e => log("DAVE op25 falhou:", e));
 }
 
-/** Frames binários DAVE do cliente (op 26 key package, 28 commit/welcome, 23 ready, 31). */
+/** op 24 {epoch:1} + op 21 {transition_id:0}: cria/recria o grupo local do cliente (spec:
+ * "Sole member reset" / "Key Packages" — epoch 1 faz o cliente gerar novo key package). */
+function sendDavePrepare(m: Member): void {
+    send(m.ws, OP.PREPARE_EPOCH, { protocol_version: DAVE_PROTOCOL_VERSION, epoch: 1 }, m);
+    send(m.ws, OP.PREPARE_TRANSITION, { transition_id: 0, protocol_version: DAVE_PROTOCOL_VERSION }, m);
+}
+
+/** Destinatários de broadcasts DAVE (op 27/29): membros do grupo + committer no bootstrap.
+ * Pendentes (aguardando welcome) e membros flaggados (op 31) ficam de fora. */
+function daveRecipients(room: Room): Member[] {
+    return [...room.members.values()].filter(o => o.daveJoined || (o === room.daveCommitter && !room.daveBootstrapped));
+}
+
+function allocDaveLeaf(room: Room): number {
+    const free = room.daveFreeLeaves ?? (room.daveFreeLeaves = []);
+    if (free.length) return free.shift()!;
+    const leaf = room.daveNextLeaf ?? 0;
+    room.daveNextLeaf = leaf + 1;
+    return leaf;
+}
+
+function freeDaveLeaf(room: Room, leaf: number): void {
+    const free = room.daveFreeLeaves ?? (room.daveFreeLeaves = []);
+    free.push(leaf);
+    free.sort((a, b) => a - b);
+}
+
+/** Enfileira uma proposta (add/remove/bootstrap) e tenta enviá-la (uma por epoch). */
+function enqueueDaveProposal(room: Room, p: DaveProposal): void {
+    (room.daveQueue ??= []).push(p);
+    flushDaveProposals(room);
+}
+
+/** Emite o próximo op 27 quando não há nada em voo. Broadcast para o grupo inteiro:
+ * a spec exige que todos cacheiem a proposal para poderem validar o commit que a referencia. */
+function flushDaveProposals(room: Room): void {
+    const dave = room.dave;
+    if (!dave || room.daveInFlight || !room.daveCommitter) return;
+    if (room.daveReady) return; // espera todos mandarem op23 da transição anterior
+    const q = room.daveQueue;
+    if (!q?.length) return;
+    // Remove entradas mortas da cabeça da fila (Add de membro que já saiu, ou sem key package).
+    const head = q[0];
+    if (head.kind === "add" && (room.members.get(head.member.userId) !== head.member || !head.member.daveKeyPackage)) {
+        q.shift();
+        log(`DAVE op27 (add ${head.member.userId}) descartado (saiu da sala ou sem key package)`);
+        flushDaveProposals(room);
+        return;
+    }
+    const p = q.shift()!;
+    const epoch = BigInt(room.daveEpoch ?? 0);
+    const ops: DaveProposalOp[] = p.kind === "bootstrap" ? []
+        : p.kind === "remove" ? [{ kind: "remove", removed: p.leaf }]
+        : [{ kind: "add", keyPackage: p.member.daveKeyPackage! }];
+    const desc = p.kind === "bootstrap" ? "solo, 0 add"
+        : p.kind === "remove" ? `remove leaf ${p.leaf}`
+        : `add viewer ${p.member.userId}`;
+    const recipients = daveRecipients(room);
+    if (!recipients.length) {
+        log(`DAVE op27 (${desc}) sem destinatários — descartado`);
+        flushDaveProposals(room);
+        return;
+    }
+    room.daveInFlight = p;
+    dave.then(es => buildProposals(es, p.chId, epoch, ops))
+        .then(op27 => {
+            if (room.daveInFlight !== p) return; // resetou no meio
+            for (const o of recipients) sendDave(o, 27, op27);
+            log(`DAVE op27 (${desc}, epoch ${epoch}) → grupo (${recipients.length}) ${op27.length}B`);
+            if (room.daveInFlightTimer) clearTimeout(room.daveInFlightTimer);
+            room.daveInFlightTimer = setTimeout(() => {
+                if (room.daveInFlight !== p) return;
+                log(`DAVE op27 (${desc}) sem commit há 8s — grupo re-sincronizado (op24 epoch 1 + op21 tid 0)`);
+                // Ninguém comitou: em vez de deixar a sala num grupo inconsistente,
+                // recria o grupo local de todos (só membro re-envia op 26 → novo bootstrap).
+                resetDaveGroup(room, "8s sem commit para a proposta");
+            }, 8000);
+        })
+        .catch(e => {
+            if (room.daveInFlight === p) room.daveInFlight = undefined;
+            log(`DAVE op27 (${desc}) falhou:`, e);
+        });
+}
+
+/** Libera o próximo op 27 só quando TODOS os destinatários da última transição mandarem
+ * op 23 (transition_ready). tid 0 nunca espera (cliente não responde ready para ele). */
+function armDaveReady(room: Room, tid: number, users?: Set<string>): void {
+    clearDaveReadyTimer(room);
+    if (!users?.size) { room.daveReady = undefined; return; }
+    room.daveReady = { tid, users };
+    room.daveReadyTimer = setTimeout(() => {
+        log(`DAVE transição tid ${tid}: sem op23 de ${[...users].join(",")} em 10s — libera a fila`);
+        room.daveReady = undefined;
+        room.daveReadyTimer = undefined;
+        flushDaveProposals(room);
+    }, 10000);
+}
+
+function clearDaveReadyTimer(room: Room): void {
+    if (room.daveReadyTimer) { clearTimeout(room.daveReadyTimer); room.daveReadyTimer = undefined; }
+}
+
+/** Um membro não vai mais mandar op23 desta transição (saiu da sala ou foi flaggado em op 31). */
+function daveMemberUnready(room: Room, userId: string): void {
+    const r = room.daveReady;
+    if (!r || !r.users.delete(userId)) return;
+    if (r.users.size) return;
+    room.daveReady = undefined;
+    clearDaveReadyTimer(room);
+    flushDaveProposals(room);
+}
+
+/** op 31 (MLS_INVALID_COMMIT_WELCOME): cliente recusou commit/welcome → a spec manda remover o
+ * membro do grupo (proposta Remove) e devolvê-lo a "pending"; o novo op 26 dele re-enfileira o Add. */
+function daveInvalidCommitWelcome(m: Member, d: unknown): void {
+    const room = m.room;
+    log(`DAVE op31 (invalid commit/welcome) de ${m.userId}: ${JSON.stringify(d)} — remove + re-add`);
+    if (!DAVE_ON || !room.dave || !room.daveBootstrapped) return;
+    if (!m.daveJoined || m.daveLeaf === undefined) return; // já está fora do grupo
+    m.daveJoined = false;
+    daveMemberUnready(room, m.userId); // não vai mandar op23 da transição que rejeitou
+    const others = [...room.members.values()].filter(o => o.daveJoined);
+    if (!others.length) {
+        // Era o único membro do grupo: não há quem comite o Remove → recria o grupo.
+        resetDaveGroup(room, "o único membro do grupo recusou o commit");
+        return;
+    }
+    const leaf = m.daveLeaf;
+    m.daveLeaf = undefined;
+    if (room.daveCommitter === m) {
+        // Quem flaggou é o committer → promove outro membro do grupo antes do Remove,
+        // senão ninguém mais comitaria a proposta.
+        const next = others[0];
+        room.daveCommitter = next;
+        log(`DAVE committer promovido → ${next.userId}`);
+    }
+    enqueueDaveProposal(room, { kind: "remove", leaf, chId: m.daveChannelId ?? room.daveCommitter?.daveChannelId ?? 0n });
+}
+
+/** Recria o grupo local de todos (op24 epoch 1 + op21 tid 0) e zera o estado DAVE da sala.
+ * Usado no "sole member reset" da spec e quando o committer sai sem grupo formado. */
+function resetDaveGroup(room: Room, why: string): void {
+    log(`DAVE reset do grupo (${why}) — op24 epoch 1 + op21 tid 0 → ${room.members.size} membro(s)`);
+    for (const o of room.members.values()) {
+        if (o.daveAddTimer) clearTimeout(o.daveAddTimer);
+        sendDavePrepare(o);
+        o.daveJoined = false;
+        o.daveLeaf = undefined;
+        o.daveProposalsSent = false;
+    }
+    if (room.daveInFlightTimer) clearTimeout(room.daveInFlightTimer);
+    clearDaveReadyTimer(room);
+    room.daveReady = undefined;
+    room.daveCommitter = undefined;
+    room.daveEpoch = 0;
+    room.daveTransition = 0;
+    room.daveBootstrapped = false;
+    room.daveQueue = [];
+    room.daveInFlight = undefined;
+    room.daveInFlightTimer = undefined;
+    room.daveNextLeaf = 0;
+    room.daveFreeLeaves = [];
+}
+
+/** Saiu um membro (leave ou replace): Remove no grupo, sole reset ou promover committer. */
+function daveOnDeparture(room: Room, m: Member): void {
+    if (!DAVE_ON || !room.dave) return;
+    if (m.daveAddTimer) clearTimeout(m.daveAddTimer);
+    room.daveQueue = (room.daveQueue ?? []).filter(p => !(p.kind === "add" && p.member === m));
+    daveMemberUnready(room, m.userId);
+    const joinedLeft = [...room.members.values()].filter(o => o.daveJoined);
+    if (!room.daveBootstrapped) {
+        if (room.daveCommitter === m) resetDaveGroup(room, "committer saiu antes do bootstrap");
+        return;
+    }
+    if (joinedLeft.length >= 2 && m.daveJoined && m.daveLeaf !== undefined) {
+        enqueueDaveProposal(room, { kind: "remove", leaf: m.daveLeaf, chId: m.daveChannelId ?? room.daveCommitter?.daveChannelId ?? 0n });
+    }
+    if (m.daveJoined && joinedLeft.length <= 1) {
+        // Spec "Sole member reset": o grupo ficou com 1 (ou 0) membro(s) estabelecido(s).
+        // Só entra aqui se quem saiu era membro do grupo — um espectador pendente que cai
+        // antes do welcome não mexe no grupo de ninguém.
+        resetDaveGroup(room, `só ${joinedLeft.length} membro(s) do grupo restou`);
+        return;
+    }
+    if (room.daveCommitter === m) {
+        const next = joinedLeft[0];
+        if (next) {
+            room.daveCommitter = next;
+            log(`DAVE committer promovido → ${next.userId}`);
+        } else {
+            resetDaveGroup(room, "committer saiu e não restou membro do grupo");
+        }
+    }
+}
+
+/** Frames binários DAVE do cliente (op 26 key package, 28 commit/welcome, 31). */
 function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
     if (op === 26) {
         m.daveKeyPackage = payload;
@@ -223,50 +441,103 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
         if (!room.daveCommitter) {
             // 1º membro = committer. op 27 vazio → comita o próprio grupo (solo bootstrap).
             room.daveCommitter = m; room.daveEpoch = 0; room.daveTransition = 0;
+            room.daveBootstrapped = false;
+            room.daveNextLeaf = 0; room.daveFreeLeaves = [];
             if (!m.daveProposalsSent) {
                 m.daveProposalsSent = true;
-                const chId = m.daveChannelId;
-                room.dave.then(es => buildProposals(es, chId, 0n, []))
-                    .then(op27 => { sendDave(m, 27, op27); log(`DAVE op27 (solo, 0 add) → ${m.userId} ${op27.length}B`); })
-                    .catch(e => log("DAVE op27 (solo) falhou:", e));
+                enqueueDaveProposal(room, { kind: "bootstrap", chId: m.daveChannelId });
             }
-        } else if (m !== room.daveCommitter && !m.daveJoined) {
-            // Viewer: o cliente descarta a chave privada do key package anterior a cada op 26,
-            // então usamos o ÚLTIMO (debounce, pega depois dos 2 iniciais). Só então op 27.
+        } else if (!m.daveJoined && (m !== room.daveCommitter || room.daveBootstrapped)) {
+            // Fora do grupo (viewer pendente, OU committer/member que levou op 31 e re-iniciou):
+            // o cliente descarta a chave privada do key package anterior a cada op 26, então
+            // usamos o ÚLTIMO (debounce) e enfileira — Adds são serializados, um por epoch.
+            if (room.daveInFlight?.kind === "add" && room.daveInFlight.member === m) return;
+            if ((room.daveQueue ?? []).some(p => p.kind === "add" && p.member === m)) return;
             if (m.daveAddTimer) clearTimeout(m.daveAddTimer);
             m.daveAddTimer = setTimeout(() => {
-                const committer = room.daveCommitter;
-                const chId = committer?.daveChannelId ?? m.daveChannelId;
-                const kp = m.daveKeyPackage;
-                if (!committer || chId === undefined || !kp || !room.dave) return;
-                const epoch = BigInt(room.daveEpoch ?? 0);
-                room.davePendingAdd = m;
-                room.dave.then(es => buildProposals(es, chId, epoch, [kp]))
-                    .then(op27 => { sendDave(committer, 27, op27); log(`DAVE op27 (add viewer ${m.userId}, epoch ${epoch}) → committer ${committer.userId} ${op27.length}B`); })
-                    .catch(e => { room.davePendingAdd = undefined; log("DAVE op27 (viewer) falhou:", e); });
+                if (room.members.get(m.userId) !== m || m.daveJoined) return;
+                const chId = room.daveCommitter?.daveChannelId ?? m.daveChannelId;
+                if (chId === undefined || !room.dave) return;
+                if (room.daveInFlight?.kind === "add" && room.daveInFlight.member === m) return;
+                if ((room.daveQueue ?? []).some(p => p.kind === "add" && p.member === m)) return;
+                enqueueDaveProposal(room, { kind: "add", member: m, chId });
             }, 400);
         }
         return;
     }
     if (op === 28) {
         const room = m.room;
+        const flight = room.daveInFlight;
+        if (!flight) {
+            log(`DAVE op28 de ${m.userId} sem proposta em voo — descartado (commit duplicado/stale)`);
+            return;
+        }
+        // Spec "Commit Ordering": o gateway só transmite o primeiro commit do epoch ATUAL.
+        const msg = decodeMls(payload);
+        if (!msg) {
+            log(`DAVE op28 de ${m.userId} não decodifica como MLSMessage — descartado`);
+            return;
+        }
+        const expected = BigInt(room.daveEpoch ?? 0);
+        if (msg.wireformat === "mls_public_message" && msg.publicMessage.content.epoch !== expected) {
+            log(`DAVE op28 epoch ${msg.publicMessage.content.epoch} ≠ esperado ${expected} — descartado`);
+            return; // mantém a "porta" aberta esperando o commit válido deste epoch
+        }
+        if (room.daveInFlightTimer) { clearTimeout(room.daveInFlightTimer); room.daveInFlightTimer = undefined; }
+        // Só o committer (no bootstrap) ou membros já do grupo passam a valer como "joined":
+        // um membro flaggado (op 31) que comite algo não pode virar membro sem leaf.
+        if (m.daveJoined || (m === room.daveCommitter && flight.kind === "bootstrap")) m.daveJoined = true;
+        else log(`DAVE op28 de ${m.userId} fora do grupo — repassa sem marcá-lo como membro`);
         const { commit, welcome } = splitCommitWelcome(payload);
         const tid = room.daveTransition ?? 0;
         const op29 = withTransitionId(tid, commit);
-        for (const o of room.members.values()) if (o.daveJoined || o === room.daveCommitter) sendDave(o, 29, op29);
+        const recipients = daveRecipients(room);
+        for (const o of recipients) sendDave(o, 29, op29);
         log(`DAVE op29 (announce commit, tid ${tid}) → grupo ${op29.length}B`);
-        if (welcome && room.davePendingAdd) {
-            sendDave(room.davePendingAdd, 30, withTransitionId(tid, welcome));
-            log(`DAVE op30 (welcome, tid ${tid}) → viewer ${room.davePendingAdd.userId}`);
-            room.davePendingAdd.daveJoined = true;
-            room.davePendingAdd = undefined;
+        // Quem precisa mandar op 23 antes do próximo op 27 (tid 0: cliente não responde).
+        const ready = tid > 0 ? new Set(recipients.map(o => o.userId)) : undefined;
+        if (flight.kind === "bootstrap") {
+            m.daveLeaf = allocDaveLeaf(room);
+        } else if (flight.kind === "add") {
+            const target = flight.member;
+            const alive = room.members.get(target.userId) === target;
+            if (welcome && alive) {
+                sendDave(target, 30, withTransitionId(tid, welcome));
+                log(`DAVE op30 (welcome, tid ${tid}) → viewer ${target.userId}`);
+                target.daveJoined = true;
+                target.daveLeaf = allocDaveLeaf(room);
+                target.daveKeyPackage = undefined; // key package consumido pelo welcome
+                ready?.add(target.userId); // o novo membro também confirma a transição
+            } else if (welcome) {
+                // O add foi commitado mas o membro já saiu → limpa a leaf fantasma.
+                const leaf = allocDaveLeaf(room);
+                log(`DAVE op30 descartado (${target.userId} saiu) — remove da leaf ${leaf} em fila`);
+                enqueueDaveProposal(room, { kind: "remove", leaf, chId: flight.chId });
+            } else {
+                log(`DAVE commit sem welcome para ${target.userId} — add re-enfileirado`);
+                if (alive) enqueueDaveProposal(room, flight);
+            }
+        } else if (welcome) {
+            log(`DAVE op30 inesperado no commit do remove (leaf ${flight.leaf}) — descartado`);
         }
-        m.daveJoined = true;
+        if (flight.kind === "remove") freeDaveLeaf(room, flight.leaf);
+        room.daveBootstrapped = true;
         room.daveEpoch = (room.daveEpoch ?? 0) + 1;
         room.daveTransition = tid + 1;
+        room.daveInFlight = undefined;
+        armDaveReady(room, tid, ready);
+        flushDaveProposals(room);
         return;
     }
-    log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${payload.length}B — não tratado (TODO Phase 1)`);
+    if (op === 31) {
+        daveInvalidCommitWelcome(m, safeParseJson(payload));
+        return;
+    }
+    log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${payload.length}B — não tratado`);
+}
+
+function safeParseJson(b: Buffer): unknown {
+    try { return JSON.parse(b.toString("utf8")); } catch { return b.length; }
 }
 
 function onConnection(ws: WebSocket, req: IncomingMessage): void {
@@ -313,7 +584,15 @@ function identify(ws: WebSocket, d: any): Member | null {
     let room = rooms.get(roomId);
     if (!room) { room = { id: roomId, key: randomBytes(32), members: new Map(), nonce: 0 }; rooms.set(roomId, room); }
     if (DAVE_ON) room.dave ??= createExternalSender();
-    room.members.get(userId)?.ws.close(4005, "Replaced.");
+    // Reconexão do mesmo user (4005 Replaced): o membro antigo sai do grupo MLS (Remove /
+    // sole reset) ANTES do novo entrar — senão a leaf dele fica fantasma no ratchet tree.
+    const prev = room.members.get(userId);
+    if (prev) {
+        prev.ws.close(4005, "Replaced.");
+        room.members.delete(userId);
+        for (const a of prev.addrs) byAddr.delete(a);
+        daveOnDeparture(room, prev);
+    }
 
     const base = nextSsrc; nextSsrc += 3;
     const m: Member = {
@@ -401,20 +680,34 @@ function onMessage(m: Member, op: number, d: any): void {
             break;
         }
 
-        case OP.TRANSITION_READY:
+        case OP.TRANSITION_READY: {
             // Cliente pronto para a transição → executa (op 22). Só ocorre com DAVE_ON.
             log(`DAVE op23 (transition_ready) de ${m.userId} tid=${d?.transition_id}`);
             send(m.ws, OP.EXECUTE_TRANSITION, { transition_id: d?.transition_id ?? 0 }, m);
+            const room = m.room;
+            // Último pendente da transição atual → libera a próxima proposta (op 27).
+            const r = room.daveReady;
+            if (r && Number(d?.transition_id) === r.tid && r.users.delete(m.userId) && !r.users.size) {
+                room.daveReady = undefined;
+                clearDaveReadyTimer(room);
+                log(`DAVE transição tid ${r.tid} pronta em todos — fila liberada`);
+                flushDaveProposals(room);
+            }
             // Novo epoch → o transmissor re-chaveia e PAUSA a mídia. Re-ativa o encoder no
             // epoch novo: re-envia o sink want (pixels) e pede um keyframe fresco, com um
             // pequeno delay para a transição assentar dos dois lados.
-            {
-                const room = m.room;
-                setTimeout(() => {
-                    for (const o of room.members.values()) if (o.streamer) sendWants(o);
-                    requestKeyframe(room);
-                }, 600);
-            }
+            setTimeout(() => {
+                for (const o of room.members.values()) if (o.streamer) sendWants(o);
+                requestKeyframe(room);
+            }, 600);
+            break;
+        }
+
+        case 31:
+            // MLS_INVALID_COMMIT_WELCOME (chega como JSON {op:31,d:{transition_id}}; o frame
+            // binário homônimo é tratado em handleDaveBinary). Cliente recusou o commit/welcome
+            // → Remove + re-add dele no grupo (spec "Recovery from Invalid Commit or Welcome").
+            daveInvalidCommitWelcome(m, d);
             break;
 
         case OP.RESUME:
@@ -497,6 +790,7 @@ function leave(m: Member): void {
     if (room.members.get(m.userId) !== m) return;
     room.members.delete(m.userId);
     for (const a of m.addrs) byAddr.delete(a);
+    daveOnDeparture(room, m); // Remove no grupo / sole reset / promove committer
     for (const o of room.members.values()) {
         send(o.ws, OP.CLIENT_DISCONNECT, { user_id: m.userId }, o);
         if (o.streamer) sendWants(o);

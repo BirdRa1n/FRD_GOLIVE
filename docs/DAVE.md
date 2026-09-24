@@ -218,7 +218,77 @@ a atribuição de ssrc do READY com o que o nativo realmente usa. **Recomendaç�
 focado à parte** — o objetivo principal (destravar o encoder via DAVE) já está resolvido e
 provado, e a E2EE ponta a ponta (áudio) funciona.
 
-## Plano faseado (validação primeiro)
+## Phase 3 — causa-raiz: "2 espectadores → o vídeo morre para os dois" (2026-09-24)
+
+**Sintoma (produção):** com 2 espectadores na mesma sala o vídeo morre para **ambos**; quando
+um deles sai, o vídeo volta para o que ficou. Com 1 espectador funciona sempre.
+
+**Causa-raiz: o gateway violava 3 regras da spec (`discord/dave-protocol`, `protocol.md`).**
+Nenhuma delas é criptografia — a camada MLS/crypto estava correta (Phase 1/2); o que faltava
+era o *delivery service* seguir a spec. Provas nos logs de 16h (`server16h.log`):
+
+**1) op 27 (proposals) só ia para o committer — a spec exige BROADCAST para todos os membros.**
+> spec, *Proposal Handling* / *Client Commit Validity*: um commit é válido para um membro
+> existente só se referir a proposals que ele **já recebeu** ("previously cached proposal
+> reference"). Quem não recebeu o op 27 **recusa o commit** → op 31.
+
+Prova (variante B, sala `1552700364690817034`, linhas 1491–1525):
+```
+1514 op27 (add viewer 629457, epoch 1) → committer 1398509   ← só o committer
+1515 op29 (announce commit, tid 1) / 1516 op30 → 629457
+1519 op27 (add viewer 551141, epoch 2) → committer 1398509   ← só o committer (629457 NÃO recebeu)
+1521 op29 (announce commit, tid 2) → grupo / 1522 op30 → 551141
+1524 op23 tid=2 (committer)   1527 op23 tid=2 (551141)   ← o 1º viewer (629457) NÃO manda op23
+1525 op 31 de 629457 (não tratado) {"transition_id":2}   ← recusa: commit referencia proposal P2 não cacheada
+```
+
+**2) Nada serializava as Adds nem havia "primeiro commit do epoch vence" (*Commit Ordering*).**
+Duas entradas em ~400 ms ⇒ duas `op 27` no **mesmo epoch** ⇒ o slot único de pending-add era
+sobreescrito (welcome errado) e o segundo commit saía em epoch obsoleto ⇒ op 31.
+Prova (variante A, sala `1552703507239272509`, linhas 2326–2361):
+```
+2326 op27 (solo, 0 add) → 2337 op29 (tid 0)
+2351 op27 (add viewer 629457, epoch 1) → committer
+2352 op27 (add viewer 816845, epoch 1) → committer   ← MESMO epoch, sem commit entre eles
+2353 op29 (tid 1) / 2354 op30 (welcome) → só 816845  ← o add do 629457 foi perdido
+2356 op29 (tid 2)                                    ← commit em epoch obsoleto
+2358 op 31 de 816845 {"transition_id":1}
+2361 op 31 de 551141 {"transition_id":2}             ← o COMMITTER recusa → re-init → grupo solo
+2379 (só 816845 na sala)                             ← "sai um, o vídeo volta para o outro"
+```
+O colapso do vídeo para OS DOIS: quem recusa (op 31) re-inicia o DAVE → grupo solo → os
+demais não conseguem mais decifrar → `pt103` despenca e a mídia morre.
+
+**3) op 31 era `TODO Phase 1` (sem tratamento).** A spec (*Recovery from Invalid Commit or
+Welcome*) manda o gateway publicar uma proposal **Remove** do membro que flaggou e devolvê-lo
+a "pending" (o novo op 26 dele re-enfileira o Add). Sem isso, o grupo ficava quebrado para
+sempre. Igualmente faltavam *Member Remove* (saída de membro) e *Sole member reset*.
+
+**Fato de implementação usado no fix** (verificado em 16h de logs): o cliente **não** manda
+`op 23` para `transition_id 0` (77 ocorrências de op 23, todas `tid≥1`) — logo o gate da
+próxima proposta nunca espera no tid 0.
+
+### O que mudou (`server/src/dave.ts`, `server/src/nativeStream.ts`)
+- `buildProposals(es, channelId, epoch, ops)` aceita **Add e Remove** e agora é chamado com
+  broadcast: `daveRecipients()` = todos os membros do grupo (+ committer no bootstrap).
+- **Fila de propostas** (`daveQueue`) com **uma proposta em voo por epoch** (`daveInFlight`),
+  timeout de 8 s → auto-recuperação via `resetDaveGroup` (op 24 epoch 1 + op 21 tid 0).
+- **Primeiro commit do epoch vence**: `op 28` só é repassado se
+  `publicMessage.content.epoch === daveEpoch` (msgs públicas, como manda a spec); commits
+  duplicados/stale caem fora.
+- **Gate de transição**: o próximo `op 27` só sai quando **todos** os destinatários do
+  `op 29`/`op 30` mandarem `op 23` (10 s de teto; `daveMemberUnready` libera se o membro
+  sair/for flaggado) — proposals do epoch N+1 só valem para quem já aplicou o commit do N.
+- **op 31 tratado** (JSON e binário): Remove da leaf do flaggador + re-add no novo op 26;
+  se ele era o committer, **promoção** de outro membro; se era o único membro, reset do grupo.
+- **Remove na saída** (`leave`/replace 4005) e **sole member reset**; bookkeeping de leaf
+  (`daveLeaf`, `daveNextLeaf`, `daveFreeLeaves` — menor leaf em branco, como o ts-mls).
+- **op 29** agora sai para `daveRecipients()` (inclui o próprio autor do commit).
+
+**Como validar (repro de 2 espectadores):** esperar `op27 (add …) → grupo (N)` com N>1, um
+único `op29`/`op30` por epoch, `op23` de todos antes do próximo `op27`, e **zero** linhas
+`op 31`. Com `discord_media_stats` (MCP), `decryptSuccessCount` sobe nos dois espectadores.
+
 
 - **Phase 0 — plumbing binário** *(esqueleto neste commit)*: `DAVE_OP`, parse/log dos
   frames binários. Inerte enquanto `dave_protocol_version=0`. Sem mudança de comportamento.

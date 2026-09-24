@@ -100,13 +100,30 @@ function encodeVarint(n: number): Buffer {
 }
 
 /**
- * op 27 (MLS_PROPOSALS): Add proposals externos para os key packages dos OUTROS membros.
- * O membro solo é fundador do próprio pending group, então adicioná-lo seria leaf duplicada —
- * por isso `keyPackages` traz só os PEERS. Vazio (solo) => op 27 vazio, e o cliente comita o
- * grupo solo (epoch 0→1). Receita libdave: external_proposal(cs, group_id=BE8(channel_id),
- * epoch=0, Add{kp}, signerIndex=0, signKey). Framing: operation_type(0=append) | MLSMessage<V>.
+ * Operação de uma op 27 (MLS_PROPOSALS): Add (key package do membro pendente) e/ou
+ * Remove (leaf index do membro a remover — saída do sala ou recuperação de op 31).
  */
-export async function buildProposals(es: ExternalSenderKey, channelId: bigint, epoch: bigint, keyPackages: Uint8Array[]): Promise<Buffer> {
+export type DaveProposalOp =
+    | { kind: "add"; keyPackage: Uint8Array }
+    | { kind: "remove"; removed: number };
+
+/**
+ * op 27 (MLS_PROPOSALS): proposals externos assinados pelo external sender. Receita libdave:
+ * external_proposal(cs, group_id=BE8(channel_id), epoch, Proposal, signerIndex=0, signKey).
+ * Framing: operation_type(0=append) | MLSMessage<V>.
+ *
+ * ⚠️ A spec (discord/dave-protocol, "Proposal Handling" / "Client Commit Validity") exige que
+ * o gateway BROADCAST para todos os membros do grupo: um commit só é válido para um membro
+ * existente se referir a proposals que ele já recebeu via op 27 ("previously cached proposal
+ * reference"). Enviar o op 27 só ao committer faz o 1º viewer existente recusar o commit que
+ * adiciona o 2º viewer → op 31 (MLS_INVALID_COMMIT_WELCOME). Vazio (solo) => op 27 vazio, e o
+ * cliente comita o grupo solo (epoch 0→1).
+ *
+ * Nota: a assinatura do external sender cobre só (protocol_version, wireformat, framed content
+ * com groupId/epoch/proposal) — senderType "external" não inclui o GroupContext no TBS
+ * (ts-mls senderInfoEncoder ⇒ encVoid), então treeHash/transcript vazios aqui são seguros.
+ */
+export async function buildProposals(es: ExternalSenderKey, channelId: bigint, epoch: bigint, ops: DaveProposalOp[]): Promise<Buffer> {
     const cs = await ciphersuite();
     const groupId = Buffer.alloc(8);
     groupId.writeBigUInt64BE(channelId & 0xffffffffffffffffn);
@@ -121,11 +138,16 @@ export async function buildProposals(es: ExternalSenderKey, channelId: bigint, e
     };
     const groupInfo = { groupContext } as unknown as Parameters<typeof proposeExternal>[0];
     const msgs: Buffer[] = [];
-    for (const kpBytes of keyPackages) {
-        const kp = decodeClientKeyPackage(kpBytes);
-        if (!kp) continue;
-        const addProposal = { proposalType: "add" as const, add: { keyPackage: kp } };
-        const msg = await proposeExternal(groupInfo, addProposal, es.signaturePublicKey, es.signKey, cs);
+    for (const op of ops) {
+        let proposal;
+        if (op.kind === "remove") {
+            proposal = { proposalType: "remove" as const, remove: { removed: op.removed } };
+        } else {
+            const kp = decodeClientKeyPackage(op.keyPackage);
+            if (!kp) continue;
+            proposal = { proposalType: "add" as const, add: { keyPackage: kp } };
+        }
+        const msg = await proposeExternal(groupInfo, proposal, es.signaturePublicKey, es.signKey, cs);
         msgs.push(Buffer.from(encodeMlsMessage(msg)));
     }
     const body = Buffer.concat(msgs);
@@ -148,15 +170,10 @@ export function withTransitionId(transitionId: number, mlsBytes: Uint8Array): Bu
     return Buffer.concat([tid, Buffer.from(mlsBytes)]);
 }
 
-// --- TODO Phase 1 (máquina de estados; ver docs/DAVE.md) ------------------------
-// - op 26 (key package do cliente): decodeMlsMessage → validar credential (snowflake do
-//   user_id, big-endian) + lifetime + assinatura.
-// - op 27 (proposals): proposeExternal/proposeAddExternal (Add) assinado com o external
-//   sender; operation_type append=0.
-// - op 28 (commit+welcome do committer): validar, guardar; repassar.
-// - op 29 (announce commit) aos membros existentes + op 30 (welcome) aos novos, ambos com
-//   transition_id.
-// - op 24 (prepare_epoch) / op 21 (prepare_transition) / op 22 (execute_transition) +
-//   op 23 (transition_ready do cliente): coordenar a transição inicial (transition_id 0).
-// - Só então: op 4 com dave_protocol_version 1 / secure_frames_version 1, e reverter o
-//   Caminho A (deixar o cliente anunciar max_dave 1).
+// --- Pendências (ver docs/DAVE.md, Phase 3) --------------------------------------
+// Feito: op 26 (decode), op 27 (Add/Remove externos, BROADCAST), op 28 (commit+welcome,
+// primeiro commit do epoch vence), op 29/30 (tid), op 31 (Remove + re-add), Remove na
+// saída, sole member reset, leaf bookkeeping.
+// Falta:
+// - op 26: validar credential (snowflake do user_id, big-endian) + lifetime + assinatura.
+// - Validar o commit/welcome recebidos (só repassamos; a validação real é do cliente).
