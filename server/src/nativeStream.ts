@@ -331,7 +331,7 @@ function onMessage(m: Member, op: number, d: any): void {
             break;
 
         case OP.SELECT_PROTOCOL:
-            log(`select_protocol ${m.userId} mode=${d?.mode} codecs=${(d?.codecs ?? []).map((c: any) => `${c.name}${c.encode === false ? "(dec)" : ""}`).join(",")}`);
+            log(`select_protocol ${m.userId} mode=${d?.mode} codecs=${JSON.stringify((d?.codecs ?? []).map((c: any) => ({ name: c.name, pt: c.payload_type, rtx: c.rtx_payload_type, enc: c.encode, dec: c.decode })))}`);
             send(m.ws, OP.SESSION_DESCRIPTION, sessionDescription(m));
             sendWants(m);
             if (DAVE_ON) sendExternalSender(m);
@@ -346,7 +346,7 @@ function onMessage(m: Member, op: number, d: any): void {
             };
             m.streamer = video.video_ssrc > 0 || video.streams.some(s => s.active);
             m.video = video;
-            log(`video ${m.userId} streamer=${m.streamer} video_ssrc=${video.video_ssrc} rtx_ssrc=${video.rtx_ssrc} streams=${JSON.stringify(video.streams.map(s => ({ ssrc: s.ssrc, rtx_ssrc: s.rtx_ssrc, active: s.active })))}`);
+            log(`video ${m.userId} streamer=${m.streamer} op12=${JSON.stringify(d)}`);
             for (const o of peers(m)) send(o.ws, OP.VIDEO, { user_id: m.userId, ...video }, o);
             sendWants(m);
             break;
