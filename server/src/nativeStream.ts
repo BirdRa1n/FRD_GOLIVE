@@ -408,15 +408,21 @@ function daveOnDeparture(room: Room, m: Member): void {
     if (joinedLeft.length >= 2 && m.daveJoined && m.daveLeaf !== undefined) {
         enqueueDaveProposal(room, { kind: "remove", leaf: m.daveLeaf, chId: m.daveChannelId ?? room.daveCommitter?.daveChannelId ?? 0n });
     }
-    if (joinedLeft.length <= 1) {
-        // Spec "Sole member reset": ninguém mais retem o grupo estabelecido.
-        resetDaveGroup(room, "só 1 membro restou no grupo");
+    if (m.daveJoined && joinedLeft.length <= 1) {
+        // Spec "Sole member reset": o grupo ficou com 1 (ou 0) membro(s) estabelecido(s).
+        // Só entra aqui se quem saiu era membro do grupo — um espectador pendente que cai
+        // antes do welcome não mexe no grupo de ninguém.
+        resetDaveGroup(room, `só ${joinedLeft.length} membro(s) do grupo restou`);
         return;
     }
     if (room.daveCommitter === m) {
         const next = joinedLeft[0];
-        room.daveCommitter = next;
-        log(`DAVE committer promovido → ${next.userId}`);
+        if (next) {
+            room.daveCommitter = next;
+            log(`DAVE committer promovido → ${next.userId}`);
+        } else {
+            resetDaveGroup(room, "committer saiu e não restou membro do grupo");
+        }
     }
 }
 
@@ -527,7 +533,7 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
         daveInvalidCommitWelcome(m, safeParseJson(payload));
         return;
     }
-    log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${payload.length}B — não tratado (TODO Phase 1)`);
+    log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${payload.length}B — não tratado`);
 }
 
 function safeParseJson(b: Buffer): unknown {
