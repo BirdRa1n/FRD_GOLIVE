@@ -383,7 +383,11 @@ export async function startCameraShare(): Promise<void> {
 export async function publishHybridVideo(sourceId: string): Promise<void> {
     let s: RtcSession;
     try { s = ensureMediaReady(); } catch (e) { streamStore.setError(describeError(e)); return; }
-    const q = clampToPolicy(Number(settings.store.maxHeight) || 720, Number(settings.store.fps) || 30);
+    // Sem picker no híbrido: usa a última escolha guardada. Preserva 0 = resolução da
+    // fonte (a MAIOR qualidade) — não rebaixar para 720 quando a config está em "fonte".
+    const h = Number(settings.store.maxHeight);
+    const f = Number(settings.store.fps);
+    const q = clampToPolicy(Number.isFinite(h) ? h : 1080, Number.isFinite(f) && f > 0 ? f : 30);
     try {
         const stream = await captureNativeSource(sourceId, { systemAudio: false, ...q });
         stream.getAudioTracks().forEach(t => { t.stop(); stream.removeTrack(t); }); // vídeo apenas

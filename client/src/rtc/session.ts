@@ -131,9 +131,9 @@ export class RtcSession {
     async publishScreenStream(stream: MediaStream, opts: Pick<ScreenShareOptions, "maxHeight" | "fps">): Promise<void> {
         if (!this.room) throw new Error("Não conectado ao servidor privado.");
 
-        const maxBitrate = opts.maxHeight === 0 || opts.maxHeight >= 1440 ? 8_000_000
-            : opts.maxHeight >= 1080 ? 5_000_000
-            : 2_500_000;
+        const maxBitrate = opts.maxHeight === 0 || opts.maxHeight >= 1440 ? 10_000_000
+            : opts.maxHeight >= 1080 ? 6_000_000
+            : 3_500_000;
 
         for (const mediaTrack of stream.getTracks()) {
             if (mediaTrack.kind === "video") {
@@ -143,6 +143,9 @@ export class RtcSession {
                 await this.room.localParticipant.publishTrack(track, {
                     source: Track.Source.ScreenShare,
                     simulcast: false, // tela: uma única camada de alta qualidade
+                    // "maintain-resolution": sob banda apertada, derruba FPS antes da
+                    // resolução — mantém texto/código nítidos (sem isso o WebRTC borra a tela).
+                    degradationPreference: "maintain-resolution",
                     videoEncoding: { maxBitrate, maxFramerate: opts.fps },
                 });
                 this.publishedTracks.push(track);
