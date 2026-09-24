@@ -344,7 +344,7 @@ function onMessage(m: Member, op: number, d: any): void {
             };
             m.streamer = video.video_ssrc > 0 || video.streams.some(s => s.active);
             m.video = video;
-            log(`video ${m.userId} streamer=${m.streamer} ${JSON.stringify(video.streams.map(s => ({ ssrc: s.ssrc, active: s.active, max_resolution: s.max_resolution, max_framerate: s.max_framerate })))}`);
+            log(`video ${m.userId} streamer=${m.streamer} video_ssrc=${video.video_ssrc} rtx_ssrc=${video.rtx_ssrc} streams=${JSON.stringify(video.streams.map(s => ({ ssrc: s.ssrc, rtx_ssrc: s.rtx_ssrc, active: s.active })))}`);
             for (const o of peers(m)) send(o.ws, OP.VIDEO, { user_id: m.userId, ...video }, o);
             sendWants(m);
             break;
