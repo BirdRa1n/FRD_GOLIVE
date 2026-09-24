@@ -421,6 +421,10 @@ function sendWants(m: Member): void {
     const viewers = peers(m);
     let px = Math.max(0, ...viewers.map(v => v.wantPixels));
     if (!px && NATIVE_STREAM_ALWAYS_WANT === "1") px = FULL_HD_PIXELS;
+    // Clampa ao máximo que o encoder anunciou (max_resolution do op12) — pedir mais pixels
+    // que o teto parece deixar o encoder em resolution 0×0 (real nunca pede acima do máx).
+    const mr = m.video.streams[0]?.max_resolution as { width?: number; height?: number; } | undefined;
+    if (mr?.width && mr?.height) px = Math.min(px, mr.width * mr.height);
     // Formato real do Discord (capturado, ver docs/DAVE.md): a qualidade por-ssrc e o
     // `any` são 100; a contagem de pixels vai SÓ em pixelCounts. (O sink want não é o que
     // destrava o bitrateTarget — isso depende do DAVE; ver docs/DAVE.md.)
