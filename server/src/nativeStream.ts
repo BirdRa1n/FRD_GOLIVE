@@ -455,6 +455,18 @@ function findBySsrc(ssrc: number): Member | undefined {
     return undefined;
 }
 
+/** Acha o membro dono de qualquer ssrc (áudio/vídeo/rtx, atribuído ou reportado no op 12). */
+function findByAnySsrc(ssrc: number): Member | undefined {
+    for (const room of rooms.values()) {
+        for (const m of room.members.values()) {
+            if (m.audioSsrc === ssrc || m.videoSsrc === ssrc || m.rtxSsrc === ssrc) return m;
+            const v = m.video;
+            if (v && (v.audio_ssrc === ssrc || v.video_ssrc === ssrc || v.rtx_ssrc === ssrc)) return m;
+        }
+    }
+    return undefined;
+}
+
 /** IP discovery: [type u16=1][len u16=70][ssrc u32][address 64][port u16] → responde type 2 com o endereço visto. */
 function ipDiscovery(msg: Buffer, rinfo: RemoteInfo): boolean {
     if (msg.length !== 74 || msg.readUInt16BE(0) !== 1) return false;
@@ -550,8 +562,20 @@ function diagnose(m: Member, plain: Buffer | undefined, kind: string, ssrc: numb
 
 udp.on("message", (msg, rinfo) => {
     if (ipDiscovery(msg, rinfo)) return;
-    const m = byAddr.get(addrKey(rinfo));
-    if (!m) return;
+    let m = byAddr.get(addrKey(rinfo));
+    if (!m) {
+        // O cliente Discord usa 2 sockets UDP (mídia e RTX). Um pode não ter feito IP discovery;
+        // associa pelo ssrc RTP (cabeçalho em claro no rtpsize) para não descartar o vídeo.
+        if (msg.length >= 12 && (msg[0] >> 6) === 2) {
+            m = findByAnySsrc(msg.readUInt32BE(8));
+            if (m) {
+                byAddr.set(addrKey(rinfo), m);
+                m.addrs.add(addrKey(rinfo));
+                log(`novo socket de ${m.userId}: pt${msg[1] & 0x7f} ssrc ${msg.readUInt32BE(8)} ← ${addrKey(rinfo)}`);
+            }
+        }
+        if (!m) return;
+    }
     m.udp = rinfo; // responde pelo socket que o cliente realmente usa para mídia
 
     // Keepalive do cliente (8 bytes, contador u64): o servidor do Discord devolve o eco.
