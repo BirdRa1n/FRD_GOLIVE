@@ -106,7 +106,7 @@ conexão **única** `context:"default"` com `videoStreamParameters` (rid 100,
 — é o feedback de banda (REMB/TWCC) do servidor que tem que povoar isso (ver
 comentário do REMB em `server/src/nativeStream.ts`).
 
-### Resultado decisivo (2026-09-24) — protocolo esgotado, parede confirmada
+### Resultado decisivo (2026-09-24) — parede "confirmada" (refutada pela seção seguinte)
 
 Com **todos** os deltas 1–5 aplicados e testado **ao vivo com espectador real**:
 
@@ -151,6 +151,42 @@ Confirmação a fazer no MCP (isola "REMB não chega" de "gate interno"): pegar 
 - se `receiverBitrateEstimate` == 0 → o REMB não está sendo aceito (ssrc/decrypt do
   RTCP) — aí é fixável no servidor. Snippet: incluir `transport: s.transport` no
   `getStats` (a versão longa que já usamos imprime isso).
+
+### A parede era o `keyframe_interval` do op 4 (2026-09-24, tarde) — ENCODER DESTRAVADO
+
+O "gate interno" acima não existia: o allocator dá 0 ao vídeo porque
+**`alwaysSendVideo` está `false`**, e só vira `true` quando o cliente recebe o
+evento `"keyframe-interval"`. Cadeia (código do Discord, via MCP):
+
+```text
+RTCControlSocket.onmessage:
+  case 4:  …i.keyframe_interval && emit("keyframe-interval", i.keyframe_interval)…
+  case 14: …idem (update mid-session de codecs/sessão)…
+    → _handleKeyframeInterval → conn.setKeyframeInterval(e)
+      → setTransportOptions({keyframeInterval: e, alwaysSendVideo: e > 0})
+```
+
+Ou seja: **não é opcode novo — é um campo do payload do op 4**, e o nosso não
+tinha. `keyframe_interval` ausente → `alwaysSendVideo: false` → a captura roda
+(`frameRateInput 30`), a fila enche e descarta (`framesDroppedEncoderQueue`
+subindo) e o **encoder C++ nunca instancia** (`framesEncoded 0`, `0x0`,
+`qualityLimitationReason` undefined). Tudo o mais (codec, experiments, sink
+want real, TWCC, REMB, DAVE, espectador) estava — e está — correto.
+
+**Prova ao vivo (MCP, mesma sessão):** `sc.setKeyframeInterval(2000)` → em ~3 s
+`framesEncoded` 0 → ~90 e subindo a 30/s, `resolution 1920×1080`,
+`frameRateEncode 30`, `framesDroppedEncoderQueue 0`, H265 pt103, `nack/lost 0`,
+366 MB enviados, `bitrateTarget` estável ~500–700 kbps. A sessão foi reiniciada
+no meio do teste (Ctrl+R), `kfi` voltou a 0 (encoder morreu) e **reaplicar
+`setKeyframeInterval(2000)` reviveu na hora** — o puxão por JS não sobrevive a
+restart; o do servidor sim.
+
+**Fix (servidor):** `keyframe_interval` no op 4 — env
+`NATIVE_STREAM_KEYFRAME_INTERVAL` (default `2000`; vazio = omite; unidade
+provada só pelo efeito — o gate abre). Sem rebuild também dá:
+`NATIVE_STREAM_SESSION_OVERRIDE={"keyframe_interval":2000}`. Pendências:
+teste **E2E com espectador** (com o kfi manual vivo) e **deploy**
+(`docker compose up -d --build server` — restart mata a stream atual).
 
 ### Passo 1 — diff de protocolo: sessão real vs sessão nossa
 
