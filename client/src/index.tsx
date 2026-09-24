@@ -9,6 +9,7 @@ import { settings } from "./settings";
 import { clearAudioSinks, syncAudioSinks } from "./state/audioSink";
 import { streamStore } from "./state/streamStore";
 import { userContextPatch } from "./ui/StreamContextMenu";
+import { startHybrid, stopHybrid } from "./ui/hybridVideo";
 import { startNativeControls, stopNativeControls, syncNativeControls } from "./ui/nativeControlsHijack";
 import { startNativeTiles, stopNativeTiles, syncNativeTiles } from "./ui/nativeTileInject";
 import { mountPanel, unmountPanel } from "./ui/panelMount";
@@ -64,6 +65,7 @@ export default definePlugin({
         mountPanel();
         startNativeTiles();
         startNativeControls();
+        startHybrid();
 
         // Desbloqueia os botões nativos (override do experimento "video guard").
         // Só com o hijack ligado, pois o hijack é o que impede o Go Live nativo de
@@ -103,6 +105,7 @@ export default definePlugin({
         prefsUnsub?.();
         prefsUnsub = null;
         void disconnect();
+        stopHybrid();
         stopNativeTiles();
         stopNativeControls();
         clearAudioSinks();

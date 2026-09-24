@@ -74,6 +74,12 @@ export const settings = definePluginSettings({
         default: false,
         restartNeeded: true,
     },
+    nativeStreamHybrid: {
+        type: OptionType.BOOLEAN,
+        description: "[Experimental] Híbrido: usa o Go Live NATIVO só para o shell + áudio (o encoder de vídeo nativo não funciona pelo servidor privado) e mostra o VÍDEO pelo LiveKit sobreposto no tile. Requer nativeStreamEndpoint + nativeTileOverlay ligados.",
+        default: false,
+        restartNeeded: true,
+    },
 
     // --- Escondidas: lembradas automaticamente, sem mexer em Configurações ---
     // Qualidade/som agora são escolhidos no picker de transmissão; guardamos a

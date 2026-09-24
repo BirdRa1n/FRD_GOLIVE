@@ -375,6 +375,30 @@ export async function startCameraShare(): Promise<void> {
     }
 }
 
+/**
+ * Híbrido: publica a MESMA fonte do Go Live NATIVO no LiveKit (vídeo apenas — o áudio vai
+ * pelo Go Live nativo, E2EE). Sem picker, sem som, sem marcar "sharing": o shell/UX é o Go
+ * Live nativo, e o vídeo do LiveKit é sobreposto no tile pelo nativeTileInject.
+ */
+export async function publishHybridVideo(sourceId: string): Promise<void> {
+    let s: RtcSession;
+    try { s = ensureMediaReady(); } catch (e) { streamStore.setError(describeError(e)); return; }
+    const q = clampToPolicy(Number(settings.store.maxHeight) || 720, Number(settings.store.fps) || 30);
+    try {
+        const stream = await captureNativeSource(sourceId, { systemAudio: false, ...q });
+        stream.getAudioTracks().forEach(t => { t.stop(); stream.removeTrack(t); }); // vídeo apenas
+        await s.publishScreenStream(stream, q);
+        console.log("[FRD GoLive] híbrido: vídeo publicado no LiveKit (fonte", sourceId + ")");
+    } catch (e) {
+        if (e instanceof Error && e.name === "NotAllowedError") return;
+        streamStore.setError(describeError(e));
+    }
+}
+
+export async function stopHybridVideo(): Promise<void> {
+    if (session) await session.stopSharing().catch(() => { /* ok */ });
+}
+
 function markSharing(kind: "screen" | "camera"): void {
     control?.setState(true, kind);
     streamStore.setSharing(kind);
