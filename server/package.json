@@ -14,7 +14,6 @@
     "@noble/curves": "2.0.1",
     "@noble/hashes": "2.0.1",
     "express": "^4.19.2",
-    "livekit-server-sdk": "^2.9.0",
     "ts-mls": "^1.6.4",
     "ws": "^8.18.0"
   },

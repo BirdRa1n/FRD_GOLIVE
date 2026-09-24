@@ -167,6 +167,11 @@ export function nativeStreamEnabled(): boolean {
     return !!NATIVE_STREAM_PUBLIC_IP;
 }
 
+/** IP/host público por onde a mídia (UDP) do Go Live nativo entra. Informativo (o /config). */
+export function nativeStreamPublicIp(): string {
+    return NATIVE_STREAM_PUBLIC_IP;
+}
+
 const log = (...a: unknown[]) => console.log("[dstream]", ...a);
 const addrKey = (r: { address: string; port: number; }) => `${r.address}:${r.port}`;
 

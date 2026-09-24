@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface ClientConfig {
-    signalingUrl: string; // canal de controle (policy/presença)
-    serverUrl: string; // URL WS do LiveKit (mídia SFU)
-    iceServers: unknown[];
+    // Host (sem esquema) do WS de controle do Go Live nativo — ex.: "golivefrd.SEU.com/dstream".
+    nativeStreamEndpoint: string;
+    mediaHost: string; // IP/host público da mídia (UDP) — informativo
     version: string;
     transport: string;
 }
@@ -32,26 +32,28 @@ export function writeVencordConfig(dir: string, base: string, config: ClientConf
     const settingsDir = join(dir, "settings");
     mkdirSync(settingsDir, { recursive: true });
 
-    // 1) settings do plugin
+    // 1) settings do plugin — Go Live NATIVO redirecionado para o servidor privado.
+    //    hijackNativeControls fica DESLIGADO de propósito: é o Go Live nativo do Discord
+    //    que roda (o plugin só o redireciona), então os botões nativos não são sequestrados.
+    const domain = new URL(base).hostname;
+    const endpoint = config.nativeStreamEndpoint || `${domain}/dstream`;
     const settingsFile = join(settingsDir, "settings.json");
     const settings = readJson(settingsFile);
     settings.plugins = (settings.plugins as Record<string, unknown>) ?? {};
     (settings.plugins as Record<string, unknown>).FRDGoLive = {
         enabled: true,
-        tokenServiceUrl: base, // hub: /config + /token
-        nativeScreenCapture: false,
-        nativeTileOverlay: true,
-        hijackNativeControls: true,
-        unlockNativeVideoGate: true,
+        nativeStreamEndpoint: endpoint, // o Go Live nativo é redirecionado para cá (vídeo+áudio)
+        nativeStreamDave: true, // E2EE (MLS) no áudio da transmissão
+        hijackNativeControls: false,
+        unlockNativeVideoGate: true, // libera os botões nativos em regiões censuradas
     };
     writeFileSync(settingsFile, JSON.stringify(settings, null, 4));
 
-    // 2) CSP: libera o hub E o servidor de mídia (LiveKit) no connect-src.
-    //    O Vencord lê as native settings de "native-settings.json" (não "native.json")
-    //    e injeta a chave LITERALMENTE — cobrimos HTTPS (fetch) e WSS (WebSocket).
-    const domain = new URL(base).hostname;
+    // 2) CSP: libera o host do /dstream (WS de controle do Go Live nativo) no connect-src.
+    //    A mídia é UDP (não passa por CSP). O Vencord lê as native settings de
+    //    "native-settings.json" e injeta a chave LITERALMENTE — cobrimos HTTPS e WSS.
     const hosts = new Set<string>([domain]);
-    try { if (config.serverUrl) hosts.add(new URL(config.serverUrl).hostname); } catch { /* serverUrl vazio/inválido */ }
+    try { const h = endpoint.replace(/^wss?:\/\//, "").split("/")[0]; if (h) hosts.add(h); } catch { /* endpoint inválido */ }
 
     const nativeFile = join(settingsDir, "native-settings.json");
     const native = readJson(nativeFile);

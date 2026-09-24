@@ -12,11 +12,13 @@ export interface User {
 
 /** Config que o cliente recebe do host (GET /config). */
 export interface ClientConfig {
-    signalingUrl: string; // wss://.../signaling — canal de controle (policy/presença)
-    serverUrl: string; // wss://.../ do LiveKit (mídia SFU)
-    iceServers: RTCIceServerConfig[];
+    // Host (sem esquema) do WS de controle do Go Live nativo — o Discord prefixa wss://.
+    // Ex.: "golivefrd.SEU.com/dstream". O plugin redireciona o Go Live nativo para cá.
+    nativeStreamEndpoint: string;
+    // IP/host público por onde a mídia (UDP) entra — informativo (instalador/diagnóstico).
+    mediaHost: string;
     version: string;
-    transport: "sfu"; // mídia via LiveKit; a mídia entra pelo IP público do livekit.yaml
+    transport: "native"; // Go Live nativo do Discord, redirecionado para o servidor privado
 }
 
 export interface RTCIceServerConfig {

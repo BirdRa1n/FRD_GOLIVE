@@ -6,8 +6,7 @@ import { WebSocket, WebSocketServer } from "ws";
 
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
-import { createToken, livekitConfigured, livekitWsUrl } from "./livekit.js";
-import { handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, startNativeStreamUdp } from "./nativeStream.js";
+import { handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, nativeStreamPublicIp, startNativeStreamUdp } from "./nativeStream.js";
 import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
 import type {
@@ -35,10 +34,6 @@ const {
     PORT = "8090",
     ADMIN_TOKEN = "",
     PUBLIC_SIGNALING_URL = "", // ex.: wss://signaling.seu.com
-    STUN_URLS = "stun:stun.l.google.com:19302",
-    TURN_URLS = "",
-    TURN_USERNAME = "",
-    TURN_CREDENTIAL = "",
     VERSION = "2.0.0",
 } = process.env;
 
@@ -62,20 +57,6 @@ function send(ws: WebSocket, msg: ServerMessage): void {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
 
-function iceServers() {
-    const list: { urls: string | string[]; username?: string; credential?: string; }[] = [
-        { urls: STUN_URLS.split(",").map(s => s.trim()) },
-    ];
-    if (TURN_URLS) {
-        list.push({
-            urls: TURN_URLS.split(",").map(s => s.trim()),
-            username: TURN_USERNAME,
-            credential: TURN_CREDENTIAL,
-        });
-    }
-    return list;
-}
-
 // --- HTTP ---
 const app = express();
 app.use(express.json({ limit: "32kb" }));
@@ -93,20 +74,18 @@ app.use((req, res, next) => {
 const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
 app.use("/ui", express.static(`${PUBLIC_DIR}/ui`, { maxAge: "1h" }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, transport: "sfu" }));
+app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, transport: "native" }));
 
 /** Config que o instalador/plugin puxa de um host. */
 app.get("/config", (req, res) => {
-    const proto = req.headers["x-forwarded-proto"] === "https" || req.secure ? "wss" : "ws";
     const host = req.headers.host ?? `localhost:${PORT}`;
     const cfg: ClientConfig = {
-        // Canal de controle (policy/presença) — HTTP/WS pelo Cloudflare.
-        signalingUrl: PUBLIC_SIGNALING_URL || `${proto}://${host}/signaling`,
-        // Mídia SFU (LiveKit) — a mídia entra pelo IP público definido no livekit.yaml.
-        serverUrl: livekitWsUrl(),
-        iceServers: iceServers(),
+        // Host (sem esquema) do WS de controle do Go Live nativo — o plugin redireciona para cá.
+        nativeStreamEndpoint: nativeStreamEnabled() ? `${host}${NATIVE_STREAM_PATH}` : "",
+        // IP/host público da mídia (UDP) — informativo.
+        mediaHost: nativeStreamPublicIp(),
         version: VERSION,
-        transport: "sfu",
+        transport: "native",
     };
     res.json(cfg);
 });
@@ -119,28 +98,6 @@ app.post("/auth/request-access", (req, res) => {
     }
     const u = store.requestAccess(userId, name);
     res.json({ enabled: u.enabled, pending: !u.enabled });
-});
-
-/** Emite um token do LiveKit — só para usuários habilitados no hub. */
-app.post("/token", async (req, res) => {
-    const { room, userId, name } = req.body ?? {};
-    if (typeof room !== "string" || typeof userId !== "string" || typeof name !== "string") {
-        return res.status(400).json({ error: "room, userId e name são obrigatórios" });
-    }
-    if (!livekitConfigured()) {
-        return res.status(503).json({ error: "SFU (LiveKit) não configurado no servidor" });
-    }
-    // registra o pedido (idempotente) e checa a habilitação
-    const u = store.requestAccess(userId, name);
-    if (!u.enabled) {
-        return res.status(403).json({ error: "usuário não habilitado", pending: true });
-    }
-    try {
-        const token = await createToken(room, userId, name);
-        res.json({ token, serverUrl: livekitWsUrl(), policy: store.policyFor(userId) });
-    } catch (e) {
-        res.status(500).json({ error: "falha ao emitir token: " + (e as Error).message });
-    }
 });
 
 app.get("/policy/:userId", (req, res) => res.json(store.policyFor(req.params.userId)));

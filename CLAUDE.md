@@ -5,111 +5,118 @@ Contexto para sessões futuras do Claude neste projeto. Leia antes de mexer.
 ## O que é
 
 Modificação de cliente do Discord (plugin Vencord) + servidor que permite
-**compartilhar tela/câmera de forma privada** — o vídeo **não passa pelos
-servidores do Discord**, só a voz continua nativa. Alvo: empresas com regras de
+**compartilhar a tela de forma privada** — o vídeo **não passa pelos servidores do
+Discord**, só a voz (e a câmera) continua nativa. Alvo: empresas com regras de
 privacidade rígidas.
 
-**Arquitetura atual = SFU (LiveKit) + hub central.** O servidor `server/` faz
-hub/login/auth/habilitação/quotas/admin/config **e emite os tokens do LiveKit**. A
-**mídia (vídeo) passa pelo SFU (LiveKit)** e entra pelo **IP público configurável**
-(`LIVEKIT_NODE_IP`, normalmente um VPS que faz relay do UDP 7882 → servidor de casa).
-O controle (config/token/policy) é HTTP/WS (passa pelo Cloudflare); só a mídia UDP
-precisa do IP público/relay. O acesso ao token é gated pela **habilitação no hub**
-(sem orgSecret). Houve um intervalo em que o transporte foi **mesh/P2P** — isso foi
-**revertido**; o código do mesh (`meshTransport.ts`) foi removido.
+**Arquitetura atual = Go Live NATIVO redirecionado + hub central.** O plugin
+redireciona a conexão de transmissão do **Go Live nativo do Discord** para o
+servidor privado (WS `/dstream`); o módulo nativo `discord_voice` envia o **RTP
+(vídeo + áudio)** para o **IP público configurável** (`NATIVE_STREAM_PUBLIC_IP`,
+normalmente um VPS que faz relay do UDP → servidor de casa). O áudio é **E2EE
+(DAVE v1 / MLS)**. O controle (WS `/dstream`) é HTTP/WS (passa pelo Cloudflare); só
+a mídia UDP precisa do IP público/relay. A habilitação é checada no `/dstream`
+(`server/src/nativeStream.ts`). O servidor `server/` também faz o hub de
+login/auth/habilitação/admin (páginas web). Ver [docs/GOLIVE-NATIVO.md](docs/GOLIVE-NATIVO.md)
+(a chave foi o `keyframe_interval` no op4) e [docs/DAVE.md](docs/DAVE.md).
+
+**Histórico:** houve um transporte **mesh/P2P** e depois um **SFU (LiveKit)** — os
+dois foram **removidos** (o LiveKit saiu quando o vídeo nativo passou a funcionar;
+não existe mais `livekit.ts`/`meshTransport.ts`/`rtc/session.ts`).
 
 ## Estrutura
 
 ```
-client/            userplugin do Vencord (TS/React)
+client/            userplugin do Vencord (TS/React) — enxuto: só o redirect + diagnóstico
   src/
-    index.tsx            definePlugin: wiring, ciclo de vida
+    index.tsx            definePlugin: wiring (redirect, unlock do video guard, ciclo de vida)
     settings.ts          settings do plugin (@api/Settings)
-    discordState.ts      lê canal de voz atual + usuário (stores do Discord)
-    rtc/
-      session.ts         transporte SFU (LiveKit) — a mídia — ✔ typecheckável
-      signalingClient.ts canal de CONTROLE (WS): policy/habilitação + estado
-      nativeCapture.ts   captura via desktopCapturer (Electron) — ✔ typecheckável
-      controller.ts      orquestra config → controle(policy) → token → LiveKit
-    state/
-      streamStore.ts     store reativo puro — ✔ typecheckável
-      audioSink.ts       um <audio> oculto por stream (evita eco)
-    ui/                  painel, teatro, picker, overlays, hijack dos botões nativos
-    native.ts            módulo NATIVO (processo main): desktopCapturer
+    probe/
+      nativeStreamRedirect.ts  redireciona o Go Live nativo p/ o /dstream + libera o DAVE downgrade
+      streamProbe.ts     sonda de protocolo (só leitura) — diagnóstico
+    diagBridge.ts        ponte MCP (renderer) — diagnóstico ao vivo (ver docs/MCP-DIAG.md)
+    native.ts            módulo NATIVO (processo main): desktopCapturer + IPC da ponte MCP
+    types.ts             tipos puros (NativeSource) — ✔ typecheckável isolado
 installer/         instalador gráfico (Electron, Mac/Win) — aplica a mod no Discord
   src/             main/preload (IPC), lib/ (config, inject, paths)
   renderer/        UI do instalador (usa o design system; renderer/ui/ é copiado no build)
-server/            hub/auth/admin/config + token do LiveKit (Node, Docker)
-  src/             index.ts (Express+ws), livekit.ts (token), store.ts, session.ts, discord.ts, hub.ts
+server/            hub/auth/admin/config + mídia do Go Live nativo (Node, Docker)
+  src/             index.ts (Express+ws), nativeStream.ts (/dstream + UDP), dave.ts (MLS/E2EE),
+                   twcc.ts, store.ts, session.ts, discord.ts, hub.ts
   public/ui/       DESIGN SYSTEM: ui.css (tokens/componentes), ui.js (tema, segmented,
                    sheet, toast, ícones), index.html (catálogo em /ui/)
-  livekit.yaml     config do SFU (udp_port 7882 mux, node_ip = IP público da mídia)
-docs/              arquitetura, roadmap, OAuth do Discord, relay UDP, experimento Go Live nativo
+docs/              arquitetura, roadmap, OAuth do Discord, relay UDP, Go Live nativo, DAVE, MCP
+mcp/               MCP local (tools frd-discord) p/ diagnóstico do Discord ao vivo
 ```
 
 ## Build & testes
 
-**Camada RTC pura** (não depende de Vencord) — dá pra typecheckar isolado:
+**Tipos puros** (não dependem de Vencord) — typecheck isolado:
 ```bash
 cd client && npm install && npm run typecheck:rtc
 ```
-Cobre `rtc/session.ts`, `rtc/nativeCapture.ts`, `state/*`, `ui/sourcePicker`, `types.ts`.
-O resto (`@webpack/common`, `@api/Settings`, `@utils/types`) **só compila dentro do Vencord**.
+Cobre só `types.ts`. O resto do plugin (`@webpack/common`, `@api/Settings`,
+`@utils/types`, `@main/*`) **só compila dentro do Vencord** (`pnpm build`).
 
 **Plugin dentro do Vencord** (não há runtime loading; compila no build):
 ```bash
 git clone https://github.com/Vendicated/Vencord ~/Vencord   # FORA deste repo
-cd ~/Vencord && pnpm install && pnpm add livekit-client
+cd ~/Vencord && pnpm install
 mkdir -p src/userplugins
 cp -R /caminho/FRD_GOLIVE/client/src src/userplugins/frdGoLive   # COPIE, não symlink
 pnpm build && pnpm inject
 ```
 - **Copie `client/src`** (contém o `index.tsx`), não `client/`. Symlink quebra os aliases.
-- Nome do plugin: `FRDGoLive`.
+- Nome do plugin: `FRDGoLive`. Não precisa mais de `livekit-client` (removido).
 
-**Servidor** (Node hub + LiveKit SFU):
+**Servidor** (Node hub + mídia do Go Live nativo):
 ```bash
 cd server && ./gen-env.sh && docker compose up -d --build   # ou install.sh (curl|sh)
 cd server && npm install && npm run build                    # typecheck/build isolado
-curl -s http://localhost:8090/health   # {"ok":true,"transport":"sfu",...}
-curl -s http://localhost:8090/config   # signalingUrl (controle) + serverUrl (LiveKit)
+curl -s http://localhost:8090/health   # {"ok":true,"transport":"native",...}
+curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + mediaHost
 ```
-- `gen-env.sh` gera `.env` com segredos + chaves do LiveKit; defina `LIVEKIT_WS_URL`
-  e `LIVEKIT_NODE_IP` (IP público da mídia).
+- `gen-env.sh` gera `.env` com segredos; defina `NATIVE_STREAM_PUBLIC_IP` (IP público
+  da mídia UDP) e, para E2EE do áudio, `NATIVE_STREAM_DAVE=1`.
 - Login do hub/admin: preencher `DISCORD_*` — ver `docs/DISCORD-OAUTH.md`.
 - Relay UDP da mídia (VPS → casa): `docs/RELAY-UDP.md`.
 
 ## Fatos e armadilhas importantes (não reaprender)
 
-- **Transporte = SFU (LiveKit)** → a mídia passa pelo servidor → precisa de porta
-  **UDP pública 7882** (mux único; **nunca** `port_range_start` — cria 1 docker-proxy
-  por porta e estoura a RAM). O Cloudflare Tunnel **só leva HTTP/WS**, não UDP → a
-  mídia entra pelo **IP público `LIVEKIT_NODE_IP`** (normalmente um VPS que faz DNAT
-  do UDP 7882 → LiveKit de casa via WireGuard). Ver `docs/RELAY-UDP.md`.
-- **2 rotas Cloudflare**: `golivefrd.SEU.com`→`:8090` (hub) e `media.SEU.com`→`:7880`
-  (WS do LiveKit = `LIVEKIT_WS_URL`). O cliente precisa da CSP liberando **os dois**
-  domínios (o instalador faz isso a partir do `/config`).
-- **Token gated pela habilitação**: `POST /token` só emite se o usuário está enabled
-  no hub. Sem `orgSecret`. Quotas (altura/FPS) aplicadas no cliente (`clampToPolicy`).
+- **Transporte = Go Live NATIVO redirecionado** → a mídia (RTP do `discord_voice`)
+  passa pelo servidor por **UDP** (`NATIVE_STREAM_UDP_PORT`, ex. 7883/7000). O
+  Cloudflare Tunnel **só leva HTTP/WS**, não UDP → a mídia entra pelo **IP público
+  `NATIVE_STREAM_PUBLIC_IP`** (normalmente um VPS que faz DNAT do UDP → servidor de
+  casa via WireGuard). O controle (WS `/dstream`) passa pelo Cloudflare. Ver `docs/RELAY-UDP.md`.
+- **`keyframe_interval` no op4 destrava o encoder** — sem ele o `discord_voice` fica
+  em `bitrateTarget: 0`/`framesEncoded: 0` (não é "allocator"). O servidor manda
+  `NATIVE_STREAM_KEYFRAME_INTERVAL` (default 2000). Ver `docs/GOLIVE-NATIVO.md`.
+- **op4 `video_codec` segue o cliente**: menor `priority` com `encode:true` (H265),
+  **filtrando opus** (áudio, prio 1000, senão vira video_codec por engano).
+- **1 rota Cloudflare** basta: `golivefrd.SEU.com`→`:8090` (hub + WS `/dstream`). A
+  CSP do cliente precisa liberar esse domínio com `wss://` explícito; a mídia é UDP
+  (não passa por CSP). O instalador grava isso a partir do host.
+- **Habilitação gated no `/dstream`**: `identify()` (`server/src/nativeStream.ts`) só
+  aceita usuário enabled no hub (a menos que `NATIVE_STREAM_ALLOW_ANY=1`, só teste).
+- **Câmera = nativa do Discord** (passa pelos servidores do Discord); só a **tela**
+  (Go Live) é privada. Decisão de produto ao remover o LiveKit.
 - **CSP do Discord** bloqueia conexões a domínios fora da lista. É **obrigatório**
   adicionar o domínio do servidor em `Vencord/src/main/csp/index.ts` (`CspPolicies`),
   com `wss://` explícito (o host "pelado" não casa com o esquema wss nesse Chromium):
-  `"*.SEU.com"`, `"wss://*.SEU.com"`, `"ws://*.SEU.com"`, e o IP da mídia.
-- **Montar root React**: `@webpack/common` `ReactDOM` nem sempre tem `createRoot` →
-  resolver via `findByPropsLazy("createRoot")`, com fallback pra `ReactDOM.render`.
+  `"*.SEU.com"`, `"wss://*.SEU.com"`, `"ws://*.SEU.com"`. O instalador faz isso via
+  `native-settings.json` (customCspRules).
 - **Botões nativos censurados**: desbloqueados via `FluxDispatcher.dispatch({type:
   "APEX_EXPERIMENT_OVERRIDE_CREATE", experimentName:"<video-guard>", variantId:-1})`.
-  O nome do experimento rotaciona → é setting.
-- **Go Live nativo é ininterceptável**: a captura acontece no módulo nativo
-  `discord_voice` (C++), fora do JS. Provado por hook — não há `MediaStream` em JS.
-  Experimento do Go Live nativo com servidor privado: **mergeado na `main`** (fdd5c20);
-  áudio funciona (DAVE v1 pelo `/dstream`), vídeo travado no encoder nativo
-  (`bitrateTarget: 0`). Registro, achados e estado do servidor em
-  `docs/GOLIVE-NATIVO.md`. Investigação ao vivo via MCP local (tools `frd-discord`,
-  registrado no `opencode.json`) com playbook/hipóteses em `docs/MCP-DIAG.md`.
-- **Go Live nativo sobe prints da tela** para a API do Discord
-  (`POST /streams/:key/preview`) — mais um motivo para mantê-lo bloqueado com o
-  plugin ativo.
+  O nome do experimento rotaciona → é setting. **Não** sequestramos os botões (o Go
+  Live nativo é que roda; `nativeStreamRedirect` só troca o endpoint da mídia).
+- **Go Live nativo funciona pelo servidor privado**: a captura/encoder ficam no módulo
+  nativo `discord_voice` (C++), fora do JS. Áudio E2EE (DAVE v1) + vídeo. Registro em
+  `docs/GOLIVE-NATIVO.md`; protocolo DAVE em `docs/DAVE.md`. Investigação ao vivo via
+  MCP local (tools `frd-discord`, `opencode.json`) com playbook em `docs/MCP-DIAG.md`.
+- **⚠️ Privacidade — Go Live nativo sobe prints da tela** para a API do Discord
+  (`POST /streams/:key/preview`): como agora USAMOS o Go Live nativo, o *thumbnail*
+  da tela ainda vai para o Discord (só o stream de vídeo é privado). Considerar
+  bloquear esse endpoint no cliente se for um requisito.
 - **Áudio da transmissão sem a call (Windows)**: o `desktopCapturer`/loopback comum pega
   o sistema inteiro — a call vaza e quem assiste se escuta. Solução (`native.ts`):
   captura via `getDisplayMedia` com o nosso handler respondendo
@@ -123,20 +130,17 @@ curl -s http://localhost:8090/config   # signalingUrl (controle) + serverUrl (Li
   `restrictOwnAudio`. Requer Windows 10 2004+; o `getAudioCaps()` confere se a flag pegou.
   macOS: sem som (o desktopCapturer não entrega; o CATap do Chromium só exclui o pid do
   serviço de áudio, não o renderer).
-- **Injeções no DOM do Discord** (tiles nativos, hijack dos botões) usam
-  `MutationObserver` + intervalo porque o Discord re-renderiza; ancorar em atributos
-  estáveis (`data-selenium-video-tile="<userId>"`), não em classes hasheadas.
-
 ## Convenções
 
-- TypeScript `strict`. Manter a camada `rtc/` pura (só WebRTC/`livekit-client` + DOM)
-  pra seguir typecheckável isolado.
+- TypeScript `strict`. O plugin ficou enxuto (redirect + diagnóstico); só `types.ts`
+  é typecheckável isolado (`npm run typecheck:rtc`) — o resto exige o build do Vencord.
 - **Commits**: em inglês, Conventional Commits, **sem linha de co-autoria do Claude**
   (preferência do dono). Trabalhar em branch + PR (`gh pr create`), nunca commitar
   direto na `main`.
 - Ao mexer no plugin: **copiar `client/src` → Vencord → `pnpm build` → recarregar o
   Discord** (mudança de renderer: Cmd/Ctrl+R; mudança de CSP/main ou `native.ts`:
-  reinício completo).
+  reinício completo). Dá para validar o build de verdade em `~/Vencord` (`pnpm build`
+  bundla; `npx tsc --noEmit -p tsconfig.json` checa os tipos).
 
 ## Design system (UI do hub/login/admin/instalador)
 
