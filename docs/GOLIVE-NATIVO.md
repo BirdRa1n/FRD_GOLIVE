@@ -37,12 +37,19 @@ enviando a mídia para o servidor privado em vez do servidor do Discord.
 - Tentativas que **ajudaram nas bordas mas não destravaram**: REMB, transport-cc
   (`twcc.ts`), sink want por pixel, PLI/keyframe (`requestKeyframe`), Caminho A
   (forçar `max_dave_protocol_version: 0` no IDENTIFY, em `nativeStreamRedirect.ts`).
-- **Captura do protocolo real** (sonda, redirect desligado) revelou a única
-  diferença cripto relevante: o fluxo real que produz vídeo roda **DAVE v1 +
-  secure_frames v1**; o nosso servidor força os dois a `0`. Hipótese de trabalho:
-  **o encoder de vídeo nativo só aloca bitrate com o caminho DAVE/secure-frames
-  ativo.** Próximo passo = implementar o DAVE v1 (delivery service MLS) para
-  validar/destravar. Protocolo capturado e plano faseado em [DAVE.md](DAVE.md).
+- **Captura do protocolo real** (sonda, redirect desligado) revelou que o fluxo real
+  que produz vídeo roda **DAVE v1 + secure_frames v1**; o nosso servidor forçava os
+  dois a `0`. Hipótese testada: implementar o DAVE v1 destravaria o vídeo.
+- **DAVE v1 foi implementado por inteiro** (servidor como external sender MLS, via
+  `ts-mls`; handshake op25→op24/21→op26→op27→op28→op29/op30→op23/op22; grupo com
+  espectador; áudio **E2EE ponta a ponta funcionando** — o viewer decifra o áudio).
+  Protocolo, receita do libdave e plano em [DAVE.md](DAVE.md).
+- **Mas o DAVE NÃO resolveu o vídeo** (2026-09-23): as stats do encoder mostram
+  `framesEncoded: 0`, `resolution: 0×0`, `framesDroppedEncoderQueue` crescendo, mesmo
+  com captura (30fps), sink want e `bitrateTarget` às vezes > 0. O "vídeo" que parecia
+  fluir era **probe/RTX** (pt104, `head=0000`), não H265. **O muro segue de pé: o
+  encoder nativo não codifica pelo servidor privado.** É um gate do encoder
+  independente do DAVE — investigação futura separada.
 
 ## Achados úteis para o produto atual
 

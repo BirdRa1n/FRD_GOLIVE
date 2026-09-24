@@ -166,18 +166,25 @@ e cpp/src/mls/session.cpp):**
   preciso mover a nossa transição para depois do op29 (hoje mandamos cedo, e o cliente
   aceitou, mas revisar se travar).
 
-## ✅ RESULTADO Phase 1 — hipótese confirmada (2026-09-23)
-Com o handshake DAVE v1 completo, o **vídeo destravou**. Log do servidor:
+## ⚠️ CORREÇÃO — a "Phase 1 confirmada" foi um FALSO POSITIVO (2026-09-23)
+A conclusão anterior de que "o DAVE destravou o vídeo" estava **errada**. As stats de saída
+do transmissor mostram, mesmo com DAVE ligado:
 ```
-DAVE op27 (proposals, 0 add) → 2B          (op27 vazio: solo comita o próprio grupo)
-DAVE op29 (announce commit tid 0) → 405B   (cliente enviou op28 commit; ecoamos op29)
-decifrou H265 ssrc 1005 ...                (VÍDEO! pt104 sustentado ~122 kbps)
+framesEncoded: 0   frameRateEncode: 0   resolution: 0×0   framesDroppedEncoderQueue: crescendo
+frameRateInput: 30 (captura OK)   bitrateTarget: oscila 0 ↔ 206k
 ```
-**O encoder de vídeo nativo exige DAVE/secure-frames ativo para alocar bitrate.** Com o
-grupo MLS estabelecido, `bitrateTarget` saiu de 0 e o H265 fluiu sustentado. Sequência
-solo que funciona: op25 → op24/op21 → (cliente op26 ×2) → **op27 vazio** → (cliente op28
-commit) → **op29** (echo do commit + transition_id 0) → mídia. (O cliente não precisou
-mandar op23/nós op22 no solo — comitou e começou a cifrar.)
+O `bitrateTarget` mudou, mas **`framesEncoded` ficou sempre 0** — o encoder **nunca produziu
+um frame real**. O que parecia "vídeo fluindo" (pt104 ~120 kbps, `decifrou H265 ssrc …`) eram
+**pacotes de probe/RTX** no ssrc de RTX (payload `head=0000…`), não H265. **O DAVE NÃO
+resolveu o vídeo** — o muro do [GOLIVE-NATIVO.md](GOLIVE-NATIVO.md) ("vídeo não sai do
+encoder") continua de pé. O que o DAVE fez de real: completar o handshake E2EE e permitir
+**áudio E2EE ponta a ponta** (o espectador decifra o áudio) — isso funciona e a implementação
+MLS é válida. A sequência do handshake (op25 → op24/21 → op26 → op27 → op28 → op29/op30 →
+op23/op22) está correta e testada; só não é o que faltava para o vídeo.
+
+**Gate real do vídeo (não resolvido):** `framesEncoded: 0` + `resolution: 0×0` mesmo com
+captura (30fps), sink want e (às vezes) bitrateTarget > 0. O encoder nativo não inicia/
+codifica pelo servidor privado — investigação separada, independente do DAVE.
 
 ## Phase 2 — espectador (parcial: E2EE funciona, falta o relay de vídeo)
 Implementado e testado ao vivo. **O que funciona:**
