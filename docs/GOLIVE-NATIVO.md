@@ -47,9 +47,24 @@ enviando a mídia para o servidor privado em vez do servidor do Discord.
 - **Mas o DAVE NÃO resolveu o vídeo** (2026-09-23): as stats do encoder mostram
   `framesEncoded: 0`, `resolution: 0×0`, `framesDroppedEncoderQueue` crescendo, mesmo
   com captura (30fps), sink want e `bitrateTarget` às vezes > 0. O "vídeo" que parecia
-  fluir era **probe/RTX** (pt104, `head=0000`), não H265. **O muro segue de pé: o
-  encoder nativo não codifica pelo servidor privado.** É um gate do encoder
-  independente do DAVE — investigação futura separada.
+  fluir era **probe/RTX** (pt104, `head=0000`), não H265.
+
+### Fechamento do experimento (2026-09-23) — deep-dive esgotado
+O gate é o **alocador de bitrate do encoder nativo**, inacessível de fora. Confirmado:
+- op12 e select_protocol do nosso transmissor são **idênticos** ao Discord real
+  (`max_bitrate:3500000`, `max_resolution:1280×720`, codecs opus/AV1/H265/H264/VP8 com os
+  mesmos PTs). O cliente está totalmente configurado — o gate não é o cliente.
+- Transporte com **8 Mbps** (`availableOutgoingBitrate`/`receiverBitrateEstimate` = 8e6),
+  mas o alocador dá **0** ao vídeo (`bitrateTarget: 0`).
+- Tudo que o servidor real manda diferente foi implementado e testado: **REMB, transport-cc,
+  sink want (formato real + clamp ao max_resolution), PLI, DAVE v1 completo, RTCP Receiver
+  Reports**. Nenhum faz `framesEncoded` sair de 0.
+- **Conclusão:** o `bitrateTarget: 0` é o mesmo estado inicial; o encoder nativo se recusa a
+  codificar pelo servidor privado por decisão interna do allocator que nenhum sinal do
+  gateway (WS/RTCP) influencia. **Encerrado por esgotamento de leads.** O que ficou de valor:
+  o **DAVE v1 completo** (external sender MLS, handshake, grupo) e **áudio E2EE ponta a ponta**
+  (o espectador decifra o áudio). Ver [DAVE.md](DAVE.md). O produto segue no caminho **LiveKit
+  SFU** (`main`).
 
 ## Achados úteis para o produto atual
 
