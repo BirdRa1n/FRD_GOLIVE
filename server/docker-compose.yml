@@ -1,29 +1,14 @@
 services:
-  # SFU: transporta a mídia (vídeo/áudio). A mídia entra pela porta UDP 7882 no
-  # IP público definido em livekit.yaml (node_ip) — ex.: o VPS que faz o relay.
-  livekit:
-    image: livekit/livekit-server:latest
-    command: --config /etc/livekit.yaml
-    restart: unless-stopped
-    environment:
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
-    volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
-    ports:
-      - "${LIVEKIT_PORT:-7880}:7880"           # HTTP/WebSocket (signaling do LiveKit)
-      - "${LIVEKIT_TCP_PORT:-7881}:7881"       # RTC sobre TCP (fallback)
-      - "${LIVEKIT_UDP_PORT:-7882}:7882/udp"   # RTC sobre UDP (porta única mux)
-
-  # Hub/auth/admin/config + emissão de token do LiveKit. Tudo HTTP/WS (Cloudflare).
+  # Hub/auth/admin/config + mídia do Go Live NATIVO (server/src/nativeStream.ts).
+  # Controle HTTP/WS pelo Cloudflare; a mídia (vídeo+áudio) entra pela porta UDP
+  # NATIVE_STREAM_UDP_PORT no IP público NATIVE_STREAM_PUBLIC_IP (VPS/relay).
   server:
     build: .
     restart: unless-stopped
     env_file: .env
     ports:
       - "${PORT:-8090}:8090"
-      # [Experimental] mídia do Go Live nativo (server/src/nativeStream.ts)
+      # mídia do Go Live nativo (vídeo+áudio privados) — UDP
       - "${NATIVE_STREAM_UDP_PORT:-7883}:${NATIVE_STREAM_UDP_PORT:-7883}/udp"
     volumes:
       - ./data:/app/data
-    depends_on:
-      - livekit
