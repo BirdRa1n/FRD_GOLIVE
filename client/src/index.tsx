@@ -3,11 +3,13 @@ import definePlugin from "@utils/types";
 
 import { getCurrentVoiceChannelId } from "./discordState";
 import { disconnect, onVoiceChannelChange } from "./rtc/controller";
+import { isNativeStreamConnection, setNativeStreamEndpoint } from "./probe/nativeStreamRedirect";
 import { startStreamProbe, stopStreamProbe } from "./probe/streamProbe";
 import { settings } from "./settings";
 import { clearAudioSinks, syncAudioSinks } from "./state/audioSink";
 import { streamStore } from "./state/streamStore";
 import { userContextPatch } from "./ui/StreamContextMenu";
+import { startHybrid, stopHybrid } from "./ui/hybridVideo";
 import { startNativeControls, stopNativeControls, syncNativeControls } from "./ui/nativeControlsHijack";
 import { startNativeTiles, stopNativeTiles, syncNativeTiles } from "./ui/nativeTileInject";
 import { mountPanel, unmountPanel } from "./ui/panelMount";
@@ -27,6 +29,21 @@ export default definePlugin({
     authors: [{ name: "Dário Jr", id: 0n }],
     settings,
 
+    patches: [
+        {
+            // RTCConnection._maybeRefuseDaveDowngrade(stage, version, transitionId):
+            // aceita DAVE 0 só quando a conexão é com o nosso servidor (ver nativeStreamRedirect).
+            find: "Refusing DAVE protocol downgrade to version",
+            predicate: () => !!settings.store.nativeStreamEndpoint,
+            replacement: {
+                match: /(_maybeRefuseDaveDowngrade\(\i,(\i),\i\)\{if\(0!==\2)/,
+                replace: "$1||$self.allowDaveDowngrade(this)",
+            },
+        },
+    ],
+
+    allowDaveDowngrade: isNativeStreamConnection,
+
     // Botão direito num usuário da call: volume/silenciar da transmissão privada.
     contextMenus: {
         "user-context": userContextPatch,
@@ -34,6 +51,8 @@ export default definePlugin({
 
     start() {
         // Diagnóstico do Go Live nativo — cedo, antes de o Discord abrir o WS de mídia.
+        // Redirecionamento antes da sonda: o interceptor dela deve ver o endpoint já trocado.
+        setNativeStreamEndpoint(settings.store.nativeStreamEndpoint);
         if (settings.store.streamProbe) startStreamProbe();
 
         // Volume/silenciar por pessoa (menu de botão direito) sobrevivem a reinícios.
@@ -46,12 +65,13 @@ export default definePlugin({
         mountPanel();
         startNativeTiles();
         startNativeControls();
+        startHybrid();
 
         // Desbloqueia os botões nativos (override do experimento "video guard").
         // Só com o hijack ligado, pois o hijack é o que impede o Go Live nativo de
         // rodar — assim os botões ficam nativos, mas a mídia vai pro servidor privado.
         // Com a sonda ligada também, para o Go Live nativo poder ser testado.
-        if ((settings.store.hijackNativeControls || settings.store.streamProbe) && settings.store.unlockNativeVideoGate) {
+        if ((settings.store.hijackNativeControls || settings.store.streamProbe || settings.store.nativeStreamEndpoint) && settings.store.unlockNativeVideoGate) {
             try {
                 FluxDispatcher.dispatch({
                     type: "APEX_EXPERIMENT_OVERRIDE_CREATE",
@@ -85,11 +105,13 @@ export default definePlugin({
         prefsUnsub?.();
         prefsUnsub = null;
         void disconnect();
+        stopHybrid();
         stopNativeTiles();
         stopNativeControls();
         clearAudioSinks();
         unmountPanel();
         removeStyles();
         stopStreamProbe();
+        setNativeStreamEndpoint("");
     },
 });

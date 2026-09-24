@@ -21,6 +21,8 @@ services:
     env_file: .env
     ports:
       - "${PORT:-8090}:8090"
+      # [Experimental] mídia do Go Live nativo (server/src/nativeStream.ts)
+      - "${NATIVE_STREAM_UDP_PORT:-7883}:${NATIVE_STREAM_UDP_PORT:-7883}/udp"
     volumes:
       - ./data:/app/data
     depends_on:

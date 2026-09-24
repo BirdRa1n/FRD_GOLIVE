@@ -62,6 +62,24 @@ export const settings = definePluginSettings({
         default: false,
         restartNeeded: true,
     },
+    nativeStreamEndpoint: {
+        type: OptionType.STRING,
+        description: "[Experimental] Enviar o Go Live NATIVO para o servidor privado — ex.: golivefrd.SEU.com/dstream. Quem transmite e quem assiste precisam disto. Vazio = desligado. Desligue os botões nativos (hijack).",
+        default: "",
+        restartNeeded: true,
+    },
+    nativeStreamDave: {
+        type: OptionType.BOOLEAN,
+        description: "[Experimental] Negociar DAVE v1 (E2EE) com o servidor privado em vez de desligá-lo (Caminho A). Só ligue quando o servidor tiver NATIVE_STREAM_DAVE=1. Ver docs/DAVE.md.",
+        default: false,
+        restartNeeded: true,
+    },
+    nativeStreamHybrid: {
+        type: OptionType.BOOLEAN,
+        description: "[Experimental] Híbrido: usa o Go Live NATIVO só para o shell + áudio (o encoder de vídeo nativo não funciona pelo servidor privado) e mostra o VÍDEO pelo LiveKit sobreposto no tile. Requer nativeStreamEndpoint + nativeTileOverlay ligados.",
+        default: false,
+        restartNeeded: true,
+    },
 
     // --- Escondidas: lembradas automaticamente, sem mexer em Configurações ---
     // Qualidade/som agora são escolhidos no picker de transmissão; guardamos a
