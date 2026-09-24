@@ -121,6 +121,8 @@ interface Member {
     daveJoined?: boolean;
     /** Debounce do Add do viewer (usa o ÚLTIMO key package). */
     daveAddTimer?: ReturnType<typeof setTimeout>;
+    /** Pares (PT, ssrc) de vídeo já vistos (diag). */
+    ptSsrc?: Set<string>;
 }
 
 interface Room {
@@ -567,6 +569,12 @@ udp.on("message", (msg, rinfo) => {
         const rtp = openRtp(msg, m.room.key);
         if (rtp) trackTwcc(m, rtp.exts, nowUs(), kind === "pt120");
         diagnose(m, rtp?.payload, kind, msg.readUInt32BE(8));
+        // Log dos pares (PT, ssrc) distintos que este membro envia (diag do relay de vídeo).
+        if (kind !== "pt120") {
+            const combo = `${kind}:${msg.readUInt32BE(8)}`;
+            (m.ptSsrc ??= new Set());
+            if (!m.ptSsrc.has(combo)) { m.ptSsrc.add(combo); log(`envia ${m.userId}: ${combo} (m bit=${(msg[1] >> 7) & 1})`); }
+        }
     } else if (!m.streamer && msg[1] === 205 && (msg[0] & 0x1f) === 15) {
         return; // transport-cc do espectador: quem dá o feedback a quem transmite é o servidor
     }
