@@ -168,9 +168,17 @@ function installFluxInterceptor(): void {
     fluxInstalled = true;
     // O dispatcher não tem removeInterceptor: fica instalado e vira no-op.
     FluxDispatcher.addInterceptor((action: { type?: string; }) => {
-        if (fluxRecording && action?.type && (!fluxFilter || action.type.startsWith(fluxFilter))) {
-            fluxBuf.push({ t: Date.now(), type: action.type, data: redact(action) });
-            if (fluxBuf.length > FLUX_RING) fluxBuf.shift();
+        // NUNCA lançar daqui: uma exception no interceptor quebra o dispatch do
+        // Discord inteiro. Grava a REFERÊNCIA (barato) e redige só no dump —
+        // redigir toda action durante o flood do start do Go Live custava caro
+        // no renderer (e podia estourar com circular).
+        try {
+            if (fluxRecording && action?.type && (!fluxFilter || action.type.startsWith(fluxFilter))) {
+                fluxBuf.push({ t: Date.now(), type: action.type, data: action });
+                if (fluxBuf.length > FLUX_RING) fluxBuf.shift();
+            }
+        } catch {
+            // silencioso: diagnóstico nunca derruba o fluxo
         }
         return false;
     });
@@ -241,7 +249,11 @@ const handlers: Record<string, (args: Args) => Promise<unknown>> = {
                 return { recording: false, buffered: fluxBuf.length };
             case "dump": {
                 const events = fluxBuf.filter(e => !filter || e.type.startsWith(String(filter)));
-                return { buffered: fluxBuf.length, filter: filter ?? fluxFilter, returned: Math.min(n, events.length), events: events.slice(-n) };
+                const view = events.slice(-n).map(e => {
+                    try { return { t: e.t, type: e.type, data: redact(e.data) }; }
+                    catch (err) { return { t: e.t, type: e.type, data: `[redact falhou: ${String(err)}]` }; }
+                });
+                return { buffered: fluxBuf.length, filter: filter ?? fluxFilter, returned: view.length, events: view };
             }
             case "clear":
                 fluxBuf = [];
