@@ -179,9 +179,26 @@ solo que funciona: op25 → op24/op21 → (cliente op26 ×2) → **op27 vazio** 
 commit) → **op29** (echo do commit + transition_id 0) → mídia. (O cliente não precisou
 mandar op23/nós op22 no solo — comitou e começou a cifrar.)
 
-**Falta (Phase 2):** espectador. Quando um viewer entra e deposita seu key package, o op27
-ao committer leva o Add proposal do viewer (não vazio); viewer recebe op30 (welcome); o
-servidor repassa os frames E2EE e valida se ele renderiza.
+## Phase 2 — espectador (parcial: E2EE funciona, falta o relay de vídeo)
+Implementado e testado ao vivo. **O que funciona:**
+- Fluxo committer/viewer completo: viewer deposita key package → servidor manda ao committer
+  o op27 com o **Add do viewer** (no epoch atual) → committer comita (op28 commit+welcome) →
+  servidor ecoa **op29** aos membros + **op30 (welcome)** ao viewer → op23/op22.
+- **O viewer ENTRA no grupo MLS** (`epochAuthenticator` populado no cliente).
+- **Áudio E2EE ponta a ponta**: o viewer recebe e **decifra** o áudio (`decryptSuccessCount`
+  centenas, provado nas stats). A camada DAVE/relay está correta.
+- Descobertas de implementação:
+  - **Key package do viewer:** o libdave descarta a chave privada a cada op26; usar o
+    **último** key package (debounce), senão o welcome fica inválido (`Flagging invalid`).
+  - **Após cada transição de epoch o encoder PAUSA a mídia** — o servidor re-envia o sink
+    want + PLI (`requestKeyframe`) pós-transição para o vídeo voltar.
+
+**Falta (last-mile, independente do DAVE):** o **vídeo não chega ao receptor do viewer**
+(`bytesReceived: 0` no vídeo, áudio OK). Causa: mismatch de ssrc/RTX — o op12 reporta
+`video_ssrc=1007 / rtx_ssrc=1008`, mas o RTP chega no ssrc **1008** com **pt104 (H265 RTX)**;
+o viewer monta o receptor no primário (1007) e descarta. É um problema de **relay de vídeo
+(SFU)**, não do DAVE. Próximo passo: entender por que o transmissor manda no ssrc/PT de RTX
+(config/sink want?) e/ou reescrever o ssrc no repasse — investigação à parte.
 
 ## Plano faseado (validação primeiro)
 
