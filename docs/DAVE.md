@@ -194,11 +194,22 @@ Implementado e testado ao vivo. **O que funciona:**
     want + PLI (`requestKeyframe`) pós-transição para o vídeo voltar.
 
 **Falta (last-mile, independente do DAVE):** o **vídeo não chega ao receptor do viewer**
-(`bytesReceived: 0` no vídeo, áudio OK). Causa: mismatch de ssrc/RTX — o op12 reporta
-`video_ssrc=1007 / rtx_ssrc=1008`, mas o RTP chega no ssrc **1008** com **pt104 (H265 RTX)**;
-o viewer monta o receptor no primário (1007) e descarta. É um problema de **relay de vídeo
-(SFU)**, não do DAVE. Próximo passo: entender por que o transmissor manda no ssrc/PT de RTX
-(config/sink want?) e/ou reescrever o ssrc no repasse — investigação à parte.
+(`bytesReceived: 0` no vídeo; áudio OK). Diagnóstico fechado com log de pares (PT,ssrc):
+- op12 do transmissor: `video_ssrc=1007, rtx_ssrc=1008`.
+- O transmissor envia vídeo **só** como `pt104` no ssrc **1008** (`envia …: pt104:1008`) —
+  **um único par, sem `pt103:1007` primário**. `pt104` = H265 **RTX** no mapeamento padrão do
+  Discord; `head=0000…` no decifrado reforça que não é NAL primário.
+- O viewer monta o receptor de vídeo no **primário (1007)** → descarta o que chega em 1008.
+- Além disso o vídeo é **intermitente** (volta a só `pt120` mesmo com o re-arm pós-transição).
+
+É um problema de **SFU/relay de vídeo** (RTX-only no ssrc de RTX + intermitência), **não do
+DAVE** — afetaria o relay comum também. Hipóteses para uma investigação dedicada:
+(a) por que o encoder nativo manda só RTX (tempestade de NACK do relay hairpin? config de
+simulcast/rid?); (b) reescrever/de-RTX no repasse (o servidor tem a chave de transporte:
+poderia tirar o OSN, trocar ssrc 1008→1007 e pt 104→103, e re-cifrar — band-aid); (c) alinhar
+a atribuição de ssrc do READY com o que o nativo realmente usa. **Recomendação: esforço
+focado à parte** — o objetivo principal (destravar o encoder via DAVE) já está resolvido e
+provado, e a E2EE ponta a ponta (áudio) funciona.
 
 ## Plano faseado (validação primeiro)
 
