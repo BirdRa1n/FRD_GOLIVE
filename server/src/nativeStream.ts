@@ -37,7 +37,13 @@ import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
 const {
     NATIVE_STREAM_PUBLIC_IP = "",
     NATIVE_STREAM_UDP_PORT = "7883",
-    NATIVE_STREAM_VIDEO_CODEC = "H264",
+    // Codec do op 4 (H264 | H265 | VP8). Vazio = segue o cliente, como o Discord
+    // real: escolhe o de MENOR priority (número) com encode:true no op 1 —
+    // neste cliente, H265 (priority 2000; H264 é 3000; AV1 veio encode:false).
+    NATIVE_STREAM_VIDEO_CODEC = "",
+    // Experiments do op 2 READY (separados por vírgula). O Discord real (2026-09)
+    // manda "fixed_keyframe_interval"; vazio = experiments: [].
+    NATIVE_STREAM_EXPERIMENTS = "fixed_keyframe_interval",
     // Sem espectador, pede vídeo mesmo assim (dá para testar só com quem transmite).
     NATIVE_STREAM_ALWAYS_WANT = "1",
     // Aceita qualquer usuário (sem checar a habilitação no hub). Só para teste.
@@ -63,6 +69,7 @@ const {
 
 const DAVE_ON = NATIVE_STREAM_DAVE === "1";
 const NO_VIDEO = NATIVE_STREAM_NO_VIDEO === "1";
+const STREAM_EXPERIMENTS = NATIVE_STREAM_EXPERIMENTS.split(",").map(s => s.trim()).filter(Boolean);
 
 export const NATIVE_STREAM_PATH = "/dstream";
 const UDP_PORT = Number(NATIVE_STREAM_UDP_PORT);
@@ -104,6 +111,8 @@ interface Member {
     streamer: boolean;
     /** op 12 anunciado por quem transmite (repassado aos espectadores). */
     video?: { audio_ssrc: number; video_ssrc: number; rtx_ssrc?: number; streams: VideoStream[]; };
+    /** Codecs do op 1 (select_protocol) — é de onde sai o video_codec do op 4. */
+    clientCodecs?: { name: string; encode: boolean; priority: number; }[];
     /** Pixels que este espectador quer do vídeo de quem transmite. */
     wantPixels: number;
     /** Destino para enviar a este membro: o último endereço de onde veio mídia (ou discovery). */
@@ -313,7 +322,7 @@ function identify(ws: WebSocket, d: any): Member | null {
         ip: NATIVE_STREAM_PUBLIC_IP,
         port: UDP_PORT,
         modes: [MODE],
-        experiments: [],
+        experiments: STREAM_EXPERIMENTS,
         streams: [{ type: "video", ssrc: m.videoSsrc, rtx_ssrc: m.rtxSsrc, rid: "100", quality: 100, active: false }],
     });
 
@@ -339,9 +348,15 @@ function onMessage(m: Member, op: number, d: any): void {
             break;
 
         case OP.SELECT_PROTOCOL:
-            log(`select_protocol ${m.userId} mode=${d?.mode} codecs=${JSON.stringify((d?.codecs ?? []).map((c: any) => ({ name: c.name, pt: c.payload_type, rtx: c.rtx_payload_type, enc: c.encode, dec: c.decode })))}`);
+            log(`select_protocol ${m.userId} mode=${d?.mode} codecs=${JSON.stringify((d?.codecs ?? []).map((c: any) => ({ name: c.name, pt: c.payload_type, rtx: c.rtx_payload_type, enc: c.encode, dec: c.decode, prio: c.priority })))}`);
+            m.clientCodecs = (Array.isArray(d?.codecs) ? d.codecs : [])
+                .map((c: any) => ({ name: String(c?.name ?? ""), encode: c?.encode !== false, priority: Number(c?.priority ?? 9999) }))
+                .filter((c: { name: string; }) => c.name);
             send(m.ws, OP.SESSION_DESCRIPTION, sessionDescription(m));
-            sendWants(m);
+            // O Discord real manda op 15 {any:100} logo após o op 4, ANTES do op 12
+            // de quem transmite (captura 2026-09). Aqui o sendWants era no-op antes
+            // do op 12 (só roda no streamer) — o cliente real não espera isso.
+            if (!NO_VIDEO) send(m.ws, OP.MEDIA_SINK_WANTS, { any: 100 }, m);
             if (DAVE_ON) sendExternalSender(m);
             break;
 
@@ -400,10 +415,23 @@ function onMessage(m: Member, op: number, d: any): void {
     }
 }
 
+/**
+ * op 4: o Discord real (captura 2026-09) escolhe o codec de MENOR priority com
+ * encode:true no op 1 — aqui, H265 (priority 2000), mesmo com H264 disponível
+ * (AV1 veio com encode:false = só decode nesta máquina). NATIVE_STREAM_VIDEO_CODEC
+ * (não vazio) força um valor e pula a escolha.
+ */
+function pickVideoCodec(m: Member): string {
+    if (NATIVE_STREAM_VIDEO_CODEC) return NATIVE_STREAM_VIDEO_CODEC;
+    const best = (m.clientCodecs ?? []).filter(c => c.encode)
+        .sort((a, b) => a.priority - b.priority)[0];
+    return best?.name ?? "H264";
+}
+
 function sessionDescription(m: Member): Record<string, unknown> {
     const d: Record<string, unknown> = {
         audio_codec: "opus",
-        video_codec: NATIVE_STREAM_VIDEO_CODEC,
+        video_codec: pickVideoCodec(m),
         mode: MODE,
         secret_key: [...m.room.key],
         media_session_id: randomBytes(16).toString("hex"),
@@ -738,7 +766,11 @@ setInterval(() => {
     for (const room of rooms.values()) {
         for (const m of room.members.values()) {
             if (!m.udp || m.twccExtId === undefined) continue;
-            const fb = m.twcc.build(SERVER_SSRC, m.audioSsrc);
+            // A extensão transport-cc só vem nos pacotes de VÍDEO do cliente (opus
+            // não a carrega — ver trackTwcc): o mediaSSRC do feedback tem que ser o
+            // ssrc de vídeo, senão o BWE do remetente pode descartar/malinhar o
+            // feedback e a estimativa de banda de vídeo fica em 0.
+            const fb = m.twcc.build(SERVER_SSRC, m.video?.video_ssrc || m.videoSsrc);
             if (fb) udp.send(encryptRtcp(fb, room), m.udp.port, m.udp.address);
         }
     }

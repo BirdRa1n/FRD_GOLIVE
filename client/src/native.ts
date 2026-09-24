@@ -22,7 +22,9 @@
 
 import { RendererSettings } from "@main/settings";
 import { app, desktopCapturer, type IpcMainInvokeEvent, session } from "electron";
-import { release } from "node:os";
+import { readFileSync } from "node:fs";
+import { homedir, release } from "node:os";
+import { join } from "node:path";
 
 import type { NativeSource } from "./types";
 
@@ -170,4 +172,156 @@ export function prepareCapture(_: IpcMainInvokeEvent, sourceId: string, sourceNa
 
 export function cancelCapture(_: IpcMainInvokeEvent): void {
     pending = null;
+}
+
+// --- 3. Ponte de diagnóstico MCP -------------------------------------------------
+//
+// O MCP local (mcp/) expõe HTTP em 127.0.0.1:8756 com token em
+// ~/.frd-golive/mcp-token (0600). Aqui roda o loop: baixa chamadas de
+// ferramenta (/poll), enfileira para o renderer (diagPoll, com poll de 100 ms)
+// e devolve os resultados (/result). O renderer não fala com a rede direto:
+// o CSP do Discord bloquearia http://127.0.0.1 — este processo não tem CSP.
+// Tudo só quando a setting [Diagnóstico] "Ponte MCP" está ligada.
+
+const DIAG_TOKEN_FILE = join(homedir(), ".frd-golive", "mcp-token");
+
+interface DiagCall {
+    id: string;
+    tool: string;
+    args: Record<string, unknown>;
+}
+
+interface DiagResult {
+    id: string;
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+}
+
+let diagUrl = "";
+let diagWanted = false;
+let diagToken = "";
+let diagDown = false;
+const diagCalls: DiagCall[] = [];
+const diagResults: DiagResult[] = [];
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function readDiagToken(): void {
+    try {
+        diagToken = readFileSync(DIAG_TOKEN_FILE, "utf8").trim();
+    } catch {
+        diagToken = ""; // o MCP ainda não subiu → tenta de novo depois (401)
+    }
+}
+
+async function fetchDiag(path: string, body: unknown, timeoutMs: number): Promise<{ status: number; json: any; }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetch(`${diagUrl}${path}`, {
+            method: "POST",
+            headers: {
+                "content-type": "application/json",
+                authorization: `Bearer ${diagToken}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+        const text = await res.text();
+        let json: unknown = null;
+        try {
+            json = text ? JSON.parse(text) : null;
+        } catch {
+            // resposta não-JSON (proxy?); status ainda vale
+        }
+        return { status: res.status, json };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function diagLoopFn(): Promise<void> {
+    readDiagToken();
+    while (diagWanted) {
+        try {
+            // 1) devolve resultados (o renderer já executou) — sem perder nenhum.
+            while (diagWanted && diagResults.length) {
+                const res = await fetchDiag("/result", diagResults[0], 10_000);
+                if (res.status === 401) {
+                    readDiagToken();
+                    await sleep(2000);
+                    continue;
+                }
+                if (res.status >= 200 && res.status < 300) {
+                    diagResults.shift();
+                } else {
+                    await sleep(3000); // servidor instável: tenta de novo com o mesmo resultado
+                }
+            }
+            if (!diagWanted) break;
+
+            // 2) puxa chamadas (long-poll curto: o servidor responde em ~500 ms).
+            const res = await fetchDiag("/poll", {}, 10_000);
+            if (res.status === 401) {
+                readDiagToken();
+                await sleep(2000);
+                continue;
+            }
+            if (res.status >= 200 && res.status < 300) {
+                const calls: unknown = res.json?.calls;
+                if (Array.isArray(calls)) {
+                    for (const call of calls) {
+                        const c = call as DiagCall;
+                        if (c && typeof c.id === "string" && typeof c.tool === "string") diagCalls.push(c);
+                    }
+                }
+                if (diagDown) {
+                    diagDown = false;
+                    console.log("[FRD GoLive] ponte MCP conectada:", diagUrl);
+                }
+                // Com chamadas novas, volta já ao passo 1 (o renderer responde em ~150 ms);
+                // sem chamadas, espera um pouco antes de perguntar de novo.
+                if (diagCalls.length === 0) await sleep(400);
+            } else {
+                await sleep(3000);
+            }
+        } catch (e) {
+            if (!diagDown) {
+                diagDown = true;
+                console.log("[FRD GoLive] ponte MCP aguardando:", diagUrl, "(rode o OpenCode na raiz do repo, com mcp/ buildado)");
+            }
+            await sleep(5000);
+        }
+    }
+}
+
+/** Liga a ponte: passo 1 do renderer (startDiagBridge). */
+export function diagStart(_: IpcMainInvokeEvent, url: string): void {
+    const clean = typeof url === "string" && /^https?:\/\//.test(url) ? url.replace(/\/+$/, "") : "";
+    diagUrl = clean || "http://127.0.0.1:8756";
+    if (diagWanted) return;
+    diagWanted = true;
+    diagLoopFn().catch(e => console.error("[FRD GoLive] ponte MCP:", e));
+}
+
+/** Desliga a ponte e descarta o que estiver pendente. */
+export function diagStop(_: IpcMainInvokeEvent): void {
+    diagWanted = false;
+    diagCalls.length = 0;
+    diagResults.length = 0;
+}
+
+/** O renderer busca as chamadas pendentes aqui (poll de ~100 ms). */
+export function diagPoll(_: IpcMainInvokeEvent): DiagCall[] {
+    return diagCalls.splice(0, diagCalls.length);
+}
+
+/** O renderer devolve o resultado de uma chamada aqui. */
+export function diagReply(_: IpcMainInvokeEvent, payload: DiagResult): void {
+    if (payload && typeof payload.id === "string" && typeof payload.ok === "boolean") {
+        diagResults.push(payload);
+    }
 }

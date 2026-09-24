@@ -52,7 +52,7 @@ const streamHosts = new Set<string>();
 
 // --- util -----------------------------------------------------------------------
 
-function redact(value: unknown, depth = 0): unknown {
+export function redact(value: unknown, depth = 0): unknown {
     if (depth > 8) return "[depth]";
     if (typeof value === "string") return value.length > MAX_STR ? value.slice(0, MAX_STR) + `…[+${value.length - MAX_STR}]` : value;
     if (typeof value === "function") return "[fn]";

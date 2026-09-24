@@ -81,6 +81,19 @@ export const settings = definePluginSettings({
         restartNeeded: true,
     },
 
+    diagMcp: {
+        type: OptionType.BOOLEAN,
+        description: "[Diagnóstico] Ponte MCP: conecta o Discord a um agente local (OpenCode + mcp/) para inspeção ao vivo — stats de mídia, protocolo, stores, eval. Só em máquina própria: quem usa a ponte executa código no Discord. Ver docs/MCP-DIAG.md.",
+        default: false,
+        restartNeeded: true,
+    },
+    diagMcpUrl: {
+        type: OptionType.STRING,
+        description: "[Diagnóstico] URL da ponte MCP local (o servidor mcp/).",
+        default: "http://127.0.0.1:8756",
+        restartNeeded: true,
+    },
+
     // --- Escondidas: lembradas automaticamente, sem mexer em Configurações ---
     // Qualidade/som agora são escolhidos no picker de transmissão; guardamos a
     // última escolha para abrir o picker já nela.

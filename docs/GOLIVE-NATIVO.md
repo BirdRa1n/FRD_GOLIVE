@@ -1,10 +1,15 @@
 # Go Live nativo — registro do experimento (2026-09-23 → 2026-09-24)
 
-> **Status:** vídeo nativo pelo servidor privado = **inviável** (allocator do encoder,
-> abaixo). Mas a branch chegou a um **modo híbrido funcionando** (2026-09-24): Go Live
-> nativo dá o shell + **áudio E2EE (DAVE v1)**, e o **vídeo vem pelo LiveKit** sobreposto
-> no tile. Código na branch `feat/native-stream-probe` (PR #27). Ainda **não mergeado na
-> `main`** — é experimento; a `main` segue no LiveKit SFU puro. Ver seção "Modo HÍBRIDO".
+> **Status:** vídeo nativo pelo servidor privado ainda **travado no encoder**
+> (`bitrateTarget: 0` — allocator do encoder, abaixo), mas a investigação mudou de
+> patamar: existe agora um **MCP local** (`mcp/`, tools `frd-discord`) que dá acesso
+> ao Discord em tempo real — stats de mídia, protocolo, stores e o próprio
+> `discord_voice` — com playbook e hipóteses não testadas em `docs/MCP-DIAG.md`
+> (experiments do READY, `video_codec` AV1 vs H264, TWCC…). O **modo híbrido
+> funcionando** (2026-09-24): Go Live nativo dá o shell + **áudio E2EE (DAVE v1)**, e
+> o **vídeo vem pelo LiveKit** sobreposto no tile. Código **mergeado na `main`**
+> (PR #27 → `fdd5c20`); o LiveKit sai quando o vídeo nativo passar (checklist em
+> `docs/MCP-DIAG.md`). Ver seção "Modo HÍBRIDO".
 
 ## O que foi investigado
 
@@ -136,7 +141,9 @@ O vídeo do LiveKit no híbrido saía baixo por dois motivos, corrigidos:
 ### Limitações conhecidas / onde paramos
 - **Vídeo nativo continua impossível** pelo servidor privado (allocator, seção acima) —
   o híbrido é o contorno, não uma solução do vídeo nativo. Se um dia quiser retomar o vídeo
-  nativo de verdade, o próximo lead seria o próprio módulo `discord_voice` (C++), fora do JS.
+  nativo de verdade, o próximo lead seria o próprio módulo `discord_voice` (C++), fora do
+  JS — para isso existe agora o MCP local (`discord_native {list:true}`) e o playbook de
+  hipóteses não testadas em `docs/MCP-DIAG.md`.
 - **macOS sem áudio de sistema** na captura (limitação do desktopCapturer/CATap) — não afeta
   o áudio nativo do DAVE, só a captura de som pelo LiveKit (que no híbrido nem é usada).
 - O híbrido **captura a fonte duas vezes** em teoria (nativo + LiveKit), mas o
@@ -153,6 +160,11 @@ O vídeo do LiveKit no híbrido saía baixo por dois motivos, corrigidos:
   **`NATIVE_STREAM_NO_VIDEO=1`** (não pede vídeo ao encoder nativo; vídeo vai pelo LiveKit).
   `NATIVE_STREAM_VIDEO_CODEC=H264`. Rebuild: `cd /opt/frd-golive/server && docker compose
   up -d --build server`.
+- **Teste de vídeo nativo (2026-09-24)**: para o encoder rodar, o `.env` precisa de
+  `NATIVE_STREAM_NO_VIDEO=0` (senão o sink want manda px=0) e
+  `NATIVE_STREAM_VIDEO_CODEC=` (vazio = segue o cliente como o Discord real — aqui, H265).
+  `NATIVE_STREAM_EXPERIMENTS=fixed_keyframe_interval` já é o default do código novo.
+  Diff de protocolo e checklist: `docs/MCP-DIAG.md`.
 - Para voltar ao estado da `main`:
   ```bash
   cd /opt/frd-golive && git checkout main && cp server/.env.bak-dstream server/.env && docker compose -f server/docker-compose.yml up -d --build server

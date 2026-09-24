@@ -1,6 +1,7 @@
 import { FluxDispatcher } from "@webpack/common";
 import definePlugin from "@utils/types";
 
+import { startDiagBridge, stopDiagBridge } from "./diagBridge";
 import { getCurrentVoiceChannelId } from "./discordState";
 import { disconnect, onVoiceChannelChange } from "./rtc/controller";
 import { isNativeStreamConnection, setNativeStreamEndpoint } from "./probe/nativeStreamRedirect";
@@ -54,6 +55,9 @@ export default definePlugin({
         // Redirecionamento antes da sonda: o interceptor dela deve ver o endpoint já trocado.
         setNativeStreamEndpoint(settings.store.nativeStreamEndpoint);
         if (settings.store.streamProbe) startStreamProbe();
+
+        // Ponte de diagnóstico para o agente (MCP local) — ver docs/MCP-DIAG.md.
+        if (settings.store.diagMcp) startDiagBridge();
 
         // Volume/silenciar por pessoa (menu de botão direito) sobrevivem a reinícios.
         streamStore.hydratePrefs(settings.store.streamPrefs);
@@ -112,6 +116,7 @@ export default definePlugin({
         unmountPanel();
         removeStyles();
         stopStreamProbe();
+        stopDiagBridge();
         setNativeStreamEndpoint("");
     },
 });

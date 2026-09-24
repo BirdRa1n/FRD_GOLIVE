@@ -102,9 +102,11 @@ curl -s http://localhost:8090/config   # signalingUrl (controle) + serverUrl (Li
   O nome do experimento rotaciona → é setting.
 - **Go Live nativo é ininterceptável**: a captura acontece no módulo nativo
   `discord_voice` (C++), fora do JS. Provado por hook — não há `MediaStream` em JS.
-  Experimento de usar o Go Live nativo com o servidor privado: **pausado**, só na
-  branch `feat/native-stream-probe` (não fazer merge). Registro, achados e estado
-  do servidor em `docs/GOLIVE-NATIVO.md`.
+  Experimento do Go Live nativo com servidor privado: **mergeado na `main`** (fdd5c20);
+  áudio funciona (DAVE v1 pelo `/dstream`), vídeo travado no encoder nativo
+  (`bitrateTarget: 0`). Registro, achados e estado do servidor em
+  `docs/GOLIVE-NATIVO.md`. Investigação ao vivo via MCP local (tools `frd-discord`,
+  registrado no `opencode.json`) com playbook/hipóteses em `docs/MCP-DIAG.md`.
 - **Go Live nativo sobe prints da tela** para a API do Discord
   (`POST /streams/:key/preview`) — mais um motivo para mantê-lo bloqueado com o
   plugin ativo.
