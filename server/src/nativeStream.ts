@@ -54,9 +54,15 @@ const {
     // dave_protocol_version 1 e o servidor entra como external sender (ver dave.ts).
     // Padrão desligado = comportamento atual (dave 0, sem MLS). Ver docs/DAVE.md.
     NATIVE_STREAM_DAVE = "0",
+    // Híbrido: nunca pede vídeo a quem transmite (sink want sempre 0). O vídeo real vem
+    // pelo LiveKit; o Go Live nativo serve só de shell + áudio E2EE. Assim o encoder/captura
+    // de vídeo nativo não roda à toa (não produzia frames pelo servidor privado de qualquer
+    // forma — ver docs/GOLIVE-NATIVO.md) e a transmissão fica mais leve.
+    NATIVE_STREAM_NO_VIDEO = "0",
 } = process.env;
 
 const DAVE_ON = NATIVE_STREAM_DAVE === "1";
+const NO_VIDEO = NATIVE_STREAM_NO_VIDEO === "1";
 
 export const NATIVE_STREAM_PATH = "/dstream";
 const UDP_PORT = Number(NATIVE_STREAM_UDP_PORT);
@@ -424,7 +430,7 @@ function sendWants(m: Member): void {
     // Se ALGUÉM quer vídeo (ou ALWAYS_WANT), pede a RESOLUÇÃO MÁXIMA padrão do stream
     // (ex.: 720p = 921600), estável — pedir um valor pequeno/não-padrão (ex.: 94300)
     // parece deixar o encoder em resolution 0×0.
-    const anyWant = viewers.some(v => v.wantPixels > 0) || NATIVE_STREAM_ALWAYS_WANT === "1";
+    const anyWant = !NO_VIDEO && (viewers.some(v => v.wantPixels > 0) || NATIVE_STREAM_ALWAYS_WANT === "1");
     const mr = m.video.streams[0]?.max_resolution as { width?: number; height?: number; } | undefined;
     const maxPx = (mr?.width && mr?.height) ? mr.width * mr.height : FULL_HD_PIXELS;
     const px = anyWant ? maxPx : 0;

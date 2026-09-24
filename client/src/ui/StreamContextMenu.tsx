@@ -7,6 +7,7 @@
 import type { NavContextMenuPatchCallback } from "@api/ContextMenu";
 import { ContextMenuApi, Menu, React } from "@webpack/common";
 
+import { settings } from "../settings";
 import { streamStore } from "../state/streamStore";
 
 /** Re-renderiza o componente quando o store muda (checkboxes refletem na hora). */
@@ -65,8 +66,14 @@ function streamItems(userId: string, keyPrefix: string, closeOnToggle = false) {
             />,
         );
     } else if (info) {
+        // Híbrido: o áudio vai pelo Go Live NATIVO (E2EE), então o stream do LiveKit é
+        // vídeo-only. O volume passa a ser o controle nativo do Discord (botão direito na
+        // pessoa → "Volume do usuário"). Só avisamos, sem slider próprio (seria inerte).
+        const label = settings.store.nativeStreamHybrid
+            ? "Volume: use o do Discord (áudio nativo)"
+            : "Transmissão sem áudio";
         items.push(
-            <Menu.MenuItem key={`${keyPrefix}-noaudio`} id={`${keyPrefix}-noaudio`} label="Transmissão sem áudio" disabled />,
+            <Menu.MenuItem key={`${keyPrefix}-noaudio`} id={`${keyPrefix}-noaudio`} label={label} disabled />,
         );
     }
     items.push(
