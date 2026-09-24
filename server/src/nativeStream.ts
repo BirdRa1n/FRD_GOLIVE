@@ -421,9 +421,13 @@ function onMessage(m: Member, op: number, d: any): void {
  * (AV1 veio com encode:false = só decode nesta máquina). NATIVE_STREAM_VIDEO_CODEC
  * (não vazio) força um valor e pula a escolha.
  */
+/** Codecs de VÍDEO conhecidos — o op 1 lista opus (áudio) junto, e ele NÃO pode
+ * virar video_codec (prio 1000, ganharia por engano de H265/H264). */
+const VIDEO_CODECS = new Set(["H265", "H264", "VP8", "VP9", "AV1"]);
+
 function pickVideoCodec(m: Member): string {
     if (NATIVE_STREAM_VIDEO_CODEC) return NATIVE_STREAM_VIDEO_CODEC;
-    const best = (m.clientCodecs ?? []).filter(c => c.encode)
+    const best = (m.clientCodecs ?? []).filter(c => c.encode && VIDEO_CODECS.has(c.name))
         .sort((a, b) => a.priority - b.priority)[0];
     return best?.name ?? "H264";
 }
