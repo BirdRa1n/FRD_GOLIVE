@@ -44,6 +44,12 @@ const {
     // Experiments do op 2 READY (separados por vírgula). O Discord real (2026-09)
     // manda "fixed_keyframe_interval"; vazio = experiments: [].
     NATIVE_STREAM_EXPERIMENTS = "fixed_keyframe_interval",
+    // Intervalo de keyframe (ms) no op 4 (SESSION_DESCRIPTION). No cliente, um
+    // keyframe_interval truthy emite "keyframe-interval" → setKeyframeInterval(N)
+    // → setTransportOptions({alwaysSendVideo: true}) e o ENCODER DE VÍDEO LIGA
+    // (sem o campo: kfi=0, alwaysSendVideo=false, framesEncoded=0 para sempre —
+    // ver docs/MCP-DIAG.md, "A parede era o keyframe_interval"). "" = omite.
+    NATIVE_STREAM_KEYFRAME_INTERVAL = "2000",
     // Sem espectador, pede vídeo mesmo assim (dá para testar só com quem transmite).
     NATIVE_STREAM_ALWAYS_WANT = "1",
     // Aceita qualquer usuário (sem checar a habilitação no hub). Só para teste.
@@ -433,9 +439,13 @@ function pickVideoCodec(m: Member): string {
 }
 
 function sessionDescription(m: Member): Record<string, unknown> {
+    // kfi truthy no cliente (op 4; o case 14 aceita o mesmo campo) = liga o
+    // encoder de vídeo: emit "keyframe-interval" → setKeyframeInterval → alwaysSendVideo.
+    const kf = Number(NATIVE_STREAM_KEYFRAME_INTERVAL);
     const d: Record<string, unknown> = {
         audio_codec: "opus",
         video_codec: pickVideoCodec(m),
+        ...(Number.isFinite(kf) && kf > 0 ? { keyframe_interval: kf } : {}),
         mode: MODE,
         secret_key: [...m.room.key],
         media_session_id: randomBytes(16).toString("hex"),

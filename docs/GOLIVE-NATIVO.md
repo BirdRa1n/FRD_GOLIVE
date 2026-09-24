@@ -1,7 +1,11 @@
 # Go Live nativo — registro do experimento (2026-09-23 → 2026-09-24)
 
-> **Status:** vídeo nativo pelo servidor privado ainda **travado no encoder**
-> (`bitrateTarget: 0` — allocator do encoder, abaixo), mas a investigação mudou de
+> **Status (2026-09-24, tarde):** **encoder destravado!** A causa raiz era
+> `keyframe_interval` ausente no op 4 — sem o campo, `alwaysSendVideo:false` e o
+> encoder C++ nunca instancia (não "allocator"; ver `docs/MCP-DIAG.md`, seção
+> "A parede era o keyframe_interval"). Ao vivo: `framesEncoded` a 30 fps em
+> 1080p, 366 MB enviados sem perda. **Faltam:** teste E2E com espectador e
+> deploy do fix (`NATIVE_STREAM_KEYFRAME_INTERVAL`) no LXC. A investigação mudou de
 > patamar: existe agora um **MCP local** (`mcp/`, tools `frd-discord`) que dá acesso
 > ao Discord em tempo real — stats de mídia, protocolo, stores e o próprio
 > `discord_voice` — com playbook e hipóteses não testadas em `docs/MCP-DIAG.md`
@@ -139,11 +143,11 @@ O vídeo do LiveKit no híbrido saía baixo por dois motivos, corrigidos:
   transmissão normal uma vez (fica guardada).
 
 ### Limitações conhecidas / onde paramos
-- **Vídeo nativo continua impossível** pelo servidor privado (allocator, seção acima) —
-  o híbrido é o contorno, não uma solução do vídeo nativo. Se um dia quiser retomar o vídeo
-  nativo de verdade, o próximo lead seria o próprio módulo `discord_voice` (C++), fora do
-  JS — para isso existe agora o MCP local (`discord_native {list:true}`) e o playbook de
-  hipóteses não testadas em `docs/MCP-DIAG.md`.
+- **Vídeo nativo: gate encontrado (2026-09-24, tarde)** — era `keyframe_interval`
+  no op 4, não o allocator (ver `docs/MCP-DIAG.md`); com o campo, o encoder roda.
+  Falta o teste E2E com espectador e o deploy do fix; o híbrido segue **até** o
+  vídeo nativo ser validado (checklist de remoção em `docs/MCP-DIAG.md`). O MCP
+  local (`discord_eval`/`discord_native`) foi o que destravou o diagnóstico.
 - **macOS sem áudio de sistema** na captura (limitação do desktopCapturer/CATap) — não afeta
   o áudio nativo do DAVE, só a captura de som pelo LiveKit (que no híbrido nem é usada).
 - O híbrido **captura a fonte duas vezes** em teoria (nativo + LiveKit), mas o
@@ -174,6 +178,17 @@ O vídeo do LiveKit no híbrido saía baixo por dois motivos, corrigidos:
   protocolo (codec, experiments, sink want real, TWCC, REMB, DAVE) estão descartados; a
   parede é interna ao encoder. Único lead restante: inspecionar o `discord_voice` (C++)
   pelo MCP. Registro decisivo em `docs/MCP-DIAG.md` ("Resultado decisivo").
+  **Resolvido depois (mesmo dia, tarde):** a "parede interna" era o campo
+  `keyframe_interval` faltando no op 4 — com ele no payload (ou
+  `setKeyframeInterval(2000)` ao vivo via MCP), o encoder roda: 1080p30,
+  366 MB, zero perda. Fix em `NATIVE_STREAM_KEYFRAME_INTERVAL` (ver
+  `docs/MCP-DIAG.md`).
+- **Deploy pendente (2026-09-24, tarde):** `git pull` (branch do fix) e
+  `docker compose up -d --build server` — o default novo
+  `NATIVE_STREAM_KEYFRAME_INTERVAL=2000` passa a mandar `keyframe_interval` no
+  op 4 e o encoder liga sozinho em toda stream (sem JS manual). Alternativa sem
+  rebuild: `NATIVE_STREAM_SESSION_OVERRIDE={"keyframe_interval":2000}` no `.env`.
+  **Restart mata a stream atual** — fazer após o teste E2E.
 - Para voltar ao estado da `main`:
   ```bash
   cd /opt/frd-golive && git checkout main && cp server/.env.bak-dstream server/.env && docker compose -f server/docker-compose.yml up -d --build server
