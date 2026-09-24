@@ -197,7 +197,6 @@ const handlers: Record<string, (args: Args) => Promise<unknown>> = {
             config: {
                 nativeStreamEndpoint: settings.store.nativeStreamEndpoint || "(vazio = o Go Live vai pro Discord de verdade)",
                 nativeStreamDave: settings.store.nativeStreamDave,
-                nativeStreamHybrid: settings.store.nativeStreamHybrid,
                 streamProbe: settings.store.streamProbe,
             },
         };

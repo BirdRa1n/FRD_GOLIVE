@@ -19,14 +19,7 @@ function interceptor(action: { type?: string; endpoint?: string | null; streamKe
         console.log("[FRD GoLive] transmissão nativa redirecionada:", action.streamKey, action.endpoint, "→", endpoint);
         action.endpoint = endpoint;
     }
-    // Híbrido: nas conexões redirecionadas o vídeo nativo nunca fica "pronto" (o encoder não
-    // produz frames), e o Discord mataria o stream com o Erro 2012. Bloqueamos o timeout para
-    // manter a conexão viva (áudio E2EE + shell) — o vídeo real vem do LiveKit (nativeTileInject).
-    if (endpoint && settings.store.nativeStreamHybrid && action.type === "VIDEO_STREAM_READY_TIMEOUT") {
-        console.log("[FRD GoLive] híbrido: bloqueando VIDEO_STREAM_READY_TIMEOUT (Erro 2012)");
-        return true; // bloqueia o dispatch → o stream não morre
-    }
-    return false; // nunca bloqueia os demais eventos
+    return false; // nunca bloqueia os eventos — só reescreve o endpoint
 }
 
 /**
@@ -45,7 +38,7 @@ function patchIdentifyDave(): void {
 
     const proto = WebSocket.prototype;
     const originalSend = proto.send;
-    proto.send = function (this: WebSocket, data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+    proto.send = function (this: WebSocket, data: Parameters<typeof originalSend>[0]): void {
         try {
             if (
                 endpoint &&

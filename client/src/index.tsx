@@ -2,31 +2,14 @@ import { FluxDispatcher } from "@webpack/common";
 import definePlugin from "@utils/types";
 
 import { startDiagBridge, stopDiagBridge } from "./diagBridge";
-import { getCurrentVoiceChannelId } from "./discordState";
-import { disconnect, onVoiceChannelChange } from "./rtc/controller";
 import { isNativeStreamConnection, setNativeStreamEndpoint } from "./probe/nativeStreamRedirect";
 import { startStreamProbe, stopStreamProbe } from "./probe/streamProbe";
 import { settings } from "./settings";
-import { clearAudioSinks, syncAudioSinks } from "./state/audioSink";
-import { streamStore } from "./state/streamStore";
-import { userContextPatch } from "./ui/StreamContextMenu";
-import { startHybrid, stopHybrid } from "./ui/hybridVideo";
-import { startNativeControls, stopNativeControls, syncNativeControls } from "./ui/nativeControlsHijack";
-import { startNativeTiles, stopNativeTiles, syncNativeTiles } from "./ui/nativeTileInject";
-import { mountPanel, unmountPanel } from "./ui/panelMount";
-import { injectStyles, removeStyles } from "./ui/styles";
-
-let storeUnsub: (() => void) | null = null;
-let prefsUnsub: (() => void) | null = null;
-
-function handleVoiceSelect(payload: { channelId: string | null; }): void {
-    onVoiceChannelChange(payload.channelId ?? null);
-}
 
 export default definePlugin({
     name: "FRDGoLive",
     description:
-        "Compartilhamento de tela/câmera privado via servidor próprio (LiveKit), sem que o vídeo passe pelos servidores do Discord. Voz continua no Discord.",
+        "Compartilhamento de tela privado: o Go Live nativo do Discord é redirecionado para um servidor próprio (vídeo + áudio E2EE), sem que a mídia passe pelos servidores do Discord. Câmera e voz continuam nativas.",
     authors: [{ name: "Dário Jr", id: 0n }],
     settings,
 
@@ -45,37 +28,18 @@ export default definePlugin({
 
     allowDaveDowngrade: isNativeStreamConnection,
 
-    // Botão direito num usuário da call: volume/silenciar da transmissão privada.
-    contextMenus: {
-        "user-context": userContextPatch,
-    },
-
     start() {
-        // Diagnóstico do Go Live nativo — cedo, antes de o Discord abrir o WS de mídia.
-        // Redirecionamento antes da sonda: o interceptor dela deve ver o endpoint já trocado.
+        // Redireciona o Go Live NATIVO para o servidor privado (vídeo+áudio, DAVE E2EE).
+        // Tem de rodar cedo, antes de o Discord abrir o WS de mídia.
         setNativeStreamEndpoint(settings.store.nativeStreamEndpoint);
         if (settings.store.streamProbe) startStreamProbe();
 
         // Ponte de diagnóstico para o agente (MCP local) — ver docs/MCP-DIAG.md.
         if (settings.store.diagMcp) startDiagBridge();
 
-        // Volume/silenciar por pessoa (menu de botão direito) sobrevivem a reinícios.
-        streamStore.hydratePrefs(settings.store.streamPrefs);
-        prefsUnsub = streamStore.subscribePrefs(() => {
-            settings.store.streamPrefs = streamStore.exportPrefs();
-        });
-
-        injectStyles();
-        mountPanel();
-        startNativeTiles();
-        startNativeControls();
-        startHybrid();
-
-        // Desbloqueia os botões nativos (override do experimento "video guard").
-        // Só com o hijack ligado, pois o hijack é o que impede o Go Live nativo de
-        // rodar — assim os botões ficam nativos, mas a mídia vai pro servidor privado.
-        // Com a sonda ligada também, para o Go Live nativo poder ser testado.
-        if ((settings.store.hijackNativeControls || settings.store.streamProbe || settings.store.nativeStreamEndpoint) && settings.store.unlockNativeVideoGate) {
+        // Desbloqueia os botões nativos de câmera/tela em regiões censuradas — o Go Live
+        // nativo é o caminho de transmissão, então ele PRECISA poder rodar.
+        if ((settings.store.nativeStreamEndpoint || settings.store.streamProbe) && settings.store.unlockNativeVideoGate) {
             try {
                 FluxDispatcher.dispatch({
                     type: "APEX_EXPERIMENT_OVERRIDE_CREATE",
@@ -86,35 +50,9 @@ export default definePlugin({
                 console.error("[FRD GoLive] falha ao desbloquear o video guard:", e);
             }
         }
-
-        // Reage a mudanças de streams: players de áudio, overlays nos tiles e
-        // estado ativo dos botões nativos.
-        storeUnsub = streamStore.subscribe(() => {
-            syncAudioSinks();
-            syncNativeTiles();
-            syncNativeControls();
-        });
-
-        FluxDispatcher.subscribe("VOICE_CHANNEL_SELECT", handleVoiceSelect);
-
-        // Caso o plugin seja ativado já dentro de um canal de voz.
-        const current = getCurrentVoiceChannelId();
-        if (current) onVoiceChannelChange(current);
     },
 
     stop() {
-        FluxDispatcher.unsubscribe("VOICE_CHANNEL_SELECT", handleVoiceSelect);
-        storeUnsub?.();
-        storeUnsub = null;
-        prefsUnsub?.();
-        prefsUnsub = null;
-        void disconnect();
-        stopHybrid();
-        stopNativeTiles();
-        stopNativeControls();
-        clearAudioSinks();
-        unmountPanel();
-        removeStyles();
         stopStreamProbe();
         stopDiagBridge();
         setNativeStreamEndpoint("");

@@ -6,9 +6,6 @@
   "scripts": {
     "typecheck:rtc": "tsc -p tsconfig.check.json"
   },
-  "dependencies": {
-    "livekit-client": "^2.7.0"
-  },
   "devDependencies": {
     "typescript": "^5.6.0"
   }

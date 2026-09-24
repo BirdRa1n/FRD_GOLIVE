@@ -1,5 +1,5 @@
 {
-  "//": "Typecheck isolado da camada RTC pura (sem imports do Vencord).",
+  "//": "Typecheck isolado dos módulos puros (sem imports do Vencord). O resto do plugin só compila dentro do Vencord (pnpm build).",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
@@ -11,12 +11,6 @@
     "jsx": "react-jsx"
   },
   "include": [
-    "src/rtc/session.ts",
-    "src/rtc/nativeCapture.ts",
-    "src/rtc/signalingClient.ts",
-    "src/state/streamStore.ts",
-    "src/state/audioSink.ts",
-    "src/ui/chime.ts",
     "src/types.ts"
   ]
 }

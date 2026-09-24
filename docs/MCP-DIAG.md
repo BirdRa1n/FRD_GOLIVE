@@ -245,21 +245,23 @@ Ctrl+R volta ao normal).
 - Uma ponte por vez (porta 8756; `FRD_MCP_PORT` muda).
 - Uso de client mod é contra o ToS do Discord (ver CONTRIBUTING.md).
 
-## Depois que o vídeo nativo passar: remover o LiveKit (checklist)
+## LiveKit removido (2026-09-24, PR #29) — feito ✅
 
-O híbrido (LiveKit sobreposto no tile) fica **até** o vídeo nativo fluir — é o
-único caminho de vídeo existente hoje; remover antes = ficar sem vídeo nenhum.
-Quando passar, remover em um commit dedicado:
+O vídeo nativo passou, então o LiveKit e todo o caminho híbrido saíram. O Go Live
+nativo redirecionado é o único caminho de mídia (tela privada); **câmera = nativa
+do Discord**. O que foi removido:
 
-- **cliente**: `client/src/ui/hybridVideo.ts`; `publishHybridVideo`/
-  `stopHybridVideo` em `client/src/rtc/controller.ts`; `startHybrid`/
-  `stopHybrid` em `client/src/index.tsx`; setting `nativeStreamHybrid` (e a
-  lógica que a consulta); dependência `livekit-client` do `client/package.json`;
-  textos do plugin que citam LiveKit (description do `definePlugin`).
-- **servidor**: rota `POST /token` em `server/src/index.ts`; `server/src/livekit.ts`;
-  serviço `livekit` do `server/docker-compose.yml`; envs `LIVEKIT_*` do
-  `.env.example`.
-- **overlay**: com vídeo nativo, o Discord renderiza o tile sozinho —
-  `nativeTileInject` sobre-vídeo (`ui/nativeTileInject.ts`) fica dispensável
-  (manter só o que injeta painel/controles, se ainda for útil).
-- **docs**: trechos híbridos em GOLIVE-NATIVO.md/DAVE.md/ROADMAP.md.
+- **cliente**: `rtc/{controller,session,signalingClient,nativeCapture}`,
+  `state/{streamStore,audioSink}`, `discordState.ts`, e toda a UI de vídeo/overlay
+  (`ui/{PrivateStreamPanel,TheaterView,GoLiveModal,StreamContextMenu,hybridVideo,
+  nativeControlsHijack,nativeTileInject,streamSounds,chime,panelMount,styles,icons}`);
+  settings obsoletas (`tokenServiceUrl`, `nativeStreamHybrid`, `nativeTileOverlay`,
+  `hijackNativeControls`, som/volume/qualidade); dep `livekit-client`. O plugin ficou
+  só: `index.tsx`, `settings.ts`, `probe/{nativeStreamRedirect,streamProbe}`,
+  `diagBridge.ts`, `native.ts`, `types.ts`. Renderer caiu de 1.3mb → 749kb.
+- **servidor**: `POST /token`, `src/livekit.ts`, `livekit.yaml`, serviço `livekit`
+  do compose, envs `LIVEKIT_*`/ICE; `/config` devolve `nativeStreamEndpoint`+`mediaHost`.
+- **instalador**: grava o caminho nativo (endpoint `/dstream`, DAVE on, hijack off)
+  para funcionar num clique; CSP só do host do `/dstream` (mídia é UDP).
+- **verificação**: build do Vencord ok + `tsc --noEmit` limpo no plugin; `server`
+  buildando. (Camera segue no botão nativo do Discord, sem privacidade de vídeo.)

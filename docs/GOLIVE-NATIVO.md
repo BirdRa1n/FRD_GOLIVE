@@ -1,19 +1,18 @@
 # Go Live nativo — registro do experimento (2026-09-23 → 2026-09-24)
 
-> **Status (2026-09-24, tarde):** **encoder destravado!** A causa raiz era
+> **Status (2026-09-24, fim):** **RESOLVIDO e validado E2E.** A causa raiz era
 > `keyframe_interval` ausente no op 4 — sem o campo, `alwaysSendVideo:false` e o
-> encoder C++ nunca instancia (não "allocator"; ver `docs/MCP-DIAG.md`, seção
-> "A parede era o keyframe_interval"). Ao vivo: `framesEncoded` a 30 fps em
-> 1080p, 366 MB enviados sem perda. **Faltam:** teste E2E com espectador e
-> deploy do fix (`NATIVE_STREAM_KEYFRAME_INTERVAL`) no LXC. A investigação mudou de
-> patamar: existe agora um **MCP local** (`mcp/`, tools `frd-discord`) que dá acesso
-> ao Discord em tempo real — stats de mídia, protocolo, stores e o próprio
-> `discord_voice` — com playbook e hipóteses não testadas em `docs/MCP-DIAG.md`
-> (experiments do READY, `video_codec` AV1 vs H264, TWCC…). O **modo híbrido
-> funcionando** (2026-09-24): Go Live nativo dá o shell + **áudio E2EE (DAVE v1)**, e
-> o **vídeo vem pelo LiveKit** sobreposto no tile. Código **mergeado na `main`**
-> (PR #27 → `fdd5c20`); o LiveKit sai quando o vídeo nativo passar (checklist em
-> `docs/MCP-DIAG.md`). Ver seção "Modo HÍBRIDO".
+> encoder C++ nunca instancia (não "allocator"; ver `docs/MCP-DIAG.md`, "A parede
+> era o keyframe_interval"). Ao vivo com espectador real: vídeo (H265/AV1) + áudio
+> E2EE (DAVE v1) a ~4–6 Mbps, 100% repassado. Fix `NATIVE_STREAM_KEYFRAME_INTERVAL`
+> (default 2000) mergeado (PR #28) e no ar no LXC.
+>
+> **O LiveKit foi REMOVIDO** (PR #29): o Go Live nativo redirecionado é agora o único
+> caminho de mídia — tela privada (vídeo+áudio E2EE); **câmera fica nativa do Discord**.
+> O instalador provisiona tudo (`nativeStreamEndpoint`, `nativeStreamDave`,
+> `hijackNativeControls=false`) para um clique só. As seções "Modo HÍBRIDO" abaixo são
+> **históricas** (o híbrido/LiveKit não existe mais). MCP local (`mcp/`, tools
+> `frd-discord`) segue para diagnóstico ao vivo — ver `docs/MCP-DIAG.md`.
 
 ## O que foi investigado
 
