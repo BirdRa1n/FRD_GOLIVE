@@ -106,6 +106,52 @@ conexão **única** `context:"default"` com `videoStreamParameters` (rid 100,
 — é o feedback de banda (REMB/TWCC) do servidor que tem que povoar isso (ver
 comentário do REMB em `server/src/nativeStream.ts`).
 
+### Resultado decisivo (2026-09-24) — protocolo esgotado, parede confirmada
+
+Com **todos** os deltas 1–5 aplicados e testado **ao vivo com espectador real**:
+
+- op4 `video_codec: H265` correto (o `pickVideoCodec` tinha um bug: escolhia
+  **opus**, prio 1000, como codec de vídeo — corrigido para filtrar só codecs de
+  vídeo; era um bug real, mas **não** era a parede).
+- espectador real pediu pixels de verdade: `sink_wants → 1440450px` (não o *want*
+  falso do `ALWAYS_WANT`).
+- servidor repassa o áudio E2EE ao viewer (`repassados=250`, `pt120`); DAVE op30
+  welcome ok.
+
+Mesmo assim, `getStats` de quem transmite:
+```
+codec H265 · sinkWant 100 · frameRateInput 30 (captura OK)
+bitrateTarget 0 · framesEncoded 0 · frameRateEncode 0 · resolution 0x0
+framesDroppedEncoderQueue 3698 (subindo) · qpSum -1
+bandwidthLimitedResolution false · cpuLimitedResolution false
+```
+E no UDP: só um **burst de `pt104` (RTX/probe do H265)** logo após o want, **nunca
+`pt103`** (frame real). Os quadros entram na fila do encoder (`frameRateInput 30`,
+`framesDroppedEncoderQueue` subindo) e são descartados com `bitrateTarget 0`.
+
+**Leitura:** não é banda nem CPU (`*LimitedResolution: false`) — o allocator do
+encoder aloca 0 ao vídeo por decisão interna. Todas as variáveis de gateway/protocolo
+estão descartadas (codec, experiments, sink want real, TWCC, REMB, DAVE, espectador).
+**O único lead que resta é fora do JS: o `discord_voice` (C++), Passo 3.**
+
+Detalhe a perseguir no Passo 3: como `bandwidthLimitedResolution` e
+`cpuLimitedResolution` são `false`, o `qualityLimitationReason` deve ser `"other"`
+(gate interno) e **não** `"bandwidth"`. Ou seja: procurar quem povoa
+`bitrateTarget`/liga o encoder — provavelmente um estado que o cliente só seta quando
+o handshake casa 100% com o servidor real do Discord (algo ainda não replicável do
+lado do servidor), ou um gate no próprio `discord_voice`.
+
+Confirmação a fazer no MCP (isola "REMB não chega" de "gate interno"): pegar o
+**`receiverBitrateEstimate`/`availableOutgoingBitrate`** da seção `transport` do
+`getStats` (o snippet anterior só imprimiu `video`). O servidor manda REMB (PSFB
+206, a cada 1 s, para `video_ssrc`+`rtx_ssrc` — ver `buildRemb`/loop REMB em
+`server/src/nativeStream.ts`), então:
+- se `receiverBitrateEstimate` > 0 e `bitrateTarget` ainda 0 → REMB ok, é **gate
+  interno** (segue no `discord_voice`);
+- se `receiverBitrateEstimate` == 0 → o REMB não está sendo aceito (ssrc/decrypt do
+  RTCP) — aí é fixável no servidor. Snippet: incluir `transport: s.transport` no
+  `getStats` (a versão longa que já usamos imprime isso).
+
 ### Passo 1 — diff de protocolo: sessão real vs sessão nossa
 
 Os campos principais de A já são conhecidos (ver o estado das hipóteses acima);

@@ -165,6 +165,15 @@ O vídeo do LiveKit no híbrido saía baixo por dois motivos, corrigidos:
   `NATIVE_STREAM_VIDEO_CODEC=` (vazio = segue o cliente como o Discord real — aqui, H265).
   `NATIVE_STREAM_EXPERIMENTS=fixed_keyframe_interval` já é o default do código novo.
   Diff de protocolo e checklist: `docs/MCP-DIAG.md`.
+- **Resultado do teste (2026-09-24)**: corrigido um bug real (o op4 mandava
+  `video_codec: opus` — o `pickVideoCodec` não filtrava codec de áudio; agora manda
+  H265). Testado **com espectador real pedindo pixels** (`sink_wants 1440450px`) e codec
+  certo: o encoder **continua em `bitrateTarget: 0` / `framesEncoded: 0`**, com captura OK
+  (`frameRateInput 30`) e `framesDroppedEncoderQueue` subindo — **sem** limite de banda ou
+  CPU (`bandwidthLimitedResolution/cpuLimitedResolution: false`). Todos os deltas de
+  protocolo (codec, experiments, sink want real, TWCC, REMB, DAVE) estão descartados; a
+  parede é interna ao encoder. Único lead restante: inspecionar o `discord_voice` (C++)
+  pelo MCP. Registro decisivo em `docs/MCP-DIAG.md` ("Resultado decisivo").
 - Para voltar ao estado da `main`:
   ```bash
   cd /opt/frd-golive && git checkout main && cp server/.env.bak-dstream server/.env && docker compose -f server/docker-compose.yml up -d --build server
