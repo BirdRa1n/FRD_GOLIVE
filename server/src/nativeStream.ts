@@ -123,6 +123,8 @@ interface Member {
     daveAddTimer?: ReturnType<typeof setTimeout>;
     /** Pares (PT, ssrc) de vídeo já vistos (diag). */
     ptSsrc?: Set<string>;
+    /** Maior seq recebido por ssrc, para os RTCP Receiver Reports. */
+    seqBySsrc?: Map<number, { maxSeq: number; cycles: number; }>;
 }
 
 interface Room {
@@ -580,22 +582,31 @@ udp.on("message", (msg, rinfo) => {
         }
         if (!m) return;
     }
-    m.udp = rinfo; // responde pelo socket que o cliente realmente usa para mídia
 
-    // Keepalive do cliente (8 bytes, contador u64): o servidor do Discord devolve o eco.
+    // Keepalive do cliente (8 bytes, contador u64): vem do socket primário → o eco e o
+    // destino de feedback (REMB/RR/PLI) vão para ele.
     if (msg.length === 8) {
+        m.udp = rinfo;
         udp.send(msg, rinfo.port, rinfo.address);
         m.stats.byPt.keepalive = (m.stats.byPt.keepalive ?? 0) + 1;
         return;
     }
 
     const kind = classify(msg);
+    // O feedback vai para o socket PRIMÁRIO (áudio/vídeo/RTCP), nunca para o socket de RTX
+    // (senão REMB/RR não são processados). Identifica o primário pelos ssrcs conhecidos.
+    const ssrc0 = (msg[0] >> 6) === 2 && msg.length >= 12 ? msg.readUInt32BE(8) : 0;
+    const isPrimary = kind.startsWith("rtcp") || ssrc0 === m.audioSsrc || ssrc0 === m.videoSsrc
+        || ssrc0 === (m.video?.audio_ssrc ?? -1) || ssrc0 === (m.video?.video_ssrc ?? -1);
+    if (isPrimary || !m.udp) m.udp = rinfo;
+
     m.stats.packets++;
     m.stats.bytes += msg.length;
     m.stats.byPt[kind] = (m.stats.byPt[kind] ?? 0) + 1;
     if (kind.startsWith("pt")) {
         const rtp = openRtp(msg, m.room.key);
         if (rtp) trackTwcc(m, rtp.exts, nowUs(), kind === "pt120");
+        trackSeq(m, ssrc0, msg.readUInt16BE(2));
         diagnose(m, rtp?.payload, kind, msg.readUInt32BE(8));
         // Log dos pares (PT, ssrc) distintos que este membro envia (diag do relay de vídeo).
         if (kind !== "pt120") {
@@ -684,6 +695,36 @@ function requestKeyframe(room: Room): void {
     }
 }
 
+/** RTCP Receiver Report (PT 201): confirma ao transmissor que recebemos a mídia dele. */
+function buildRr(senderSsrc: number, blocks: { ssrc: number; extHighestSeq: number; }[]): Buffer {
+    const b = Buffer.alloc(8 + blocks.length * 24);
+    b[0] = 0x80 | (blocks.length & 0x1f); // V=2, RC=nº de blocos
+    b[1] = 201; // RR
+    b.writeUInt16BE(b.length / 4 - 1, 2);
+    b.writeUInt32BE(senderSsrc >>> 0, 4);
+    let o = 8;
+    for (const blk of blocks) {
+        b.writeUInt32BE(blk.ssrc >>> 0, o);       // ssrc do source
+        b.writeUInt32BE(0, o + 4);                 // fraction lost (0) | cumulative lost (0)
+        b.writeUInt32BE(blk.extHighestSeq >>> 0, o + 8);
+        b.writeUInt32BE(0, o + 12);                // jitter
+        b.writeUInt32BE(0, o + 16);                // LSR
+        b.writeUInt32BE(0, o + 20);                // DLSR
+        o += 24;
+    }
+    return b;
+}
+
+/** Atualiza o maior seq recebido para um ssrc (com detecção simples de wrap). */
+function trackSeq(m: Member, ssrc: number, seq: number): void {
+    (m.seqBySsrc ??= new Map());
+    const s = m.seqBySsrc.get(ssrc);
+    if (!s) { m.seqBySsrc.set(ssrc, { maxSeq: seq, cycles: 0 }); return; }
+    if (seq > s.maxSeq) s.maxSeq = seq;
+    else if (s.maxSeq - seq > 0x8000) { s.cycles = (s.cycles + 1) & 0xffff; s.maxSeq = seq; }
+}
+
+const RR_INTERVAL_MS = 1000;
 const TWCC_INTERVAL_MS = 100;
 
 setInterval(() => {
@@ -706,6 +747,16 @@ setInterval(() => {
         }
     }
 }, REMB_INTERVAL_MS).unref();
+
+setInterval(() => {
+    for (const room of rooms.values()) {
+        for (const m of room.members.values()) {
+            if (!m.udp || !m.seqBySsrc?.size) continue;
+            const blocks = [...m.seqBySsrc.entries()].map(([ssrc, s]) => ({ ssrc, extHighestSeq: (s.cycles << 16) | s.maxSeq }));
+            udp.send(encryptRtcp(buildRr(SERVER_SSRC, blocks), room), m.udp.port, m.udp.address);
+        }
+    }
+}, RR_INTERVAL_MS).unref();
 
 setInterval(() => {
     for (const room of rooms.values()) {
