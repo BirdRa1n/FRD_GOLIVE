@@ -99,9 +99,10 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
 - **Habilitação gated no `/dstream`**: `identify()` (`server/src/nativeStream.ts`) só
   aceita quem passa em `store.canStream(userId, channelId)` — modo `login` (usuário
   enabled no hub) ou modo `channels` (`store.getSettings().authMode`: canal
-  habilitado **e** não banido). Canal desconhecido é auto-descoberto e entra
-  **desabilitado** na dashboard até o admin ligar (a menos que
-  `NATIVE_STREAM_ALLOW_ANY=1`, só teste).
+  habilitado **e** não banido). No modo `channels` o padrão é **liberado**: ativar
+  o modo faz seed de **todas** as salas do bot (habilitadas) e um canal desconhecido
+  é auto-descoberto **habilitado** — o admin só desliga as exceções na dashboard
+  (a menos que `NATIVE_STREAM_ALLOW_ANY=1`, só teste).
 - **Dashboard ao vivo vem do `nativeStream.getLiveState()`** (o WS `/signaling`
   antigo foi removido): `/admin/live` (salas/quem transmite), `/admin/channels`
   (habilitados/banidos) e `/admin/settings` (modo). Modo `channels` usa

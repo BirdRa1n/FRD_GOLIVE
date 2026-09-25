@@ -59,10 +59,12 @@ conecta a mídia na hora.
 ### Quem pode transmitir (`authMode`)
 
 - **`login`** (padrão): só quem está liberado em `/admin/users`.
-- **`channels`**: quem está num **canal habilitado** na dashboard — menos os
-  **banidos** naquele canal. Canais em que alguém tenta transmitir aparecem
-  sozinhos na dashboard (desabilitados) até o admin ligar. Precisa de
-  `DISCORD_BOT_TOKEN` para escolher guilds/canais pela interface (sem o bot, dá
+- **`channels`**: quem está num **canal habilitado** transmite — menos os
+  **banidos** naquele canal. O padrão é **tudo liberado**: ao ativar o modo (ou em
+  **Sincronizar com o bot**) todas as salas de voz das guilds do bot entram
+  **habilitadas** de uma vez, e o admin só **desliga** as que não quiser. Canais de
+  guilds sem o bot aparecem sozinhos quando alguém tenta transmitir — já
+  habilitados. `DISCORD_BOT_TOKEN` permite escolher pela interface (sem o bot, dá
   para colar os IDs).
 
 ## Configuração (`.env`)

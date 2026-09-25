@@ -95,9 +95,12 @@ trocar para o modo **`canais`**: quem está num canal de voz habilitado transmit
 3. (Opcional) Para exibir **nomes de membros** na dashboard, ligue **Server Members
    Intent** em **Bot → Privileged Gateway Intents**. Sem isso o painel mostra só os IDs.
 
-4. No painel `/admin`, em **Quem pode transmitir**, escolha **Canais** e use
-   **Adicionar canal** (lista guilds e canais de voz do bot). Canais em que alguém
-   tentar transmitir também **aparecem sozinhos**, desabilitados, até você ligar.
+4. No painel `/admin`, em **Quem pode transmitir**, escolha **Canais**: na hora,
+   **todas as salas de voz das guilds do bot entram habilitadas** e você só
+   **desliga** as que não quiser (toggle de cada linha). O botão **Sincronizar com
+   o bot** traz canais novos; **Adicionar canal** inclui um específico (ou cola os
+   IDs, se não houver bot). Canais de guilds sem o bot aparecem sozinhos quando
+   alguém tenta transmitir — **já habilitados**.
 
 > Só o admin configura o bot — os membros não precisam de login no hub para
 > transmitir no modo canais (a checagem acontece no `/dstream`).

@@ -604,10 +604,11 @@ function identify(ws: WebSocket, d: any): Member | null {
     const roomId = String(d?.server_id ?? "");
     const channelId = String(d?.channel_id ?? "");
     if (!userId || !roomId) { ws.close(4001, "Invalid identify."); return null; }
-    // Modo "channels": auto-descobre o canal (desabilitado) na 1ª tentativa, para o admin
-    // vê-lo na dashboard e habilitar. Registra o membro visto (para banir/permitir sem digitar id).
+    // Modo "channels": o padrão é liberado — se o canal ainda não está na lista, ele é
+    // criado habilitado (o admin desliga o que não quiser) e aparece na dashboard com
+    // o nome resolvido pelo bot. O membro é registrado para dar banir/permitir sem digitar id.
     if (store.getSettings().authMode === "channels" && channelId && !store.getChannel(channelId)) {
-        store.upsertChannel({ guildId: roomId, guildName: "", channelId, channelName: "", enabled: false });
+        store.upsertChannel({ guildId: roomId, guildName: "", channelId, channelName: "", enabled: true });
         void fillChannelNames(roomId, channelId); // nomes chegam em segundo plano
     } else if (channelId) {
         const ch = store.getChannel(channelId);
