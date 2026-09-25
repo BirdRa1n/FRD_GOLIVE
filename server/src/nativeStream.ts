@@ -599,7 +599,23 @@ function fillChannelNames(guildId: string, channelId: string): Promise<void> {
     });
 }
 
+/** Redige segredos de um payload para poder logá-lo inteiro (diagnóstico). */
+function scrubSecrets(v: unknown): unknown {
+    if (Array.isArray(v)) return v.map(scrubSecrets);
+    if (!v || typeof v !== "object") return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+        out[k] = /token|secret|password|nonce|credential/i.test(k)
+            ? `<${typeof val === "string" ? val.length : "?"}>`
+            : scrubSecrets(val);
+    }
+    return out;
+}
+
 function identify(ws: WebSocket, d: any): Member | null {
+    //server_id/channel_id saem daqui (L604/L605) — loga o payload cru (segredos redigidos)
+    // para conferir se o Discord manda o guild/canal reais em algum outro campo.
+    log("identify payload:", JSON.stringify(scrubSecrets(d)));
     const userId = String(d?.user_id ?? "");
     const roomId = String(d?.server_id ?? "");
     const channelId = String(d?.channel_id ?? "");
