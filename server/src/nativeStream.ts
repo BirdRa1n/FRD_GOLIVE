@@ -31,6 +31,7 @@ import {
     encodeServerFrame, externalSenderPackage, parseClientFrame, splitCommitWelcome,
     withTransitionId, type DaveProposalOp, type ExternalSenderKey,
 } from "./dave.js";
+import { gatewayEnabled, voiceLocation } from "./botGateway.js";
 import { botConfigured, resolveChannelNames } from "./discord.js";
 import { store } from "./store.js";
 import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
@@ -139,7 +140,9 @@ interface Member {
     daveKeyPackage?: Buffer;
     /** channel_id do IDENTIFY (voz) — para a dashboard e a habilitação por canal. */
     channelId?: string;
-    /** channel_id do IDENTIFY → group_id do MLS (BE8). */
+    /** guild REAL (do gateway do bot); o `room.id` é o server_id efêmero do IDENTIFY. */
+    guildId?: string;
+    /** channel_id do IDENTIFY → group_id do MLS (BE8) — sempre o efêmero que o cliente mandou. */
     daveChannelId?: bigint;
     /** op 27 já enviado (evita comitar duas vezes). */
     daveProposalsSent?: boolean;
@@ -201,10 +204,10 @@ export function nativeStreamPublicIp(): string {
 }
 
 /** Estado ao vivo das salas de mídia (para a dashboard admin). */
-export function getLiveState(): { roomId: string; members: { userId: string; streamer: boolean; channelId?: string; since?: number; }[]; streamers: number; viewers: number; }[] {
+export function getLiveState(): { roomId: string; members: { userId: string; streamer: boolean; channelId?: string; guildId?: string; since?: number; }[]; streamers: number; viewers: number; }[] {
     const out = [];
     for (const [roomId, room] of rooms) {
-        const members = [...room.members.values()].map(m => ({ userId: m.userId, streamer: m.streamer, channelId: m.channelId, since: m.streamer ? m.streamerSince : undefined }));
+        const members = [...room.members.values()].map(m => ({ userId: m.userId, streamer: m.streamer, channelId: m.channelId, guildId: m.guildId, since: m.streamer ? m.streamerSince : undefined }));
         out.push({
             roomId,
             members,
@@ -213,6 +216,25 @@ export function getLiveState(): { roomId: string; members: { userId: string; str
         });
     }
     return out;
+}
+
+/**
+ * Derruba quem já está conectado num canal (ou um usuário específico nele) — chamado
+ * quando o admin desliga o canal ou bane o membro. O 4004 faz o Discord parar a
+ * transmissão da pessoa. Retorna quantas conexões foram fechadas.
+ */
+export function closeMembersInChannel(channelId: string, userId?: string): number {
+    let closed = 0;
+    for (const room of [...rooms.values()]) {
+        for (const m of [...room.members.values()]) {
+            if (m.channelId !== channelId || (userId && m.userId !== userId)) continue;
+            log(`derrubado ${m.userId} canal ${channelId}${userId ? " (banido)" : " (canal desabilitado)"}`);
+            leave(m);
+            m.ws.close(4004, "Authentication failed.");
+            closed++;
+        }
+    }
+    return closed;
 }
 
 const log = (...a: unknown[]) => console.log("[dstream]", ...a);
@@ -563,6 +585,8 @@ function safeParseJson(b: Buffer): unknown {
 function onConnection(ws: WebSocket, req: IncomingMessage): void {
     log("conexão", req.url, req.headers["cf-connecting-ip"] ?? req.socket.remoteAddress);
     let member: Member | null = null;
+    /** Mensagens que chegam enquanto o IDENTIFY ainda resolve o canal real (null = livre). */
+    let backlog: { op: number; d: any; }[] | null = null;
 
     send(ws, OP.HELLO, { v: 8, heartbeat_interval: HEARTBEAT_INTERVAL });
 
@@ -577,10 +601,23 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
         let msg: { op: number; d: any; };
         try { msg = JSON.parse(raw.toString()); } catch { return; }
 
-        if (msg.op === OP.IDENTIFY) { member = identify(ws, msg.d); return; }
+        if (msg.op === OP.IDENTIFY) {
+            // O identify espera (bem rápido) o gateway do bot dizer onde a pessoa está em
+            // voz; o que chegar nesse meio-tempo é enfileirado e processado em seguida.
+            backlog = [];
+            void identify(ws, msg.d).then(m => {
+                const q = backlog;
+                backlog = null;
+                if (ws.readyState !== WebSocket.OPEN) return;
+                member = m;
+                if (m && q) for (const x of q) onMessage(m, x.op, x.d);
+            });
+            return;
+        }
         if (msg.op === OP.HEARTBEAT) { send(ws, OP.HEARTBEAT_ACK, { t: msg.d?.t }); return; }
         // Sem resume no PoC: 4006 faz o cliente refazer o identify na hora.
         if (msg.op === OP.RESUME) { ws.close(4006, "Session no longer valid."); return; }
+        if (backlog) { backlog.push({ op: msg.op, d: msg.d }); return; } // identify ainda resolvendo
         if (!member) { ws.close(4003, "Not authenticated."); return; }
         onMessage(member, msg.op, msg.d);
     });
@@ -612,26 +649,99 @@ function scrubSecrets(v: unknown): unknown {
     return out;
 }
 
-function identify(ws: WebSocket, d: any): Member | null {
-    //server_id/channel_id saem daqui (L604/L605) — loga o payload cru (segredos redigidos)
-    // para conferir se o Discord manda o guild/canal reais em algum outro campo.
+/** Teto de espera pelo gateway do bot dizer onde a pessoa está em voz (chega em ms). */
+const VOICE_LOOKUP_TIMEOUT_MS = 1200;
+
+/** Espera (breve) a localização real de voz no gateway do bot; `undefined` = não sei. */
+async function waitVoiceLocation(userId: string, sessionId: string): Promise<{ guildId: string; channelId: string; } | undefined> {
+    const first = voiceLocation(userId, sessionId);
+    if (first) return first;
+    if (!gatewayEnabled()) return undefined; // sem gateway (sem token / deu erro fatal): não adianta esperar
+    const deadline = Date.now() + VOICE_LOOKUP_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 120));
+        const loc = voiceLocation(userId, sessionId);
+        if (loc) return loc;
+    }
+    return undefined;
+}
+
+/**
+ * O gateway ainda não sabia onde esta pessoa estava quando chegou o IDENTIFY: completa a
+ * localização depois — e REVALIDA quem pode transmitir (é o que derruba na hora quem já
+ * estava conectado num canal que o admin desligou/baneu). Se mesmo assim não vier nada
+ * (ex.: guild onde o bot não está), vale o id do IDENTIFY, como antes.
+ */
+function resolveLater(m: Member, userId: string, sessionId: string, fallbackChannelId: string, fallbackGuildId: string): void {
+    let tries = 0;
+    const timer = setInterval(() => {
+        tries++;
+        const loc = voiceLocation(userId, sessionId);
+        if (!loc && tries < 10 && gatewayEnabled()) return; // janela de ~20s
+        clearInterval(timer);
+        if (m.ws.readyState !== WebSocket.OPEN) return;
+        if (loc) applyChannel(m, loc.guildId, loc.channelId);
+        else applyChannel(m, fallbackGuildId, fallbackChannelId);
+    }, 2000);
+    timer.unref();
+}
+
+/** Passa o membro para o canal real (dashboard + regra) e revalida a permissão. */
+function applyChannel(m: Member, guildId: string, channelId: string): void {
+    if (m.channelId !== channelId || m.guildId !== guildId) {
+        log(`canal corrigido via gateway: ${m.userId} ${m.channelId ?? "-"} → ${channelId}`);
+        m.channelId = channelId;
+        m.guildId = guildId;
+    }
+    if (store.getSettings().authMode === "channels" && !store.getChannel(channelId)) {
+        store.upsertChannel({ guildId, guildName: "", channelId, channelName: "", enabled: true });
+        void fillChannelNames(guildId, channelId);
+    } else {
+        const ch = store.getChannel(channelId);
+        if (ch && (!ch.guildName || !ch.channelName)) void fillChannelNames(guildId, channelId);
+    }
+    store.noteSeen(channelId, m.userId);
+    if (NATIVE_STREAM_ALLOW_ANY !== "1" && !store.canStream(m.userId, channelId)) {
+        log(`derrubado (sem permissão): ${m.userId} canal ${channelId} modo ${store.getSettings().authMode}`);
+        leave(m);
+        m.ws.close(4004, "Authentication failed.");
+    }
+}
+
+async function identify(ws: WebSocket, d: any): Promise<Member | null> {
+    // Payload cru do IDENTIFY (segredos redigidos): server_id/channel_id são EFÊMEROS —
+    // criados quando a transmissão começa, não existem no Discord e mudam a cada sessão.
     log("identify payload:", JSON.stringify(scrubSecrets(d)));
     const userId = String(d?.user_id ?? "");
     const roomId = String(d?.server_id ?? "");
-    const channelId = String(d?.channel_id ?? "");
+    const mediaChannelId = String(d?.channel_id ?? "");
+    const sessionId = String(d?.session_id ?? "");
     if (!userId || !roomId) { ws.close(4001, "Invalid identify."); return null; }
-    // Modo "channels": o padrão é liberado — se o canal ainda não está na lista, ele é
-    // criado habilitado (o admin desliga o que não quiser) e aparece na dashboard com
-    // o nome resolvido pelo bot. O membro é registrado para dar banir/permitir sem digitar id.
-    if (store.getSettings().authMode === "channels" && channelId && !store.getChannel(channelId)) {
-        store.upsertChannel({ guildId: roomId, guildName: "", channelId, channelName: "", enabled: true });
-        void fillChannelNames(roomId, channelId); // nomes chegam em segundo plano
+
+    // Guild/canal REAIS vêm do gateway do bot (o `session_id` de lá é o mesmo de aqui);
+    // sem dado, fica o id do IDENTIFY (comportamento antigo, com a "sala" efêmera).
+    const loc = await waitVoiceLocation(userId, sessionId);
+    const guildId = loc?.guildId ?? roomId;
+    const channelId = loc?.channelId ?? mediaChannelId;
+    const pending = !loc && gatewayEnabled();                        // gateway no ar, call ainda não chegou
+    const provisional = pending && store.getSettings().authMode === "channels";
+
+    if (pending) {
+        log(`canal de ${userId} ainda não resolvido pelo gateway`);
+    } else if (store.getSettings().authMode === "channels" && channelId && !store.getChannel(channelId)) {
+        // Modo "channels": o padrão é liberado — canal novo entra habilitado (o admin
+        // desliga o que não quiser) e aparece na dashboard com o nome vindo do bot.
+        store.upsertChannel({ guildId, guildName: "", channelId, channelName: "", enabled: true });
+        void fillChannelNames(guildId, channelId); // nomes chegam em segundo plano
     } else if (channelId) {
         const ch = store.getChannel(channelId);
-        if (ch && (!ch.guildName || !ch.channelName)) void fillChannelNames(roomId, channelId);
+        if (ch && (!ch.guildName || !ch.channelName)) void fillChannelNames(guildId, channelId);
     }
-    store.noteSeen(channelId, userId);
-    if (NATIVE_STREAM_ALLOW_ANY !== "1" && !store.canStream(userId, channelId)) {
+    if (!pending) store.noteSeen(channelId, userId);
+
+    if (provisional) {
+        log(`aceito provisoriamente (${userId}) — revalida a permissão quando o canal chegar`);
+    } else if (NATIVE_STREAM_ALLOW_ANY !== "1" && !store.canStream(userId, channelId)) {
         log("recusado (sem permissão):", userId, "canal", channelId, "modo", store.getSettings().authMode);
         ws.close(4004, "Authentication failed.");
         return null;
@@ -661,8 +771,12 @@ function identify(ws: WebSocket, d: any): Member | null {
     };
     room.members.set(userId, m);
     m.channelId = channelId;
-    try { m.daveChannelId = BigInt(channelId || "0"); } catch { /* channel_id inválido */ }
-    log(`identify ${userId} na sala ${roomId} (${room.members.size} na sala) streams=${JSON.stringify(d?.streams)} dave=${d?.max_dave_protocol_version}`);
+    m.guildId = guildId;
+    // DAVE: o group_id deriva do channel_id que o CLIENTE mandou (o efêmero da sessão) —
+    // é o mesmo valor que o cliente usa do lado dele; o canal real fica só na regra e na tela.
+    try { m.daveChannelId = BigInt(mediaChannelId || "0"); } catch { /* channel_id inválido */ }
+    if (pending) resolveLater(m, userId, sessionId, channelId, guildId);
+    log(`identify ${userId} na sala ${roomId} → canal ${channelId}${loc ? "" : " (efêmero do IDENTIFY)"} (${room.members.size} na sala) streams=${JSON.stringify(d?.streams)} dave=${d?.max_dave_protocol_version}`);
 
     send(ws, OP.READY, {
         ssrc: m.audioSsrc,

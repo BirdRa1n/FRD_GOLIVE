@@ -66,6 +66,14 @@ conecta a mídia na hora.
   guilds sem o bot aparecem sozinhos quando alguém tenta transmitir — já
   habilitados. `DISCORD_BOT_TOKEN` permite escolher pela interface (sem o bot, dá
   para colar os IDs).
+- **O canal da transmissão vem do gateway do bot**: o IDENTIFY da mídia traz
+  `server_id`/`channel_id` **efêmeros** (criados quando a transmissão começa; não
+  existem no Discord — a API responde 404 — e mudam a cada sessão), então servem só
+  para agrupar a mídia. O servidor abre o **gateway do bot** e cruza o `session_id`
+  do IDENTIFY com `VOICE_STATE_UPDATE` para saber em qual canal real a pessoa está:
+  é esse canal que a dashboard mostra (`label`/`channelId` em `/admin/live`) e que
+  a regra avalia. **Desligar ou banir derruba na hora quem já está no ar** (4004).
+  Sem bot/gateway, vale o id do IDENTIFY (comportamento antigo).
 
 ## Configuração (`.env`)
 
@@ -80,7 +88,7 @@ Principais chaves (o `gen-env.sh` gera segredos aleatórios):
 | `LIVEKIT_NODE_IP` | **IP público por onde a mídia entra** (gravado no `livekit.yaml`) |
 | `DEFAULT_MAX_HEIGHT` / `DEFAULT_MAX_FPS` | quotas padrão |
 | `DISCORD_*` / `ADMIN_DISCORD_IDS` | OAuth do hub — ver docs/DISCORD-OAUTH.md |
-| `DISCORD_BOT_TOKEN` | token do bot — lista guilds/canais e nomes no modo `channels` |
+| `DISCORD_BOT_TOKEN` | token do bot — guilds/canais, nomes e **canal real de cada transmissão** (gateway) |
 
 ## Cloudflare (2 rotas HTTP/WS)
 

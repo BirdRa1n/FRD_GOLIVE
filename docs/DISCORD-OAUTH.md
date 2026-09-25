@@ -95,7 +95,14 @@ trocar para o modo **`canais`**: quem está num canal de voz habilitado transmit
 3. (Opcional) Para exibir **nomes de membros** na dashboard, ligue **Server Members
    Intent** em **Bot → Privileged Gateway Intents**. Sem isso o painel mostra só os IDs.
 
-4. No painel `/admin`, em **Quem pode transmitir**, escolha **Canais**: na hora,
+4. **Como o servidor sabe em qual canal alguém está**: o IDENTIFY da mídia do Go Live
+   manda `server_id`/`channel_id` **efêmeros** (criados por sessão, não existem no
+   Discord), então o servidor abre também o **gateway do bot** (intents `GUILDS` +
+   `GUILD_VOICE_STATES`, comuns — nada para ativar no app) e cruza o `session_id`
+   com `VOICE_STATE_UPDATE`. É isso que faz a dashboard mostrar "Sala-01" em vez de
+   um id fantasma e que **desligar/banir derruba na hora** quem já estava no ar.
+
+5. No painel `/admin`, em **Quem pode transmitir**, escolha **Canais**: na hora,
    **todas as salas de voz das guilds do bot entram habilitadas** e você só
    **desliga** as que não quiser (toggle de cada linha). O botão **Sincronizar com
    o bot** traz canais novos; **Adicionar canal** inclui um específico (ou cola os

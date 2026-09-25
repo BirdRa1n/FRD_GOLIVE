@@ -309,7 +309,7 @@ export function adminPage(name: string): string {
           var out = [];
           live.rooms.forEach(function (r) {
             r.members.forEach(function (m) {
-              if (m.streamer) out.push({ userId: m.userId, name: m.name || m.userId, room: m.channelName || r.guildName || r.roomId, since: m.since || 0 });
+              if (m.streamer) out.push({ userId: m.userId, name: m.name || m.userId, room: m.channelName || r.label || r.guildName || r.roomId, since: m.since || 0 });
             });
           });
           return out;
@@ -321,14 +321,17 @@ export function adminPage(name: string): string {
               var n = esc(m.name || m.userId);
               return '<span class="chip' + (m.streamer ? " live" : "") + '">' + n + (m.streamer ? " · no ar" : "") + "</span>";
             }).join("");
+            // Título = canal real ("Sala-01"); o roomId é o id EFÊMERO da sessão de mídia
+            // (existe só para a gente casar a sala), por isso vai no detalhe.
+            var title = r.label || r.guildName || r.roomId;
+            var detail = r.label
+              ? 'canal <span class="mono">' + esc(r.channelId || "") + "</span> · " + esc(r.guildName || r.guildId || "")
+              : 'sala <span class="mono">' + esc(r.roomId) + "</span>";
             return '<div class="row"><span class="icon-tile gradient" data-icon="live"></span>' +
-              '<div class="row-body"><div class="row-title">' + esc(r.guildName || r.roomId) +
+              '<div class="row-body"><div class="row-title">' + esc(title) +
               ' <span class="chip' + (r.streamers ? " danger" : "") + '">' + r.streamers + " transmitindo</span>" +
               ' <span class="chip">' + r.viewers + " assistindo</span></div>" +
-              '<div class="row-detail">sala <span class="mono">' + esc(r.roomId) + "</span>" +
-              (r.members.some(function (m) { return m.channelName; })
-                ? " · canal " + esc(r.members.filter(function (m) { return m.channelName; })[0].channelName) : "") +
-              "</div>" +
+              '<div class="row-detail">' + detail + "</div>" +
               (who ? '<div class="cluster" style="margin-top:7px">' + who + "</div>" : "") +
               "</div></div>";
           }).join("") : empty("live", "Nenhuma sala agora", "Quando alguém entrar numa call, aparece aqui.");
@@ -341,8 +344,10 @@ export function adminPage(name: string): string {
             ? "Todas as salas entram habilitadas — desligue as que não quiser. Quem está num canal habilitado pode transmitir (menos os banidos)."
             : "Só quem foi liberado na lista de usuários pode transmitir.";
           var chip = $("#bot-chip");
-          chip.className = "chip " + (live.bot ? "ok" : "warn");
-          chip.textContent = live.bot ? "bot conectado" : "bot não configurado";
+          var ok = live.bot && live.voice;
+          chip.className = "chip " + (ok ? "ok" : "warn");
+          chip.textContent = !live.bot ? "bot não configurado"
+            : live.voice ? "bot + voz conectados" : "bot ok · voz desconectada";
         }
 
         function renderChannels() {

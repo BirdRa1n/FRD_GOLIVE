@@ -102,7 +102,17 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   habilitado **e** não banido). No modo `channels` o padrão é **liberado**: ativar
   o modo faz seed de **todas** as salas do bot (habilitadas) e um canal desconhecido
   é auto-descoberto **habilitado** — o admin só desliga as exceções na dashboard
-  (a menos que `NATIVE_STREAM_ALLOW_ANY=1`, só teste).
+  (a menos que `NATIVE_STREAM_ALLOW_ANY=1`, só teste). Desligar/banir um canal chama
+  `closeMembersInChannel()` e derruba **quem já está no ar** (4004).
+- **O canal real vem do gateway do bot** (`server/src/botGateway.ts`, intents
+  GUILDS|GUILD_VOICE_STATES): o IDENTIFY da mídia traz `server_id`/`channel_id`
+  **efêmeros** (criados por sessão, não existem no Discord — a API responde 404), só
+  bons para agrupar a mídia; o `session_id` do IDENTIFY casa com `VOICE_STATE_UPDATE`
+  e diz em qual canal a pessoa está. `identify()` virou async (espera até 1,2s +
+  `resolveLater()` revalida), o DAVE **continua** derivando o group_id do id efêmero
+  que o cliente mandou, e a dashboard mostra `label`/`channelId`/`guildId` reais em
+  `/admin/live`. Sem token → gateway desligado → vale o id do IDENTIFY.
+  `DISCORD_GATEWAY_URL` aponta para um gateway falso (teste local).
 - **Dashboard ao vivo vem do `nativeStream.getLiveState()`** (o WS `/signaling`
   antigo foi removido): `/admin/live` (salas/quem transmite), `/admin/channels`
   (habilitados/banidos) e `/admin/settings` (modo). Modo `channels` usa
