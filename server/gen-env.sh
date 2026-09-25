@@ -38,8 +38,7 @@ PORT=8090
 # Protege os endpoints /admin/* (header X-Admin-Token). Gerado aleatoriamente.
 ADMIN_TOKEN=$ADMIN_TOKEN
 
-# URL pública do signaling (atrás do Cloudflare). Vazio = deriva do host da requisição
-# (recomendado: com HTTPS vira wss://SEU_HOST/signaling automaticamente).
+# URL pública do canal de controle, atrás do Cloudflare. Vazio = deriva do host da requisição.
 PUBLIC_SIGNALING_URL=
 
 # Quotas padrão para novos usuários (o admin ajusta por usuário no painel).
@@ -65,6 +64,9 @@ DISCORD_REDIRECT_URI=https://golivefrd.SEU.com/auth/callback
 SESSION_SECRET=$SESSION_SECRET
 # IDs (Discord) dos admins, separados por vírgula — acessam /admin pelo login.
 ADMIN_DISCORD_IDS=
+# Token do BOT (aba "Bot" do mesmo app) — opcional; habilita o modo "canais"
+# na dashboard (listar guilds/canais e resolver nomes).
+DISCORD_BOT_TOKEN=
 EOF
 chmod 600 "$ENV_FILE"
 

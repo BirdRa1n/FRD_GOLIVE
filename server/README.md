@@ -44,13 +44,26 @@ conecta a mídia na hora.
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | status/versão |
-| GET | `/config` | `signalingUrl` (controle), `serverUrl` (LiveKit), versão |
-| POST | `/token` | `{room,userId,name}` → token do LiveKit (só habilitados) |
-| WS | `/signaling` | canal de controle: policy/presença + estado p/ o admin |
+| GET | `/config` | endpoint do `/dstream` + IP da mídia UDP + versão |
+| WS | `/dstream` | mídia/controle do Go Live nativo (`identify` checa quem pode transmitir) |
 | POST | `/auth/request-access` | `{userId,name}` — registra o pedido |
 | GET | `/policy/:userId` | policy atual (enabled + quotas) |
 | GET | `/admin/users` · `/admin/transmissions` · `/admin/metrics` | painel (header `X-Admin-Token`) |
 | POST | `/admin/users/:id/enable` | `{enabled,maxHeight,maxFps}` |
+| GET/POST | `/admin/settings` | `{authMode}` — `login` (liberação manual) ou `canais` |
+| GET | `/admin/live` | salas ao vivo do `/dstream`: quem transmite/assiste + settings |
+| GET | `/admin/channels` · POST | lista / adiciona canais habilitados |
+| POST | `/admin/channels/:id/enable` · `/ban` · DELETE `/:id` | habilita sala, bane membro, remove canal |
+| GET | `/admin/bot/guilds` · `/admin/bot/guilds/:id/channels` | navega guilds/canais pelo bot (modo canais) |
+
+### Quem pode transmitir (`authMode`)
+
+- **`login`** (padrão): só quem está liberado em `/admin/users`.
+- **`channels`**: quem está num **canal habilitado** na dashboard — menos os
+  **banidos** naquele canal. Canais em que alguém tenta transmitir aparecem
+  sozinhos na dashboard (desabilitados) até o admin ligar. Precisa de
+  `DISCORD_BOT_TOKEN` para escolher guilds/canais pela interface (sem o bot, dá
+  para colar os IDs).
 
 ## Configuração (`.env`)
 
@@ -65,6 +78,7 @@ Principais chaves (o `gen-env.sh` gera segredos aleatórios):
 | `LIVEKIT_NODE_IP` | **IP público por onde a mídia entra** (gravado no `livekit.yaml`) |
 | `DEFAULT_MAX_HEIGHT` / `DEFAULT_MAX_FPS` | quotas padrão |
 | `DISCORD_*` / `ADMIN_DISCORD_IDS` | OAuth do hub — ver docs/DISCORD-OAUTH.md |
+| `DISCORD_BOT_TOKEN` | token do bot — lista guilds/canais e nomes no modo `channels` |
 
 ## Cloudflare (2 rotas HTTP/WS)
 

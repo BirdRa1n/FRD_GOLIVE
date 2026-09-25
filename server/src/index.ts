@@ -2,20 +2,13 @@ import { createServer } from "node:http";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import express from "express";
-import { WebSocket, WebSocketServer } from "ws";
 
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
-import { handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, nativeStreamPublicIp, startNativeStreamUdp } from "./nativeStream.js";
+import { getLiveState, handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, nativeStreamPublicIp, startNativeStreamUdp } from "./nativeStream.js";
 import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
-import type {
-    ActiveTransmission,
-    ClientConfig,
-    ClientMessage,
-    PeerInfo,
-    ServerMessage,
-} from "./types.js";
+import type { ActiveTransmission, AuthMode, ClientConfig, LiveMember, LiveRoom } from "./types.js";
 
 const ADMIN_IDS = (process.env.ADMIN_DISCORD_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
 
@@ -40,30 +33,13 @@ const {
 if (!ADMIN_TOKEN) console.warn("[v2] ADMIN_TOKEN vazio — endpoints de admin desprotegidos!");
 
 // --- estado de signaling ---
-interface ConnMeta {
-    id: string;
-    name: string;
-    room: string;
-    sharing: boolean;
-    kind?: "screen" | "camera";
-    /** Início da transmissão atual (ms), para o admin mostrar a duração. */
-    since?: number;
-}
-const meta = new Map<WebSocket, ConnMeta>();
-const rooms = new Map<string, Set<WebSocket>>();
-const userConns = new Map<string, Set<WebSocket>>(); // para push de policy
-
-function send(ws: WebSocket, msg: ServerMessage): void {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-}
-
 // --- HTTP ---
 const app = express();
 app.use(express.json({ limit: "32kb" }));
 app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Admin-Token");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     res.setHeader("Access-Control-Max-Age", "86400");
     // Responde o preflight (OPTIONS) com 204 — senão cai em 404 e o CORS falha.
     if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -106,7 +82,7 @@ app.get("/policy/:userId", (req, res) => res.json(store.policyFor(req.params.use
 app.get("/", (req, res) => {
     const s = getSession(req);
     if (!s) return res.type("html").send(loginPage(discord.oauthConfigured(), VERSION));
-    res.type("html").send(homePage(s.name, store.policyFor(s.id), isAdmin(s)));
+    res.type("html").send(homePage(s.name, store.policyFor(s.id), isAdmin(s), store.getSettings().authMode));
 });
 
 app.get("/login", (_req, res) => {
@@ -168,17 +144,102 @@ app.post("/admin/users/:id/enable", admin, (req, res) => {
     const { enabled = true, maxHeight, maxFps } = req.body ?? {};
     const u = store.setEnabled(req.params.id, Boolean(enabled), { maxHeight, maxFps });
     if (!u) return res.status(404).json({ error: "usuário não encontrado" });
-    // push da nova policy para as conexões vivas desse usuário
-    const policy = store.policyFor(u.id);
-    for (const ws of userConns.get(u.id) ?? []) send(ws, { type: "policy", policy });
     res.json(u);
 });
 
-app.get("/admin/transmissions", admin, (_req, res) => {
+// --- Modo de autorização (login OU channels) ---
+app.get("/admin/settings", admin, (_req, res) => res.json({ ...store.getSettings(), bot: discord.botConfigured() }));
+app.post("/admin/settings", admin, (req, res) => {
+    const mode = req.body?.authMode as AuthMode;
+    if (mode !== "login" && mode !== "channels") return res.status(400).json({ error: "authMode inválido" });
+    res.json(store.setAuthMode(mode));
+});
+
+// --- Bot: navegar guilds/canais de voz para o admin escolher ---
+app.get("/admin/bot/guilds", admin, async (_req, res) => {
+    if (!discord.botConfigured()) return res.status(503).json({ error: "bot não configurado (defina DISCORD_BOT_TOKEN)" });
+    try { res.json(await discord.botGuilds()); } catch (e) { res.status(502).json({ error: (e as Error).message }); }
+});
+app.get("/admin/bot/guilds/:id/channels", admin, async (req, res) => {
+    if (!discord.botConfigured()) return res.status(503).json({ error: "bot não configurado" });
+    try { res.json(await discord.guildVoiceChannels(req.params.id)); } catch (e) { res.status(502).json({ error: (e as Error).message }); }
+});
+
+// --- Canais configurados (modo channels) ---
+app.get("/admin/channels", admin, (_req, res) => res.json(store.listChannels()));
+app.post("/admin/channels", admin, (req, res) => {
+    const { guildId, guildName = "", channelId, channelName = "", enabled = true } = req.body ?? {};
+    if (!guildId || !channelId) return res.status(400).json({ error: "guildId e channelId obrigatórios" });
+    res.json(store.upsertChannel({ guildId, guildName, channelId, channelName, enabled: Boolean(enabled) }));
+});
+app.post("/admin/channels/:id/enable", admin, (req, res) => {
+    const ch = store.setChannelEnabled(req.params.id, Boolean(req.body?.enabled ?? true));
+    if (!ch) return res.status(404).json({ error: "canal não encontrado" });
+    res.json(ch);
+});
+app.post("/admin/channels/:id/ban", admin, (req, res) => {
+    const { userId, banned = true } = req.body ?? {};
+    if (!userId) return res.status(400).json({ error: "userId obrigatório" });
+    const ch = store.setBan(req.params.id, String(userId), Boolean(banned));
+    if (!ch) return res.status(404).json({ error: "canal não encontrado" });
+    res.json(ch);
+});
+app.delete("/admin/channels/:id", admin, (req, res) => res.json({ ok: store.removeChannel(req.params.id) }));
+
+// --- Resolver nome de um membro (best-effort via bot) ---
+app.get("/admin/resolve", admin, async (req, res) => {
+    const guildId = String(req.query.guild ?? ""), userId = String(req.query.user ?? "");
+    if (!discord.botConfigured() || !guildId || !userId) return res.json({ userId, name: undefined });
+    res.json({ userId, name: await discord.memberName(guildId, userId) });
+});
+
+// --- Estado ao vivo: salas de mídia e quem transmite/assiste agora ---
+const nameMem = new Map<string, string>(); // guildId:userId → nome resolvido (evita bater no Discord a cada poll)
+
+async function nameOf(guildId: string, userId: string): Promise<string | undefined> {
+    if (!discord.botConfigured()) return undefined;
+    const key = `${guildId}:${userId}`;
+    const hit = nameMem.get(key);
+    if (hit) return hit;
+    const name = await discord.memberName(guildId, userId);
+    if (name) {
+        if (nameMem.size > 500) nameMem.clear();
+        nameMem.set(key, name);
+    }
+    return name;
+}
+
+async function guildNameOf(guildId: string): Promise<string | undefined> {
+    if (!discord.botConfigured()) return undefined;
+    try { return (await discord.botGuilds()).find(g => g.id === guildId)?.name; } catch { return undefined; }
+}
+
+async function enrichRoom(r: ReturnType<typeof getLiveState>[number]): Promise<LiveRoom> {
+    const configured = store.listChannels().find(c => c.guildId === r.roomId)?.guildName;
+    const guildName = configured || await guildNameOf(r.roomId);
+    const members: LiveMember[] = await Promise.all(r.members.map(async m => {
+        const ch = m.channelId ? store.getChannel(m.channelId) : undefined;
+        let name = ch?.seen.find(s => s.userId === m.userId)?.name;
+        if (!name) {
+            name = await nameOf(r.roomId, m.userId);
+            if (name && m.channelId) store.rememberName(m.channelId, m.userId, name);
+        }
+        return { userId: m.userId, name, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined };
+    }));
+    return { roomId: r.roomId, guildName, members, streamers: r.streamers, viewers: r.viewers };
+}
+
+app.get("/admin/live", admin, async (_req, res) => {
+    const rooms = await Promise.all(getLiveState().map(enrichRoom));
+    res.json({ rooms, settings: store.getSettings(), bot: discord.botConfigured() });
+});
+
+app.get("/admin/transmissions", admin, async (_req, res) => {
     const active: ActiveTransmission[] = [];
-    for (const [ws, m] of meta) {
-        if (m.sharing && ws.readyState === WebSocket.OPEN) {
-            active.push({ userId: m.id, name: m.name, room: m.room, kind: m.kind ?? "screen", since: m.since ?? 0 });
+    for (const r of await Promise.all(getLiveState().map(enrichRoom))) {
+        for (const m of r.members) {
+            if (!m.streamer) continue;
+            active.push({ userId: m.userId, name: m.name || m.userId, room: m.channelName || r.guildName || r.roomId, kind: "screen", since: m.since ?? 0 });
         }
     }
     res.json(active);
@@ -186,26 +247,22 @@ app.get("/admin/transmissions", admin, (_req, res) => {
 
 app.get("/admin/metrics", admin, (_req, res) => {
     const mem = { total: os.totalmem(), free: os.freemem() };
+    const live = getLiveState();
     res.json({
         cpuLoad: os.loadavg(), // [1m,5m,15m]
         cpus: os.cpus().length,
         memory: { ...mem, usedPct: 1 - mem.free / mem.total },
-        rooms: rooms.size,
-        peers: meta.size,
+        rooms: live.length,
+        peers: live.reduce((n, r) => n + r.members.length, 0),
         uptime: process.uptime(),
     });
 });
 
-// --- WebSocket signaling ---
+// --- HTTP + upgrade (só a mídia do Go Live nativo, /dstream) ---
 const httpServer = createServer(app);
-const wss = new WebSocketServer({ noServer: true });
-
-// Upgrades roteados à mão: com `path`, o ws recusaria (400) qualquer outro caminho.
 httpServer.on("upgrade", (req, socket, head) => {
     const path = (req.url ?? "").split("?")[0];
-    if (path === "/signaling") {
-        wss.handleUpgrade(req, socket, head, ws => wss.emit("connection", ws, req));
-    } else if (nativeStreamEnabled() && path.startsWith(NATIVE_STREAM_PATH)) {
+    if (nativeStreamEnabled() && path.startsWith(NATIVE_STREAM_PATH)) {
         handleNativeStreamUpgrade(req, socket, head);
     } else {
         socket.destroy();
@@ -213,76 +270,6 @@ httpServer.on("upgrade", (req, socket, head) => {
 });
 if (nativeStreamEnabled()) startNativeStreamUdp();
 
-wss.on("connection", ws => {
-    ws.on("message", raw => {
-        let msg: ClientMessage;
-        try { msg = JSON.parse(raw.toString()) as ClientMessage; } catch { return; }
-        handle(ws, msg);
-    });
-    ws.on("close", () => cleanup(ws));
-    ws.on("error", () => cleanup(ws));
-});
-
-function handle(ws: WebSocket, msg: ClientMessage): void {
-    if (msg.type === "join") {
-        const policy = store.policyFor(msg.id);
-        const m: ConnMeta = { id: msg.id, name: msg.name, room: msg.room, sharing: false };
-        meta.set(ws, m);
-
-        let set = rooms.get(msg.room);
-        if (!set) { set = new Set(); rooms.set(msg.room, set); }
-
-        // lista de peers já na sala
-        const peers: PeerInfo[] = [...set].map(w => {
-            const pm = meta.get(w)!;
-            return { id: pm.id, name: pm.name };
-        });
-
-        set.add(ws);
-        let uc = userConns.get(msg.id);
-        if (!uc) { uc = new Set(); userConns.set(msg.id, uc); }
-        uc.add(ws);
-
-        send(ws, { type: "joined", policy });
-        send(ws, { type: "peers", peers });
-        for (const w of set) {
-            if (w !== ws) send(w, { type: "peer-joined", id: msg.id, name: msg.name });
-        }
-        return;
-    }
-
-    const m = meta.get(ws);
-    if (!m) return;
-
-    if (msg.type === "signal") {
-        const set = rooms.get(m.room);
-        if (!set) return;
-        for (const w of set) {
-            const wm = meta.get(w);
-            if (wm?.id === msg.to) send(w, { type: "signal", from: m.id, data: msg.data });
-        }
-    } else if (msg.type === "state") {
-        if (msg.sharing && !m.sharing) m.since = Date.now();
-        if (!msg.sharing) m.since = undefined;
-        m.sharing = msg.sharing;
-        m.kind = msg.kind;
-    }
-}
-
-function cleanup(ws: WebSocket): void {
-    const m = meta.get(ws);
-    meta.delete(ws);
-    if (!m) return;
-    const set = rooms.get(m.room);
-    if (set) {
-        set.delete(ws);
-        for (const w of set) send(w, { type: "peer-left", id: m.id });
-        if (set.size === 0) rooms.delete(m.room);
-    }
-    const uc = userConns.get(m.id);
-    if (uc) { uc.delete(ws); if (uc.size === 0) userConns.delete(m.id); }
-}
-
 httpServer.listen(Number(PORT), () => {
-    console.log(`[v2] servidor ouvindo na porta ${PORT} (signaling em /signaling)`);
+    console.log(`[v2] servidor ouvindo na porta ${PORT} (mídia em ${NATIVE_STREAM_PATH})`);
 });

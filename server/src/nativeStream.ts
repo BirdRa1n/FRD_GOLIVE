@@ -31,6 +31,7 @@ import {
     encodeServerFrame, externalSenderPackage, parseClientFrame, splitCommitWelcome,
     withTransitionId, type DaveProposalOp, type ExternalSenderKey,
 } from "./dave.js";
+import { botConfigured, resolveChannelNames } from "./discord.js";
 import { store } from "./store.js";
 import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
 
@@ -115,6 +116,8 @@ interface Member {
     rtxSsrc: number;
     seq: number;
     streamer: boolean;
+    /** Quando começou a transmitir (ms) — para a dashboard mostrar a duração. */
+    streamerSince?: number;
     /** op 12 anunciado por quem transmite (repassado aos espectadores). */
     video?: { audio_ssrc: number; video_ssrc: number; rtx_ssrc?: number; streams: VideoStream[]; };
     /** Codecs do op 1 (select_protocol) — é de onde sai o video_codec do op 4. */
@@ -134,6 +137,8 @@ interface Member {
     decryptedSamples: number;
     /** Key package MLS do cliente (op 26), guardado para as Add proposals (op 27). */
     daveKeyPackage?: Buffer;
+    /** channel_id do IDENTIFY (voz) — para a dashboard e a habilitação por canal. */
+    channelId?: string;
     /** channel_id do IDENTIFY → group_id do MLS (BE8). */
     daveChannelId?: bigint;
     /** op 27 já enviado (evita comitar duas vezes). */
@@ -193,6 +198,21 @@ export function nativeStreamEnabled(): boolean {
 /** IP/host público por onde a mídia (UDP) do Go Live nativo entra. Informativo (o /config). */
 export function nativeStreamPublicIp(): string {
     return NATIVE_STREAM_PUBLIC_IP;
+}
+
+/** Estado ao vivo das salas de mídia (para a dashboard admin). */
+export function getLiveState(): { roomId: string; members: { userId: string; streamer: boolean; channelId?: string; since?: number; }[]; streamers: number; viewers: number; }[] {
+    const out = [];
+    for (const [roomId, room] of rooms) {
+        const members = [...room.members.values()].map(m => ({ userId: m.userId, streamer: m.streamer, channelId: m.channelId, since: m.streamer ? m.streamerSince : undefined }));
+        out.push({
+            roomId,
+            members,
+            streamers: members.filter(x => x.streamer).length,
+            viewers: members.filter(x => !x.streamer).length,
+        });
+    }
+    return out;
 }
 
 const log = (...a: unknown[]) => console.log("[dstream]", ...a);
@@ -571,12 +591,31 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
     });
 }
 
+/** Preenche nomes de guild/canal de um canal registrado (best-effort, via bot). */
+function fillChannelNames(guildId: string, channelId: string): Promise<void> {
+    if (!botConfigured()) return Promise.resolve();
+    return resolveChannelNames(guildId, channelId).then(({ guildName, channelName }) => {
+        if (guildName || channelName) store.fillNames(channelId, guildName ?? "", channelName ?? "");
+    });
+}
+
 function identify(ws: WebSocket, d: any): Member | null {
     const userId = String(d?.user_id ?? "");
     const roomId = String(d?.server_id ?? "");
+    const channelId = String(d?.channel_id ?? "");
     if (!userId || !roomId) { ws.close(4001, "Invalid identify."); return null; }
-    if (NATIVE_STREAM_ALLOW_ANY !== "1" && !store.get(userId)?.enabled) {
-        log("recusado (não habilitado no hub):", userId);
+    // Modo "channels": auto-descobre o canal (desabilitado) na 1ª tentativa, para o admin
+    // vê-lo na dashboard e habilitar. Registra o membro visto (para banir/permitir sem digitar id).
+    if (store.getSettings().authMode === "channels" && channelId && !store.getChannel(channelId)) {
+        store.upsertChannel({ guildId: roomId, guildName: "", channelId, channelName: "", enabled: false });
+        void fillChannelNames(roomId, channelId); // nomes chegam em segundo plano
+    } else if (channelId) {
+        const ch = store.getChannel(channelId);
+        if (ch && (!ch.guildName || !ch.channelName)) void fillChannelNames(roomId, channelId);
+    }
+    store.noteSeen(channelId, userId);
+    if (NATIVE_STREAM_ALLOW_ANY !== "1" && !store.canStream(userId, channelId)) {
+        log("recusado (sem permissão):", userId, "canal", channelId, "modo", store.getSettings().authMode);
         ws.close(4004, "Authentication failed.");
         return null;
     }
@@ -604,7 +643,8 @@ function identify(ws: WebSocket, d: any): Member | null {
         extProbe: { packets: 0, len2: new Map(), seen: new Map() },
     };
     room.members.set(userId, m);
-    try { m.daveChannelId = BigInt(String(d?.channel_id ?? "0")); } catch { /* channel_id inválido */ }
+    m.channelId = channelId;
+    try { m.daveChannelId = BigInt(channelId || "0"); } catch { /* channel_id inválido */ }
     log(`identify ${userId} na sala ${roomId} (${room.members.size} na sala) streams=${JSON.stringify(d?.streams)} dave=${d?.max_dave_protocol_version}`);
 
     send(ws, OP.READY, {
@@ -657,7 +697,10 @@ function onMessage(m: Member, op: number, d: any): void {
                 rtx_ssrc: Number(d?.rtx_ssrc ?? 0),
                 streams: (d?.streams ?? []) as VideoStream[],
             };
-            m.streamer = video.video_ssrc > 0 || video.streams.some(s => s.active);
+            const on = video.video_ssrc > 0 || video.streams.some(s => s.active);
+            if (on && !m.streamer) m.streamerSince = Date.now();
+            if (!on) m.streamerSince = undefined;
+            m.streamer = on;
             m.video = video;
             log(`video ${m.userId} streamer=${m.streamer} op12=${JSON.stringify(d)}`);
             for (const o of peers(m)) send(o.ws, OP.VIDEO, { user_id: m.userId, ...video }, o);

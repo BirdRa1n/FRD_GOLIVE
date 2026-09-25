@@ -33,8 +33,9 @@ enviando a mídia para o servidor privado em vez do servidor do Discord.
 - `server/src/nativeStream.ts` — servidor experimental em `/dstream` + UDP.
   Só liga se `NATIVE_STREAM_PUBLIC_IP` estiver definido no `.env`.
 - `server/src/twcc.ts` — feedback transport-cc (RTCP), módulo puro.
-- `server/src/index.ts` — upgrades de WS agora roteados manualmente
-  (`/signaling` e `/dstream`); com `path` o `ws` recusava outros caminhos.
+- `server/src/index.ts` — upgrade de WS roteado manualmente em `/dstream` (o
+  antigo `/signaling` saiu junto com o LiveKit); com `path` o `ws` recusava
+  outros caminhos.
 
 ## Resultado
 

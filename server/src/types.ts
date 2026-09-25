@@ -61,3 +61,52 @@ export interface ActiveTransmission {
     kind: "screen" | "camera";
     since: number;
 }
+
+// --- Bot / canais / habilitação por canal ---
+
+/** Como o servidor decide quem pode transmitir. */
+export type AuthMode = "login" | "channels";
+
+export interface ServerSettings {
+    /** "login" = OAuth + habilitação manual; "channels" = canais habilitados pelo bot. */
+    authMode: AuthMode;
+}
+
+/** Um canal de voz de um servidor do Discord, configurado pelo admin (modo channels). */
+export interface ChannelCfg {
+    guildId: string;
+    guildName: string;
+    channelId: string;
+    channelName: string;
+    enabled: boolean;
+    addedAt: number;
+    /** userIds banidos de transmitir NESTE canal (blocklist). */
+    bans: string[];
+    /** membros vistos transmitindo/assistindo aqui (para o admin agir sem digitar id). */
+    seen: SeenMember[];
+}
+
+export interface SeenMember {
+    userId: string;
+    name?: string;
+    lastSeen: number;
+}
+
+/** Estado ao vivo de uma sala de mídia (nativeStream) para a dashboard. */
+export interface LiveRoom {
+    roomId: string; // server_id (guild)
+    guildName?: string;
+    members: LiveMember[];
+    streamers: number;
+    viewers: number;
+}
+
+export interface LiveMember {
+    userId: string;
+    name?: string;
+    streamer: boolean;
+    /** Quando começou a transmitir (ms). */
+    since?: number;
+    channelId?: string;
+    channelName?: string;
+}

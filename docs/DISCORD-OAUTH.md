@@ -73,6 +73,35 @@ cd server && docker compose up -d --build
 Teste: abra `https://golivefrd.SEU.com/` → deve aparecer **Entrar com Discord**;
 após o login, o seu ID nos `ADMIN_DISCORD_IDS` libera o `/admin`.
 
+## 7. Bot (opcional) — modo "canais" na dashboard
+
+Sem bot, a habilitação é **por usuário** (modo `login`). Com o bot, o admin pode
+trocar para o modo **`canais`**: quem está num canal de voz habilitado transmite
+(menos os banidos), sem precisar liberar pessoa a pessoa.
+
+1. No mesmo app, vá em **Bot → Reset Token** e copie:
+
+   ```
+   DISCORD_BOT_TOKEN=<token do bot>
+   ```
+
+2. **Convide o bot para o seu servidor**: em **OAuth2 → URL Generator**, marque o
+   escopo `bot` e a permissão **View Channels** (1024), abra o link gerado.
+
+   ```
+   https://discord.com/oauth2/authorize?client_id=<Client ID>&scope=bot&permissions=1024
+   ```
+
+3. (Opcional) Para exibir **nomes de membros** na dashboard, ligue **Server Members
+   Intent** em **Bot → Privileged Gateway Intents**. Sem isso o painel mostra só os IDs.
+
+4. No painel `/admin`, em **Quem pode transmitir**, escolha **Canais** e use
+   **Adicionar canal** (lista guilds e canais de voz do bot). Canais em que alguém
+   tentar transmitir também **aparecem sozinhos**, desabilitados, até você ligar.
+
+> Só o admin configura o bot — os membros não precisam de login no hub para
+> transmitir no modo canais (a checagem acontece no `/dstream`).
+
 ## Resumo das variáveis no `.env`
 
 | Variável | De onde vem |
@@ -80,5 +109,6 @@ após o login, o seu ID nos `ADMIN_DISCORD_IDS` libera o `/admin`.
 | `DISCORD_CLIENT_ID` | OAuth2 → General → Client ID |
 | `DISCORD_CLIENT_SECRET` | OAuth2 → General → Reset Secret |
 | `DISCORD_REDIRECT_URI` | `https://SEU_HOST/auth/callback` (idêntico ao cadastrado) |
+| `DISCORD_BOT_TOKEN` | Bot → Reset Token (opcional — modo canais) |
 | `ADMIN_DISCORD_IDS` | seu(s) Discord user ID(s), separados por vírgula |
 | `SESSION_SECRET` | `openssl rand -hex 32` (ou gerado pelo `gen-env.sh`) |
