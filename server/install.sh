@@ -124,6 +124,7 @@ if confirm "Configurar o login do Discord (hub/admin) agora?"; then
     HOST=$(ask "Host público do hub (ex.: golivefrd.seu.com)" "")
     [ -n "$HOST" ] && set_env DISCORD_REDIRECT_URI "https://$HOST/auth/callback" "$ENV_FILE"
     set_env ADMIN_DISCORD_IDS "$(ask 'Seu Discord user ID (admin)' '')" "$ENV_FILE"
+    set_env DISCORD_BOT_TOKEN "$(ask 'Token do bot (opcional, modo canais na dashboard)' '')" "$ENV_FILE"
     warn "No portal do Discord, cadastre EXATAMENTE o Redirect: https://$HOST/auth/callback"
 fi
 
@@ -154,4 +155,4 @@ info "Health:     http://<host>:$PORT/health"
 info "Config:     http://<host>:$PORT/config   (o instalador/plugin puxa daqui)"
 info "Hub/admin:  http://<host>:$PORT/          (login Discord, se configurado)"
 printf '\nExponha via Cloudflare Tunnel: golivefrd.SEU.com -> http://<host>:%s\n' "$PORT"
-printf '(HTTP e o WebSocket /signaling na MESMA porta — nada de UDP.)\n'
+printf '(HTTP e o WS /dstream na MESMA porta — a mídia UDP é separada; ver docs/RELAY-UDP.md.)\n'

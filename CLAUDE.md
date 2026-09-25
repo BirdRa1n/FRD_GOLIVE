@@ -97,7 +97,16 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   CSP do cliente precisa liberar esse domínio com `wss://` explícito; a mídia é UDP
   (não passa por CSP). O instalador grava isso a partir do host.
 - **Habilitação gated no `/dstream`**: `identify()` (`server/src/nativeStream.ts`) só
-  aceita usuário enabled no hub (a menos que `NATIVE_STREAM_ALLOW_ANY=1`, só teste).
+  aceita quem passa em `store.canStream(userId, channelId)` — modo `login` (usuário
+  enabled no hub) ou modo `channels` (`store.getSettings().authMode`: canal
+  habilitado **e** não banido). Canal desconhecido é auto-descoberto e entra
+  **desabilitado** na dashboard até o admin ligar (a menos que
+  `NATIVE_STREAM_ALLOW_ANY=1`, só teste).
+- **Dashboard ao vivo vem do `nativeStream.getLiveState()`** (o WS `/signaling`
+  antigo foi removido): `/admin/live` (salas/quem transmite), `/admin/channels`
+  (habilitados/banidos) e `/admin/settings` (modo). Modo `channels` usa
+  `DISCORD_BOT_TOKEN` para listar guilds/canais e resolver nomes — ver
+  [docs/DISCORD-OAUTH.md](docs/DISCORD-OAUTH.md) §7.
 - **Câmera = nativa do Discord** (passa pelos servidores do Discord); só a **tela**
   (Go Live) é privada. Decisão de produto ao remover o LiveKit.
 - **CSP do Discord** bloqueia conexões a domínios fora da lista. É **obrigatório**
