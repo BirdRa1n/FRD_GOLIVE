@@ -1,18 +1,11 @@
-// Páginas HTML do hub (golivefrd). Server-rendered + JS mínimo (fetch/polling).
-// Visual e comportamento vêm do design system em /ui (public/ui/ui.css + ui.js);
-// aqui só vai a estrutura de cada tela.
 
 import type { AuthMode, Policy } from "./types.js";
 
-// Versão nos links dos assets: um deploy novo não fica preso no cache (maxAge 1h).
 const ASSET_V = encodeURIComponent(process.env.VERSION ?? "dev");
 
 interface ShellOptions {
-    /** Mostra a barra superior (brand + tema + ações). */
     topbar?: boolean;
-    /** HTML extra à direita da barra (ex.: avatar/sair). */
     actions?: string;
-    /** Fundo em malha de gradiente (login/erro). */
     mesh?: boolean;
 }
 
@@ -38,7 +31,6 @@ ${opts.topbar === false ? "" : `<header class="topbar"><div class="container">
 ${body}
 </body></html>`;
 
-/** Layout centralizado com card de vidro (login, erro). */
 const centered = (inner: string) => `
 <main class="container" style="min-height:calc(100vh - 60px);display:grid;place-items:center;padding-block:32px">
   <div class="glass stack appear" style="width:min(400px,100%);padding:28px;--gap:18px">${inner}</div>
@@ -153,61 +145,108 @@ export function adminPage(name: string): string {
     return shell("FRD GoLive — Admin", `
     <main class="container page">
       <div class="spread">
-        <div class="stack" style="--gap:2px"><span class="eyebrow">Painel admin</span><h1 class="large-title">Visão geral</h1></div>
+        <div class="stack" style="--gap:2px"><span class="eyebrow">Painel admin</span><h1 class="large-title">Dashboard</h1></div>
         <span class="chip" id="updated"><span class="spinner" style="width:12px;height:12px"></span>carregando</span>
       </div>
 
-      <div class="grid-auto" style="--min:170px" id="metrics"></div>
-
-      <div>
-        <p class="section-title">Transmissões ativas</p>
-        <div class="group" id="tx"></div>
+      <div class="segmented segmented-block" id="tabs" aria-label="Seções do painel">
+        <button data-value="overview" aria-pressed="true">Visão geral</button>
+        <button data-value="groups" aria-pressed="false">Grupos</button>
+        <button data-value="users" aria-pressed="false">Usuários</button>
+        <button data-value="settings" aria-pressed="false">Configurações</button>
       </div>
 
-      <div>
-        <p class="section-title">Salas ao vivo</p>
-        <div class="group" id="rooms"></div>
-      </div>
+      <section id="tab-overview" class="stack" style="--gap:18px">
+        <div class="grid-auto" style="--min:170px" id="metrics"></div>
+        <div>
+          <p class="section-title">Transmissões ativas</p>
+          <div class="group" id="tx"></div>
+        </div>
+        <div>
+          <p class="section-title">Salas ao vivo</p>
+          <div class="group" id="rooms"></div>
+        </div>
+        <p class="caption" id="sys" style="text-align:center"></p>
+      </section>
 
-      <div class="stack" style="--gap:6px">
-        <div class="spread" style="margin-left:14px">
-          <p class="section-title" style="margin:0">Canais do Discord</p>
+      <section id="tab-groups" class="stack" style="--gap:14px" hidden>
+        <div class="spread" style="margin-left:2px">
+          <div class="cluster"><span class="chip" id="bot-chip">verificando bot</span></div>
           <div class="cluster">
-            <span class="chip" id="bot-chip">verificando bot</span>
-            <button class="btn btn-sm btn-plain" data-act="chan-sync">Sincronizar com o bot</button>
+            <button class="btn btn-sm btn-plain" data-act="chan-sync"><i data-icon="refresh"></i>Sincronizar</button>
             <button class="btn btn-sm" data-act="chan-add"><i data-icon="plus"></i>Adicionar canal</button>
           </div>
         </div>
-        <div class="group">
-          <div class="row">
-            <span class="icon-tile" data-icon="shield"></span>
-            <div class="row-body">
-              <div class="row-title">Quem pode transmitir</div>
-              <div class="row-detail" id="mode-detail">…</div>
-            </div>
-            <div class="row-accessory">
-              <div class="segmented" id="mode" aria-label="Modo de acesso">
-                <button data-value="login" aria-pressed="true">Login</button>
-                <button data-value="channels" aria-pressed="false">Canais</button>
+        <div class="notice" id="groups-login-hint" hidden><i data-icon="info"></i><span>O acesso está no modo <b>Login</b>: a gestão por grupos não decide quem transmite. Mude para o modo <b>Canais</b> em Configurações para habilitar grupos.</span></div>
+        <div class="stack" style="--gap:14px" id="groups"></div>
+      </section>
+
+      <section id="tab-users" class="stack" style="--gap:18px" hidden>
+        <div>
+          <p class="section-title">Pedidos pendentes</p>
+          <div class="group" id="pending"></div>
+        </div>
+        <div class="stack" style="--gap:6px">
+          <div class="spread" style="margin-left:14px">
+            <p class="section-title" style="margin:0">Usuários liberados</p>
+            <input class="field" id="q" type="search" placeholder="Buscar por nome ou ID" aria-label="Buscar usuários" style="max-width:260px;min-height:34px;padding-block:6px"/>
+          </div>
+          <div class="group" id="users"></div>
+        </div>
+      </section>
+
+      <section id="tab-settings" class="stack" style="--gap:18px" hidden>
+        <div class="stack" style="--gap:6px">
+          <p class="section-title" style="margin-left:14px">Autenticação</p>
+          <div class="group">
+            <div class="row">
+              <span class="icon-tile" data-icon="shield"></span>
+              <div class="row-body">
+                <div class="row-title">Quem pode transmitir</div>
+                <div class="row-detail" id="mode-detail">…</div>
               </div>
+              <div class="row-accessory">
+                <div class="segmented" id="mode" aria-label="Modo de acesso">
+                  <button data-value="login" aria-pressed="true">Login</button>
+                  <button data-value="channels" aria-pressed="false">Canais</button>
+                </div>
+              </div>
+            </div>
+            <div class="row">
+              <span class="icon-tile neutral" data-icon="discord"></span>
+              <div class="row-body"><div class="row-title">Login com Discord</div><div class="row-detail" id="oauth-detail">…</div></div>
+              <div class="row-accessory"><span class="chip" id="oauth-chip">—</span></div>
             </div>
           </div>
         </div>
-        <div class="group" id="channels"></div>
-      </div>
 
-      <div>
-        <p class="section-title">Pedidos pendentes</p>
-        <div class="group" id="pending"></div>
-      </div>
-
-      <div class="stack" style="--gap:6px">
-        <div class="spread" style="margin-left:14px">
-          <p class="section-title" style="margin:0">Usuários liberados</p>
-          <input class="field" id="q" type="search" placeholder="Buscar por nome ou ID" aria-label="Buscar usuários" style="max-width:260px;min-height:34px;padding-block:6px"/>
+        <div class="stack" style="--gap:6px">
+          <p class="section-title" style="margin-left:14px">Bot do Discord</p>
+          <div class="group">
+            <div class="row">
+              <span class="icon-tile gradient" data-icon="bot"></span>
+              <div class="row-body"><div class="row-title">Status do bot</div><div class="row-detail" id="bot-detail">…</div></div>
+              <div class="row-accessory"><span class="chip" id="bot-status">—</span></div>
+            </div>
+            <a class="row" id="bot-invite-row" href="#" target="_blank" rel="noopener" hidden>
+              <span class="icon-tile" data-icon="link"></span>
+              <div class="row-body"><div class="row-title">Convidar / gerenciar o bot</div><div class="row-detail">Adiciona o bot a um servidor do Discord com as permissões de voz.</div></div>
+              <span class="row-accessory chevron"></span>
+            </a>
+          </div>
         </div>
-        <div class="group" id="users"></div>
-      </div>
+
+        <div class="stack" style="--gap:6px">
+          <p class="section-title" style="margin-left:14px">Administração</p>
+          <div class="group">
+            <div class="row">
+              <span class="icon-tile neutral" data-icon="users"></span>
+              <div class="row-body"><div class="row-title">Admins do painel</div><div class="row-detail" id="admin-detail">definidos em ADMIN_DISCORD_IDS</div></div>
+              <div class="row-accessory"><span class="chip" id="admin-chip">—</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
 
     <dialog class="sheet" id="quota" aria-labelledby="quota-title">
@@ -269,8 +308,8 @@ export function adminPage(name: string): string {
       (function () {
         var ui = window.FRDUI, esc = ui.escapeHtml;
         var $ = function (s) { return document.querySelector(s); };
-        var history = { cpu: [], mem: [], tx: [], peers: [], rooms: [] };
-        var users = [], transmissions = [], channels = [];
+        var history = { tx: [], peers: [], rooms: [] };
+        var users = [], transmissions = [], groups = [], bot = {};
         var live = { rooms: [], settings: { authMode: "login" }, bot: false };
         var editing = null, membersChannel = null;
 
@@ -285,7 +324,15 @@ export function adminPage(name: string): string {
           var best = opts.reduce(function (a, b) { return Math.abs(b - v) < Math.abs(a - v) ? b : a; }, opts[0]);
           ui.select(seg, best);
         }
-        function avatar(n) { return '<span class="avatar">' + esc(ui.initials(n)) + "</span>"; }
+        function avatar(name, id) { return ui.thumb(id ? "/admin/img/user/" + encodeURIComponent(id) : "", name); }
+        function guildThumb(g, cls) { return ui.thumb(g.guildIcon || "", g.guildName || g.guildId, true, cls); }
+        function findChannel(id) {
+          for (var i = 0; i < groups.length; i++) {
+            var c = groups[i].channels.find(function (x) { return x.channelId === id; });
+            if (c) return Object.assign({ guildId: groups[i].guildId, guildName: groups[i].guildName }, c);
+          }
+          return null;
+        }
         function empty(icon, title, sub) {
           return '<div class="empty"><i data-icon="' + icon + '"></i><b>' + title + "</b>" + (sub ? "<span>" + sub + "</span>" : "") + "</div>";
         }
@@ -297,7 +344,7 @@ export function adminPage(name: string): string {
         function renderTx() {
           $("#tx").innerHTML = transmissions.length ? transmissions.map(function (t) {
             var since = t.since ? ui.duration((Date.now() - t.since) / 1000) : "—";
-            return '<div class="row">' + avatar(t.name) +
+            return '<div class="row">' + avatar(t.name, t.userId) +
               '<div class="row-body"><div class="row-title">' + esc(t.name) + ' <span class="chip live">AO VIVO</span></div>' +
               '<div class="row-detail"><i data-icon="' + (t.kind === "camera" ? "camera" : "monitor") + '"></i> ' + (t.kind === "camera" ? "Câmera" : "Tela") + ' · sala <span class="mono">' + esc(t.room) + "</span></div></div>" +
               '<span class="row-accessory mono num">' + since + "</span></div>";
@@ -315,24 +362,28 @@ export function adminPage(name: string): string {
           return out;
         }
 
+        function peopleStrip(members) {
+          if (!members.length) return "";
+          return '<div class="cluster" style="margin-top:8px;gap:6px">' + members.map(function (m) {
+            var n = esc(m.name || m.userId);
+            var url = m.userId ? "/admin/img/user/" + encodeURIComponent(m.userId) : "";
+            return '<span class="cluster" style="gap:5px;font-size:12px;' + (m.streamer ? "color:var(--danger);font-weight:600" : "color:var(--text-3)") + '" title="' + n + '">' +
+              ui.thumb(url, m.name || m.userId, false, "sm") + n + (m.streamer ? " · no ar" : "") + "</span>";
+          }).join("") + "</div>";
+        }
+
         function renderRooms() {
           $("#rooms").innerHTML = live.rooms.length ? live.rooms.map(function (r) {
-            var who = r.members.map(function (m) {
-              var n = esc(m.name || m.userId);
-              return '<span class="chip' + (m.streamer ? " live" : "") + '">' + n + (m.streamer ? " · no ar" : "") + "</span>";
-            }).join("");
-            // Título = canal real ("Sala-01"); o roomId é o id EFÊMERO da sessão de mídia
-            // (existe só para a gente casar a sala), por isso vai no detalhe.
             var title = r.label || r.guildName || r.roomId;
             var detail = r.label
               ? 'canal <span class="mono">' + esc(r.channelId || "") + "</span> · " + esc(r.guildName || r.guildId || "")
               : 'sala <span class="mono">' + esc(r.roomId) + "</span>";
-            return '<div class="row"><span class="icon-tile gradient" data-icon="live"></span>' +
+            return '<div class="row">' + guildThumb(r) +
               '<div class="row-body"><div class="row-title">' + esc(title) +
               ' <span class="chip' + (r.streamers ? " danger" : "") + '">' + r.streamers + " transmitindo</span>" +
               ' <span class="chip">' + r.viewers + " assistindo</span></div>" +
               '<div class="row-detail">' + detail + "</div>" +
-              (who ? '<div class="cluster" style="margin-top:7px">' + who + "</div>" : "") +
+              peopleStrip(r.members) +
               "</div></div>";
           }).join("") : empty("live", "Nenhuma sala agora", "Quando alguém entrar numa call, aparece aqui.");
         }
@@ -348,43 +399,93 @@ export function adminPage(name: string): string {
           chip.className = "chip " + (ok ? "ok" : "warn");
           chip.textContent = !live.bot ? "bot não configurado"
             : live.voice ? "bot + voz conectados" : "bot ok · voz desconectada";
+          $("#groups-login-hint").hidden = mode === "channels";
         }
 
-        function renderChannels() {
-          $("#channels").innerHTML = channels.length ? channels.map(function (c) {
-            var name = esc(c.channelName || c.channelId);
-            return '<div class="row"><span class="icon-tile' + (c.enabled ? " gradient" : " neutral") + '" data-icon="mic"></span>' +
-              '<div class="row-body"><div class="row-title">' + name +
-              (c.enabled ? ' <span class="chip ok">habilitado</span>' : ' <span class="chip warn">desabilitado</span>') +
-              (c.bans.length ? ' <span class="chip danger">' + c.bans.length + " banido(s)</span>" : "") +
-              "</div>" +
-              '<div class="row-detail">' + esc(c.guildName || c.guildId) + ' · <span class="mono">' + esc(c.channelId) + "</span>" +
-              (c.seen.length ? " · " + c.seen.length + " membro(s) visto(s)" : "") + "</div></div>" +
-              '<div class="row-accessory">' +
-              '<button class="toggle" role="switch" aria-checked="' + String(Boolean(c.enabled)) + '" data-act="chan-toggle" data-id="' + esc(c.channelId) + '" aria-label="Habilitar transmissão neste canal" title="Habilitar transmissão"></button>' +
-              '<button class="btn btn-sm" data-act="chan-members" data-id="' + esc(c.channelId) + '">Membros</button>' +
-              '<button class="btn btn-destructive btn-sm" data-act="chan-remove" data-id="' + esc(c.channelId) + '">Remover</button>' +
-              "</div></div>";
-          }).join("") : empty("users", "Nenhum canal configurado", "Dê Sincronizar com o bot, adicione um canal — ou entre numa call e ele aparece aqui.");
+        function renderBot() {
+          var oauthOk = bot.oauth;
+          var oc = $("#oauth-chip");
+          oc.className = "chip " + (oauthOk ? "ok" : "warn");
+          oc.textContent = oauthOk ? "configurado" : "ausente";
+          $("#oauth-detail").textContent = oauthOk
+            ? "Usuários entram com a conta do Discord para pedir acesso."
+            : "Defina DISCORD_CLIENT_ID / SECRET / REDIRECT_URI para habilitar o login.";
+
+          var gw = bot.gateway || {};
+          var bs = $("#bot-status");
+          var state = !bot.configured ? "warn" : gw.connected ? "ok" : "warn";
+          bs.className = "chip " + state;
+          bs.textContent = !bot.configured ? "não configurado" : gw.connected ? "conectado" : "desconectado";
+          $("#bot-detail").textContent = !bot.configured
+            ? "Defina DISCORD_BOT_TOKEN para listar servidores e resolver canais/nomes."
+            : gw.connected
+              ? (gw.guilds || 0) + " servidor(es) · " + (gw.voices || 0) + " em voz"
+              : "Token definido, mas o gateway não conectou" + (gw.error ? " (" + esc(gw.error) + ")" : "") + ".";
+
+          var row = $("#bot-invite-row");
+          if (bot.invite) { row.href = bot.invite; row.hidden = false; } else { row.hidden = true; }
+
+          var ac = $("#admin-chip");
+          ac.className = "chip";
+          ac.textContent = (bot.adminCount || 0) + " admin(s)";
         }
 
-        function memberRow(c, userId, name, banned, lastSeen) {
-          return '<div class="row">' + avatar(name || userId) +
-            '<div class="row-body"><div class="row-title">' + esc(name || userId) +
-            (banned ? ' <span class="chip danger">banido</span>' : ' <span class="chip ok">permitido</span>') + "</div>" +
+        function channelRow(c) {
+          var live = c.liveMembers || [];
+          return '<div class="row"><span class="icon-tile' + (c.enabled ? " gradient" : " neutral") + '" data-icon="mic"></span>' +
+            '<div class="row-body"><div class="row-title">' + esc(c.channelName || c.channelId) +
+            (c.enabled ? ' <span class="chip ok">habilitado</span>' : ' <span class="chip warn">desabilitado</span>') +
+            (c.streamers ? ' <span class="chip danger">' + c.streamers + " no ar</span>" : "") +
+            (c.bans.length ? ' <span class="chip danger">' + c.bans.length + " banido(s)</span>" : "") +
+            "</div>" +
+            '<div class="row-detail"><span class="mono">' + esc(c.channelId) + "</span>" +
+            (live.length ? " · " + live.length + " na sala" : c.seen.length ? " · " + c.seen.length + " visto(s)" : "") + "</div>" +
+            peopleStrip(live) + "</div>" +
+            '<div class="row-accessory">' +
+            '<button class="toggle" role="switch" aria-checked="' + String(Boolean(c.enabled)) + '" data-act="chan-toggle" data-id="' + esc(c.channelId) + '" aria-label="Habilitar transmissão neste canal" title="Habilitar transmissão"></button>' +
+            '<button class="btn btn-sm" data-act="chan-members" data-id="' + esc(c.channelId) + '">Membros</button>' +
+            '<button class="btn btn-destructive btn-sm" data-act="chan-remove" data-id="' + esc(c.channelId) + '">Remover</button>' +
+            "</div></div>";
+        }
+
+        function renderGroups() {
+          if (!groups.length) {
+            $("#groups").innerHTML = '<div class="group">' + empty("users", "Nenhum grupo configurado", "Sincronize com o bot ou adicione um canal — ou entre numa call e ele aparece aqui.") + "</div>";
+            return;
+          }
+          $("#groups").innerHTML = groups.map(function (g) {
+            var enabled = g.channels.filter(function (c) { return c.enabled; }).length;
+            return '<div class="card" style="gap:12px;padding:16px">' +
+              '<div class="cluster" style="gap:12px">' + guildThumb(g, "xl") +
+              '<div class="row-body"><div class="row-title">' + esc(g.guildName || g.guildId) +
+              (g.botPresent ? ' <span class="chip ok">bot presente</span>' : ' <span class="chip warn">bot fora</span>') + "</div>" +
+              '<div class="row-detail">' + g.channels.length + " canal(is) · " + enabled + " habilitado(s)</div></div></div>" +
+              '<div class="group">' + g.channels.map(channelRow).join("") + "</div></div>";
+          }).join("");
+        }
+
+        function memberRow(c, userId, name, banned, lastSeen, isLive, streamer) {
+          var status = banned ? ' <span class="chip danger">banido</span>'
+            : streamer ? ' <span class="chip live">no ar</span>'
+            : isLive ? ' <span class="chip">na sala</span>'
+            : ' <span class="chip ok">permitido</span>';
+          return '<div class="row">' + avatar(name || userId, userId) +
+            '<div class="row-body"><div class="row-title">' + esc(name || userId) + status + "</div>" +
             '<div class="row-detail"><span class="mono">' + esc(userId) + "</span>" + (lastSeen ? " · visto " + ui.relativeTime(lastSeen) : "") + "</div></div>" +
             '<div class="row-accessory"><button class="btn btn-sm' + (banned ? "" : " btn-destructive") + '" data-act="' + (banned ? "chan-unban" : "chan-ban") +
             '" data-id="' + esc(c.channelId) + '" data-user="' + esc(userId) + '">' + (banned ? "Permitir" : "Banir") + "</button></div></div>";
         }
 
         function renderMembers() {
-          var c = channels.find(function (x) { return x.channelId === membersChannel; });
+          var c = findChannel(membersChannel);
           if (!c) return;
-          var rows = c.seen.map(function (s) {
-            return memberRow(c, s.userId, s.name, c.bans.indexOf(s.userId) >= 0, s.lastSeen);
-          });
-          c.bans.forEach(function (id) {
-            if (!c.seen.some(function (s) { return s.userId === id; })) rows.push(memberRow(c, id, undefined, true, 0));
+          var map = {};
+          (c.liveMembers || []).forEach(function (m) { map[m.userId] = { name: m.name, live: true, streamer: m.streamer, lastSeen: 0 }; });
+          c.seen.forEach(function (s) { var e = map[s.userId] || {}; e.name = e.name || s.name; e.lastSeen = s.lastSeen; map[s.userId] = e; });
+          c.bans.forEach(function (id) { if (!map[id]) map[id] = {}; });
+          var rows = Object.keys(map).map(function (id) {
+            var e = map[id];
+            return memberRow(c, id, e.name, c.bans.indexOf(id) >= 0, e.lastSeen, e.live, e.streamer);
           });
           $("#members-list").innerHTML = rows.length ? rows.join("")
             : empty("users", "Ninguém visto ainda", "Quem entrar neste canal aparece aqui.");
@@ -396,14 +497,14 @@ export function adminPage(name: string): string {
           var enabled = users.filter(function (u) { return u.enabled && (!q || u.name.toLowerCase().indexOf(q) >= 0 || u.id.indexOf(q) >= 0); });
 
           $("#pending").innerHTML = pending.length ? pending.map(function (u) {
-            return '<div class="row">' + avatar(u.name) +
+            return '<div class="row">' + avatar(u.name, u.id) +
               '<div class="row-body"><div class="row-title">' + esc(u.name) + ' <span class="chip warn">pendente</span></div>' +
               '<div class="row-detail"><span class="mono">' + esc(u.id) + "</span> · pediu " + ui.relativeTime(u.requestedAt) + "</div></div>" +
               '<div class="row-accessory"><button class="btn btn-prominent btn-sm" data-act="enable" data-id="' + esc(u.id) + '">Liberar</button></div></div>';
           }).join("") : empty("inbox", "Nenhum pedido pendente");
 
           $("#users").innerHTML = enabled.length ? enabled.map(function (u) {
-            return '<div class="row">' + avatar(u.name) +
+            return '<div class="row">' + avatar(u.name, u.id) +
               '<div class="row-body"><div class="row-title">' + esc(u.name) + ' <span class="chip ok">liberado</span></div>' +
               '<div class="row-detail"><span class="mono">' + esc(u.id) + "</span> · " + u.maxHeight + "p · " + u.maxFps + " fps" + (u.enabledAt ? " · desde " + ui.relativeTime(u.enabledAt) : "") + "</div></div>" +
               '<div class="row-accessory"><button class="btn btn-sm" data-act="edit" data-id="' + esc(u.id) + '">Editar</button>' +
@@ -416,20 +517,20 @@ export function adminPage(name: string): string {
             var m = await j("/admin/metrics");
             users = await j("/admin/users");
             live = await j("/admin/live");
-            channels = await j("/admin/channels");
+            groups = await j("/admin/groups");
+            bot = await j("/admin/bot");
             transmissions = flatStreamers();
-            push(history.cpu, m.cpuLoad[0]); push(history.mem, m.memory.usedPct * 100);
             push(history.tx, transmissions.length); push(history.peers, m.peers); push(history.rooms, live.rooms.length);
             $("#metrics").innerHTML =
               metric("Transmissões", transmissions.length, history.tx) +
               metric("Salas", live.rooms.length + ' <span class="caption">ao vivo</span>', history.rooms) +
-              metric("Conectados", m.peers + ' <span class="caption">em ' + m.rooms + (m.rooms === 1 ? " sala" : " salas") + "</span>", history.peers) +
-              metric("CPU (1 min)", m.cpuLoad[0].toFixed(2) + ' <span class="caption">/ ' + m.cpus + "</span>", history.cpu) +
-              metric("Memória", (m.memory.usedPct * 100).toFixed(0) + "%", history.mem);
+              metric("Conectados", m.peers + ' <span class="caption">em ' + m.rooms + (m.rooms === 1 ? " sala" : " salas") + "</span>", history.peers);
+            $("#sys").textContent = "CPU " + m.cpuLoad[0].toFixed(2) + " / " + m.cpus + " · memória " + (m.memory.usedPct * 100).toFixed(0) + "% · uptime " + ui.duration(m.uptime);
             renderTx();
             renderRooms();
             renderMode();
-            renderChannels();
+            renderGroups();
+            renderBot();
             if (membersChannel && $("#members").open) renderMembers();
             renderUsers();
             $("#updated").innerHTML = '<span class="dot text-ok"></span>ao vivo · uptime ' + ui.duration(m.uptime);
@@ -464,7 +565,7 @@ export function adminPage(name: string): string {
           }
           if (act === "chan-members") { openMembers(id); return; }
           if (act === "chan-remove") {
-            var ch = channels.find(function (x) { return x.channelId === id; }); if (!ch) return;
+            var ch = findChannel(id); if (!ch) return;
             var okRemove = await ui.confirm({ title: "Remover " + (ch.channelName || ch.channelId) + "?", message: "O canal sai da lista e ninguém novo passa a transmitir por ele. Quem já está na call continua até sair.", confirmLabel: "Remover", destructive: true });
             if (!okRemove) return;
             try { await j("/admin/channels/" + encodeURIComponent(id), { method: "DELETE" }); ui.toast("Canal removido", "danger"); load(); }
@@ -505,8 +606,8 @@ export function adminPage(name: string): string {
           try {
             await post("/admin/channels/" + encodeURIComponent(sw.dataset.id) + "/enable", { enabled: enabled });
             ui.toast(enabled ? "Canal habilitado — os membros podem transmitir" : "Canal desabilitado", enabled ? "ok" : "danger");
-            channels = await j("/admin/channels");
-            renderChannels();
+            groups = await j("/admin/groups");
+            renderGroups();
           } catch (err) {
             ui.toast("Falha: " + err.message, "danger");
             sw.setAttribute("aria-checked", String(!enabled));
@@ -531,7 +632,7 @@ export function adminPage(name: string): string {
 
         // --- Adicionar canal (bot) ---
         async function openAddChan() {
-          var manual = !live.bot;
+          var manual = !bot.configured;
           $("#ac-bot").hidden = manual;
           $("#ac-manual").hidden = !manual;
           ui.openSheet("#addchan");
@@ -580,7 +681,7 @@ export function adminPage(name: string): string {
 
         // --- Membros de um canal (permitir/banir) ---
         function openMembers(id) {
-          var c = channels.find(function (x) { return x.channelId === id; }); if (!c) return;
+          var c = findChannel(id); if (!c) return;
           membersChannel = id;
           $("#members-title").textContent = c.channelName || c.channelId;
           renderMembers();
@@ -589,8 +690,8 @@ export function adminPage(name: string): string {
 
         async function banMember(channelId, userId, banned) {
           await post("/admin/channels/" + encodeURIComponent(channelId) + "/ban", { userId: userId, banned: banned });
-          channels = await j("/admin/channels");
-          renderChannels(); renderMembers();
+          groups = await j("/admin/groups");
+          renderGroups(); renderMembers();
         }
 
         $("#ban-go").addEventListener("click", async function () {
@@ -613,6 +714,14 @@ export function adminPage(name: string): string {
         });
 
         $("#q").addEventListener("input", renderUsers);
+
+        // Abas: mostra só a seção escolhida (segmented dispara "change").
+        var panels = { overview: "#tab-overview", groups: "#tab-groups", users: "#tab-users", settings: "#tab-settings" };
+        $("#tabs").addEventListener("change", function (e) {
+          var v = e.detail && e.detail.value; if (!panels[v]) return;
+          Object.keys(panels).forEach(function (k) { $(panels[k]).hidden = k !== v; });
+        });
+
         load(); setInterval(load, 4000);
         setInterval(renderTx, 1000); // relógio das durações
       })();

@@ -1,13 +1,3 @@
-/*
- * FRD GoLive — design system (fase 1): comportamento dos componentes.
- *
- * Script clássico (sem build), expõe `window.FRDUI`. Carregue no <head> SEM
- * defer: ele aplica o tema salvo antes da primeira pintura (sem flash) e liga
- * os componentes quando o DOM fica pronto — inclusive os inseridos depois
- * (MutationObserver), então páginas que renderizam via innerHTML funcionam.
- *
- * Marcação esperada: ver /ui/ (public/ui/index.html).
- */
 (function () {
     "use strict";
 
@@ -15,7 +5,6 @@
     var THEME_KEY = "frd-theme";
     var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    // ------------------------------------------------------------------ tema
     function storedTheme() {
         try {
             var t = localStorage.getItem(THEME_KEY);
@@ -31,7 +20,6 @@
         try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* ok */ }
     }
 
-    /** Troca o tema com revelação circular a partir de (x, y) quando suportado. */
     function setTheme(t, origin) {
         if (!document.startViewTransition || reduceMotion) {
             writeTheme(t);
@@ -51,13 +39,11 @@
 
     writeTheme(storedTheme()); // antes da primeira pintura
 
-    // ------------------------------------------------------------ segmented
     function placeThumb(seg) {
         var on = seg.querySelector(':scope > button[aria-pressed="true"]');
         var th = seg.querySelector(":scope > .segmented-thumb");
         if (!th) return;
         if (!on || !on.offsetWidth) { th.style.opacity = "0"; return; } // oculto (ex.: sheet fechado)
-        // Primeira vez visível: posiciona sem animar (senão desliza a partir do canto).
         var first = th.style.opacity !== "1";
         if (first) th.style.transition = "none";
         th.style.opacity = "1";
@@ -85,7 +71,6 @@
         seg.classList.add("is-ready");
         seg.setAttribute("role", seg.getAttribute("role") || "group");
 
-        // seletor de tema pronto: <div class="segmented" data-theme-switch>
         if (seg.hasAttribute("data-theme-switch")) {
             var current = storedTheme();
             seg.querySelectorAll(":scope > button").forEach(function (b) {
@@ -95,15 +80,12 @@
                 setTheme(e.detail.value, lastPointer);
             });
         }
-        // Reposiciona quando o tamanho muda — inclusive ao sair de display:none
-        // (sheet abrindo, aba trocando), quando os offsets passam a existir.
         if (window.ResizeObserver) new ResizeObserver(function () { placeThumb(seg); }).observe(seg);
         requestAnimationFrame(function () { placeThumb(seg); });
     }
 
     var lastPointer = null;
 
-    // ------------------------------------------------------------------ sheet
     function openSheet(dialog) {
         if (typeof dialog === "string") dialog = document.querySelector(dialog);
         if (!dialog || dialog.open) return;
@@ -120,13 +102,11 @@
     function initSheet(dialog) {
         if (dialog.dataset.uiReady) return;
         dialog.dataset.uiReady = "1";
-        // clique no backdrop fecha
         dialog.addEventListener("click", function (e) {
             if (e.target === dialog) closeSheet(dialog, "cancel");
         });
     }
 
-    // ------------------------------------------------------------------ toast
     var region = null;
 
     function toast(message, tone, ms) {
@@ -148,11 +128,6 @@
         }, ms || 3200);
     }
 
-    // ---------------------------------------------------------------- confirm
-    /**
-     * Confirmação em sheet (substitui window.confirm).
-     * FRDUI.confirm({ title, message, confirmLabel, destructive }) → Promise<boolean>
-     */
     function confirmSheet(opts) {
         opts = opts || {};
         return new Promise(function (resolve) {
@@ -183,8 +158,6 @@
         });
     }
 
-    // -------------------------------------------------------------- helpers
-    /** SVG de sparkline (herda `color`). */
     function sparkline(values, opts) {
         opts = opts || {};
         var w = 100, h = 30, pad = 3;
@@ -213,7 +186,6 @@
         });
     }
 
-    /** "agora", "há 5 min", "há 2 h", "há 3 dias". */
     function relativeTime(ts) {
         if (!ts) return "—";
         var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -226,7 +198,6 @@
         return "há " + d + (d === 1 ? " dia" : " dias");
     }
 
-    /** "00:12:44" a partir de segundos. */
     function duration(sec) {
         sec = Math.max(0, Math.floor(sec));
         return [sec / 3600 | 0, (sec / 60 | 0) % 60, sec % 60].map(function (n) {
@@ -234,15 +205,23 @@
         }).join(":");
     }
 
-    /** Iniciais para avatar. */
     function initials(name) {
         var parts = String(name || "?").replace(/[._-]+/g, " ").trim().split(/\s+/);
         return ((parts[0] || "?")[0] + (parts[1] ? parts[1][0] : (parts[0][1] || ""))).toUpperCase();
     }
 
-    // ------------------------------------------------------------ delegação
+    function thumb(url, name, square, cls) {
+        return '<span class="avatar' + (square ? " square" : "") + (cls ? " " + cls : "") + '">' + escapeHtml(initials(name)) +
+            (url ? '<img src="' + escapeHtml(url) + '" alt="" loading="lazy" data-fallback>' : "") + "</span>";
+    }
+
     document.addEventListener("pointerdown", function (e) {
         lastPointer = { x: e.clientX, y: e.clientY };
+    }, true);
+
+    document.addEventListener("error", function (e) {
+        var t = e.target;
+        if (t instanceof Element && t.tagName === "IMG" && t.hasAttribute("data-fallback")) t.remove();
     }, true);
 
     document.addEventListener("click", function (e) {
@@ -283,7 +262,6 @@
         if (closer) { closeSheet(closer.closest("dialog"), closer.getAttribute("data-sheet-close") || "cancel"); }
     });
 
-    // setas no segmented
     document.addEventListener("keydown", function (e) {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         var btn = e.target instanceof Element && e.target.closest(".segmented > button");
@@ -296,10 +274,6 @@
         e.preventDefault();
     });
 
-
-    // ------------------------------------------------------------------ ícones
-    // SVGs 24×24 com currentColor. Uso: <i data-icon="check"></i> (hidratado no
-    // init) ou FRDUI.icon("check") em markup gerado por JS.
     var ICONS = {
         logo: '<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H13l1 3h1.5a1 1 0 1 1 0 2h-7a1 1 0 1 1 0-2H10l1-3H6.5A2.5 2.5 0 0 1 4 13.5v-7Zm6 1.8v4.4c0 .5.5.8.9.5l3.4-2.2a.6.6 0 0 0 0-1L10.9 7.8c-.4-.3-.9 0-.9.5Z"/>',
         check: '<path d="M9.5 16.2 5.8 12.5l-1.4 1.4 5.1 5.1L20 8.5l-1.4-1.4z"/>',
@@ -327,6 +301,9 @@
         settings: '<path d="m19.4 13 .1-1-.1-1 2.1-1.6-2-3.5-2.5 1a7 7 0 0 0-1.7-1L15 3h-4l-.4 2.7a7 7 0 0 0-1.7 1l-2.5-1-2 3.5L6.5 11l-.1 1 .1 1-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5L19.4 13ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/>',
         sparkle: '<path d="M12 2l2.2 5.8L20 10l-5.8 2.2L12 18l-2.2-5.8L4 10l5.8-2.2L12 2Zm7 12 1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1 1-2.6Z"/>',
         discord: '<path d="M19.3 5.3A16.5 16.5 0 0 0 15.2 4l-.5 1a15 15 0 0 0-5.4 0L8.8 4a16.5 16.5 0 0 0-4.1 1.3C2 9.2 1.3 13 1.6 16.7a16.6 16.6 0 0 0 5 2.6l1.1-1.7c-.6-.2-1.2-.5-1.7-.9l.4-.3a11.8 11.8 0 0 0 11.2 0l.4.3c-.5.4-1.1.7-1.7.9l1.1 1.7a16.5 16.5 0 0 0 5-2.6c.4-4.3-.7-8-3.1-11.4ZM8.7 14.5c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6.6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/>',
+        link: '<path d="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h3V7H7a5 5 0 0 0 0 10h3v-1.9H7A3.1 3.1 0 0 1 3.9 12Zm4.1 1h8v-2H8v2Zm9-6h-3v1.9h3a3.1 3.1 0 0 1 0 6.2h-3V17h3a5 5 0 0 0 0-10Z"/>',
+        refresh: '<path d="M12 6V3L8 7l4 4V8a4 4 0 1 1-4 4H6a6 6 0 1 0 6-6Z"/>',
+        bot: '<path d="M12 2a1 1 0 0 1 1 1v1h3a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h3V3a1 1 0 0 1 1-1ZM9 10a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM9 16h6v1.5H9V16ZM3 10h1.5v4H3v-4Zm16.5 0H21v4h-1.5v-4Z"/>',
     };
 
     function icon(name) {
@@ -341,7 +318,6 @@
         });
     }
 
-    // ------------------------------------------------------------------ init
     function init(scope) {
         scope = scope || document;
         scope.querySelectorAll(".segmented").forEach(initSegmented);
@@ -392,6 +368,7 @@
         relativeTime: relativeTime,
         duration: duration,
         initials: initials,
+        thumb: thumb,
         icon: icon,
         icons: Object.keys(ICONS),
     };

@@ -1,15 +1,18 @@
-# Instalação do cliente no Windows
+# Installing the client on Windows
 
-Tutorial para instalar o plugin **FRDGoLive** no Discord Desktop no Windows.
-Como o Vencord compila os plugins no build, você monta o Vencord com o nosso
-plugin dentro e injeta no Discord.
+How to install the **FRDGoLive** plugin into Discord Desktop on Windows. Because
+Vencord compiles plugins at build time, you build Vencord with our plugin inside and
+inject it into Discord.
 
-> Precisa fazer isto **em cada máquina** que vai usar a transmissão privada, e
-> todas com a **mesma** config (`serverUrl`, `tokenServiceUrl`, `orgSecret`).
+> Do this **on every machine** that will use the private stream, all pointing at the
+> **same** server (`nativeStreamEndpoint`).
 
-## 1. Pré-requisitos
+> The **graphical installer** ([../installer/](../installer)) does all of this without a
+> terminal — prefer it unless you want the manual steps below.
 
-Abra o **PowerShell** e instale (via winget):
+## 1. Prerequisites
+
+Open **PowerShell** and install (via winget):
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
@@ -17,63 +20,61 @@ winget install Git.Git
 npm install -g pnpm
 ```
 
-**Feche TODAS as janelas do PowerShell e abra uma nova** — senão o `PATH` novo não
-vale e você verá `'node' não é reconhecido` mais pra frente. Confira (todos
-precisam imprimir uma versão antes de continuar):
+**Close ALL PowerShell windows and open a new one** — otherwise the new `PATH` is not in
+effect and you will see `'node' is not recognized` later. Check (all must print a version
+before continuing):
 
 ```powershell
 node -v ; git --version ; pnpm -v
 ```
 
-Se `node -v` disser "não reconhecido" mesmo numa janela nova, instale o Node pelo
-instalador oficial LTS (https://nodejs.org), reabra o PowerShell e teste de novo.
+If `node -v` still says "not recognized" in a new window, install Node from the official
+LTS installer (https://nodejs.org), reopen PowerShell, and test again.
 
-### Liberar a execução de scripts (necessário para o pnpm)
+### Allow script execution (needed for pnpm)
 
-Por padrão o Windows bloqueia scripts `.ps1` e o `pnpm` falha com
-*"a execução de scripts foi desabilitada neste sistema"*. Libere para o seu
-usuário (não precisa de admin):
+By default Windows blocks `.ps1` scripts and `pnpm` fails with *"running scripts is
+disabled on this system"*. Allow it for your user (no admin needed):
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 
-Confirme com **S**. `RemoteSigned` permite scripts locais e exige assinatura só em
-scripts baixados da internet. Alternativa sem mudar a policy: use o shim `.cmd`
-(`pnpm.cmd install`, `pnpm.cmd build`, etc.) no lugar de `pnpm ...`.
+Confirm with **Y**. `RemoteSigned` allows local scripts and only requires a signature for
+scripts downloaded from the internet. Alternative without changing the policy: use the
+`.cmd` shim (`pnpm.cmd install`, `pnpm.cmd build`, etc.) instead of `pnpm ...`.
 
-## 2. Clonar o Vencord (FORA de qualquer repo nosso)
+## 2. Clone Vencord (OUTSIDE any of our repos)
 
 ```powershell
 git clone https://github.com/Vendicated/Vencord "$env:USERPROFILE\Vencord"
 cd "$env:USERPROFILE\Vencord"
 pnpm install
-pnpm add livekit-client
 ```
 
-> Não clone o Vencord dentro da pasta `client/` do nosso projeto — o pnpm "sobe"
-> e usa o `package.json` errado, dando `Command "build" not found`.
+> Do not clone Vencord inside our project's `client/` folder — pnpm "walks up" and uses
+> the wrong `package.json`, giving `Command "build" not found`.
 
-## 3. Copiar o plugin para dentro do Vencord
+## 3. Copy the plugin into Vencord
 
-Baixe/clone o nosso repositório (ex.: em `C:\FRD_GOLIVE`) e **copie** a pasta
-`client\src` para `src\userplugins\frdGoLive`:
+Download/clone our repository (e.g. to `C:\FRD_GOLIVE`) and **copy** the `client\src`
+folder to `src\userplugins\frdGoLive`:
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\Vencord\src\userplugins" | Out-Null
 Copy-Item -Recurse -Force "C:\FRD_GOLIVE\client\src" "$env:USERPROFILE\Vencord\src\userplugins\frdGoLive"
 ```
 
-Ajuste `C:\FRD_GOLIVE` para onde você clonou o projeto.
+Adjust `C:\FRD_GOLIVE` to wherever you cloned the project.
 
-> **Copie, não use symlink.** O Vencord resolve os aliases (`@webpack/common`
-> etc.) com escopo em `src/**`; um link para fora do repo quebra o build. E copie
-> **`client\src`** (que contém o `index.tsx`), não `client\` inteiro.
+> **Copy, do not symlink.** Vencord resolves aliases (`@webpack/common` etc.) scoped to
+> `src/**`; a link outside the repo breaks the build. And copy **`client\src`** (which
+> contains `index.tsx`), not all of `client\`.
 
-## 4. Buildar e injetar
+## 4. Build and inject
 
-Feche o **Discord completamente** (clique com o botão direito no ícone da bandeja
-→ Quit / Sair — não só o X da janela). Depois:
+Close **Discord completely** (right-click the tray icon → Quit — not just the window X).
+Then:
 
 ```powershell
 cd "$env:USERPROFILE\Vencord"
@@ -81,11 +82,11 @@ pnpm build
 pnpm inject
 ```
 
-No menu do instalador, escolha **Install Vencord** e selecione seu Discord.
+In the installer menu, choose **Install Vencord** and select your Discord.
 
-### Se o `pnpm inject` falhar (download 404 / erro)
+### If `pnpm inject` fails (404 download / error)
 
-Baixe o instalador CLI na mão e rode com as variáveis que apontam para o seu build:
+Download the CLI installer by hand and run it with the variables pointing at your build:
 
 ```powershell
 $url = "https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe"
@@ -95,30 +96,29 @@ $env:VENCORD_DEV_INSTALL = "1"
 & "$env:TEMP\VencordInstallerCli.exe"
 ```
 
-Escolha **Install Vencord**. Se o SmartScreen avisar que o app não é reconhecido,
-clique em "Mais informações" → "Executar assim mesmo" (o binário é o instalador
-oficial do Vencord, só não é assinado).
+Choose **Install Vencord**. If SmartScreen warns that the app is unrecognized, click "More
+info" → "Run anyway" (the binary is the official Vencord installer, just unsigned).
 
-## 5. Ativar e configurar no Discord
+## 5. Enable and configure in Discord
 
-1. Abra o Discord.
-2. **Configurações → Vencord → Plugins** → procure **FRDGoLive** → ative.
-3. Ainda nas settings do plugin, preencha:
-   - `serverUrl` → `ws://SEU_HOST:7880` (ou `wss://livekit.seudominio.com`)
-   - `tokenServiceUrl` → `http://SEU_HOST:8080` (ou `https://token.seudominio.com`)
-   - `orgSecret` → o mesmo do `.env` do servidor
+1. Open Discord.
+2. **Settings → Vencord → Plugins** → find **FRDGoLive** → enable.
+3. Still in the plugin settings, fill in:
+   - `nativeStreamEndpoint` → `stream.example.com/dstream` (no scheme; Discord prefixes
+     `wss://`). This is the private server's control WS.
+   - `nativeStreamDave` → on (audio E2EE), matching the server's `NATIVE_STREAM_DAVE=1`.
 
-Ao entrar numa call de voz, o painel flutuante aparece no canto.
+Then start Discord's **native Go Live** — the media goes to the private server.
 
-## 6. Regiões com bloqueio de tela
+## 6. Regions with screen-sharing blocks
 
-Se o Discord desabilita o compartilhamento de tela na sua região, ligue **"Captura
-nativa"** nas settings do plugin. No Windows esse modo (via `desktopCapturer`)
-funciona bem e **inclusive captura o áudio do sistema**.
+If Discord disables screen sharing in your region, enable **"Native capture"** in the
+plugin settings. On Windows that mode (via `desktopCapturer`) works well and **also
+captures system audio**.
 
-## Atualizar o plugin depois (loop de dev)
+## Updating the plugin later (dev loop)
 
-Ao mudar o código, re-sincronize e rebuilde:
+When you change the code, re-sync and rebuild:
 
 ```powershell
 robocopy "C:\FRD_GOLIVE\client\src" "$env:USERPROFILE\Vencord\src\userplugins\frdGoLive" /MIR
@@ -126,21 +126,21 @@ cd "$env:USERPROFILE\Vencord"
 pnpm build
 ```
 
-Depois reinicie o Discord (Ctrl+R na janela costuma bastar para recarregar).
+Then restart Discord (Ctrl+R in the window usually reloads it).
 
-## Problemas comuns
+## Common problems
 
-- **`a execução de scripts foi desabilitada neste sistema`** (ao rodar `pnpm`) →
-  rode `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, ou
-  use `pnpm.cmd` no lugar de `pnpm`.
-- **`'node' não é reconhecido`** (postinstall do esbuild falha) → o Node não está
-  no PATH desta sessão. Feche e reabra o PowerShell; confirme com `node -v`; então
-  rode `pnpm install` de novo. Se persistir, instale o Node LTS pelo MSI oficial.
-- **`Command "build" not found`** → você está na pasta errada ou clonou o Vencord
-  dentro de `client/`. Rode o `pnpm build` dentro de `%USERPROFILE%\Vencord`.
-- **`Could not resolve "@webpack/common"`** → você usou symlink ou copiou `client\`
-  em vez de `client\src`. Refaça a cópia da pasta `client\src`.
-- **Plugin não aparece** → confira que existe
-  `%USERPROFILE%\Vencord\src\userplugins\frdGoLive\index.tsx` e rebuilde.
-- **Conecta mas a tela não aparece** → é o caminho de mídia (UDP) no servidor, não
-  o cliente. Ver `server/README.md`.
+- **`running scripts is disabled on this system`** (running `pnpm`) → run
+  `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, or use
+  `pnpm.cmd` instead of `pnpm`.
+- **`'node' is not recognized`** (esbuild postinstall fails) → Node is not on this
+  session's PATH. Close and reopen PowerShell; confirm with `node -v`; then run
+  `pnpm install` again. If it persists, install Node LTS from the official MSI.
+- **`Command "build" not found`** → you are in the wrong folder or cloned Vencord inside
+  `client/`. Run `pnpm build` inside `%USERPROFILE%\Vencord`.
+- **`Could not resolve "@webpack/common"`** → you used a symlink or copied `client\`
+  instead of `client\src`. Redo the copy of the `client\src` folder.
+- **Plugin does not appear** → check that
+  `%USERPROFILE%\Vencord\src\userplugins\frdGoLive\index.tsx` exists and rebuild.
+- **Connects but the screen does not appear** → that is the media path (UDP) on the
+  server, not the client. See `server/README.md`.

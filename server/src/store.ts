@@ -1,5 +1,3 @@
-// Store em memória de usuários/canais/config. Persiste num JSON simples para
-// sobreviver a restart no MVP. Trocar por SQLite/Postgres depois.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import type { AuthMode, ChannelCfg, Policy, ServerSettings, User } from "./types.js";
@@ -24,7 +22,6 @@ class Store {
         if (existsSync(DB_FILE)) {
             try {
                 const raw = JSON.parse(readFileSync(DB_FILE, "utf-8"));
-                // Formato antigo = array de usuários; novo = { users, channels, settings }.
                 const db: DbShape = Array.isArray(raw)
                     ? { users: raw, channels: [], settings: { authMode: "login" } }
                     : raw;
@@ -46,8 +43,6 @@ class Store {
         } catch { /* melhor esforço */ }
     }
 
-    // --- Config ---
-
     getSettings(): ServerSettings {
         return this.settings;
     }
@@ -57,8 +52,6 @@ class Store {
         this.persist();
         return this.settings;
     }
-
-    // --- Usuários (modo login) ---
 
     requestAccess(id: string, name: string): User {
         let u = this.users.get(id);
@@ -97,8 +90,6 @@ class Store {
         return { enabled: u.enabled, maxHeight: u.maxHeight, maxFps: u.maxFps };
     }
 
-    // --- Canais (modo channels) ---
-
     listChannels(): ChannelCfg[] {
         return [...this.channels.values()].sort((a, b) => b.addedAt - a.addedAt);
     }
@@ -107,7 +98,6 @@ class Store {
         return this.channels.get(channelId);
     }
 
-    /** Adiciona um canal (habilitado por padrão) ou atualiza os nomes. */
     upsertChannel(c: { guildId: string; guildName: string; channelId: string; channelName: string; enabled?: boolean; }): ChannelCfg {
         let ch = this.channels.get(c.channelId);
         if (!ch) {
@@ -122,11 +112,6 @@ class Store {
         return ch;
     }
 
-    /**
-     * Cria todos os canais que ainda não existem, **habilitados** (padrão do modo
-     * canais: libera tudo e o admin desliga as exceções). Canais já conhecidos não
-     * são tocados — nem o `enabled` nem as listas de banido.
-     */
     seedChannels(list: { guildId: string; guildName: string; channelId: string; channelName: string; }[]): number {
         let added = 0;
         for (const c of list) {
@@ -146,7 +131,6 @@ class Store {
         return ch;
     }
 
-    /** Preenche nomes resolvidos via bot (não mexe em `enabled` nem em listas). */
     fillNames(channelId: string, guildName: string, channelName: string): void {
         const ch = this.channels.get(channelId);
         if (!ch) return;
@@ -178,7 +162,6 @@ class Store {
         return this.channels.get(channelId)?.bans.includes(userId) ?? false;
     }
 
-    /** Registra um membro visto num canal (para a dashboard agir sem digitar id). */
     noteSeen(channelId: string, userId: string, name?: string): void {
         const ch = this.channels.get(channelId);
         if (!ch) return;
@@ -191,7 +174,6 @@ class Store {
         this.persist();
     }
 
-    /** Grava o nome resolvido de um membro visto (sem mexer no `lastSeen`). */
     rememberName(channelId: string, userId: string, name: string): void {
         const m = this.channels.get(channelId)?.seen.find(s => s.userId === userId);
         if (!m || m.name === name) return;
@@ -199,7 +181,6 @@ class Store {
         this.persist();
     }
 
-    /** Decisão central de habilitação, considerando o modo de auth. */
     canStream(userId: string, channelId: string): boolean {
         if (this.settings.authMode === "channels") {
             const ch = this.channels.get(channelId);

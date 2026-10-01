@@ -1,4 +1,3 @@
-// Sessão do hub: cookie HMAC-assinado (sem dependências externas).
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 

@@ -1,9 +1,3 @@
-// Feedback transport-wide congestion control (RTCP RTPFB FMT 15 — draft-holmer-rmcat-transport-wide-cc).
-//
-// O nativo do Discord (libwebrtc) estima a banda de envio pelo feedback de
-// chegada que o RECEPTOR manda. Sem ele a estimativa fica nos ~600 kbps iniciais,
-// abaixo do mínimo do Go Live, e o vídeo recebe 0 de bitrate. Aqui registramos a
-// hora de chegada de cada número de sequência transport-wide e montamos o feedback.
 
 const DELTA_UNIT_US = 250;
 const REF_UNIT_US = 64_000;
@@ -15,7 +9,6 @@ export class TwccRecorder {
     private nextBase: number | null = null;
     private fbCount = 0;
 
-    /** seq: número transport-wide (16 bits); tUs: chegada em µs (relógio monotônico). */
     record(seq16: number, tUs: number): void {
         const seq = this.unwrap(seq16);
         if (this.nextBase !== null && seq < this.nextBase) return; // chegou depois de reportado
@@ -32,7 +25,6 @@ export class TwccRecorder {
         return seq;
     }
 
-    /** Monta o próximo feedback (sem cifra) ou null se não chegou nada novo. */
     build(senderSsrc: number, mediaSsrc: number): Buffer | null {
         if (!this.arrivals.size) return null;
         const seqs = [...this.arrivals.keys()].sort((a, b) => a - b);
@@ -64,7 +56,6 @@ export class TwccRecorder {
             prevUs += delta * DELTA_UNIT_US;
         }
 
-        // Status vector chunks de 2 bits: 1 | 1 | 7 símbolos × 2 bits.
         const chunks: Buffer[] = [];
         for (let i = 0; i < symbols.length; i += 7) {
             let v = 0xc000;
@@ -100,7 +91,6 @@ export class TwccRecorder {
     }
 }
 
-/** Elementos de extensão de cabeçalho RTP (one-byte 0xBEDE ou two-byte 0x100x). */
 export function parseHeaderExtensions(profile: number, body: Buffer): Map<number, Buffer> {
     const out = new Map<number, Buffer>();
     let i = 0;

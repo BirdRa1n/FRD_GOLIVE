@@ -4,10 +4,14 @@ import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 import { fetchConfig, writeVencordConfig } from "./lib/config.js";
 import { downloadInstallerCli, ensureBundledDist, runInject } from "./lib/inject.js";
 import { userDataDir } from "./lib/paths.js";
+import { cachedIconDataUrl, loadPrefs, rememberHost } from "./lib/store.js";
 import { currentUpdateState, initUpdater, openReleasePage, setBusy } from "./lib/updater.js";
 
-const HUB_URL = process.env.FRD_HUB_URL ?? "http://golivefrd.birdra1n.com";
-const DEFAULT_HOST = process.env.FRD_DEFAULT_HOST ?? "https://golivefrd.birdra1n.com";
+function normalizeHost(host: string): string {
+    let h = (host || "").trim().replace(/\/+$/, "");
+    if (h && !/^https?:\/\//i.test(h)) h = "https://" + h;
+    return h;
+}
 
 function createWindow(): void {
     const win = new BrowserWindow({
@@ -15,9 +19,7 @@ function createWindow(): void {
         height: 680,
         resizable: false,
         title: "FRD GoLive",
-        // Mesmo fundo do design system (--bg) — sem flash branco ao abrir no escuro.
         backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0a12" : "#f4f3fa",
-        // macOS: barra de título integrada (semáforo sobre o conteúdo, estilo SwiftUI).
         ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
         webPreferences: { preload: join(__dirname, "preload.js") },
     });
@@ -36,21 +38,66 @@ app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
 });
 
-ipcMain.handle("defaults", () => ({ defaultHost: DEFAULT_HOST, hubUrl: HUB_URL, version: app.getVersion() }));
+ipcMain.handle("defaults", () => ({ host: loadPrefs().host ?? "", version: app.getVersion() }));
 ipcMain.handle("update-state", () => currentUpdateState());
 ipcMain.handle("open-release", () => openReleasePage());
 
+interface Probe {
+    ok: boolean;
+    latencyMs?: number;
+    version?: string;
+    transport?: string;
+    authMode?: string;
+    oauth?: boolean;
+    error?: string;
+}
+
+ipcMain.handle("probe", async (_e, host: string): Promise<Probe> => {
+    const base = normalizeHost(host);
+    if (!base) return { ok: false, error: "empty" };
+    const started = Date.now();
+    try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 6000);
+        const [healthRes, configRes] = await Promise.all([
+            fetch(base + "/health", { signal: ctrl.signal, cache: "no-store" }),
+            fetch(base + "/config", { signal: ctrl.signal, cache: "no-store" }),
+        ]);
+        clearTimeout(t);
+        if (!healthRes.ok) throw new Error("HTTP " + healthRes.status);
+        const h = await healthRes.json() as { version?: string; transport?: string; };
+        const cfg = configRes.ok ? await configRes.json() as { authMode?: string; oauth?: boolean; } : {};
+        rememberHost(base);
+        return { ok: true, latencyMs: Date.now() - started, version: h.version, transport: h.transport, authMode: cfg.authMode, oauth: cfg.oauth };
+    } catch (e) {
+        return { ok: false, error: (e as Error).name === "AbortError" ? "timeout" : (e as Error).message };
+    }
+});
+
+ipcMain.handle("groups", async (_e, host: string) => {
+    const base = normalizeHost(host);
+    if (!base) return [];
+    try {
+        const res = await fetch(base + "/groups", { cache: "no-store" });
+        if (!res.ok) return [];
+        const list = await res.json() as { guildId: string; guildName: string; icon?: string; }[];
+        return Promise.all(list.map(async g => ({
+            guildId: g.guildId,
+            guildName: g.guildName,
+            icon: g.icon ? await cachedIconDataUrl(g.icon) : undefined,
+        })));
+    } catch {
+        return [];
+    }
+});
+
 ipcMain.handle("apply", async (_e, host: string) => {
-    // não reinicia para atualizar no meio da aplicação
     setBusy(true);
     try {
-        // 1. o host devolve toda a config
         const { base, config } = await fetchConfig(host);
-        // 2. coloca o build (com o plugin) no diretório de dados
+        rememberHost(base);
         ensureBundledDist();
-        // 3. grava config do plugin + regras de CSP do domínio
         const domain = writeVencordConfig(userDataDir(), base, config);
-        // 4. aplica a modificação no Discord
         const cli = await downloadInstallerCli();
         await runInject(cli);
         return { ok: true, domain, transport: config.transport };
@@ -59,4 +106,7 @@ ipcMain.handle("apply", async (_e, host: string) => {
     }
 });
 
-ipcMain.handle("open-hub", () => shell.openExternal(HUB_URL));
+ipcMain.handle("open-hub", (_e, host: string) => {
+    const base = normalizeHost(host);
+    if (base) return shell.openExternal(base);
+});

@@ -1,29 +1,32 @@
-# Instalador FRD GoLive (Electron, Mac/Windows)
+# FRD GoLive installer (Electron, Mac/Windows)
 
-App gráfico que **aplica a modificação no Discord** sem terminal: escolhe o
-servidor (birdra1n ou próprio), puxa a config do host, grava as settings do
-plugin + a CSP do domínio, e injeta no Discord. Ao final, abre o hub para o
-usuário habilitar o acesso.
+A graphical app that **applies the modification to Discord** without a terminal: the
+user enters their own server host, it pulls the config from that host, writes the
+plugin settings + the domain CSP, and injects into Discord. At the end it opens the
+hub so the user can get access.
 
-## Fluxo
+## Flow
 
-1. Escolher **servidor birdra1n** ou **próprio** (informa o host).
-2. `GET https://<host>/config` → o host devolve `signalingUrl`, ICE, transporte.
-3. Copia o **Vencord dist** (com o plugin, empacotado) para o data dir.
-4. Grava `settings.json` (config do plugin) + `native.json` (`customCspRules` do
-   domínio) no data dir.
-5. Baixa o **Vencord Installer CLI** e injeta com `VENCORD_USER_DATA_DIR` +
-   `VENCORD_DEV_INSTALL=1` (mesmo mecanismo do `pnpm inject`).
-6. Botão **"Abrir navegador"** → `golivefrd.birdra1n.com` para habilitar.
+1. Enter **the server host** (remembered across updates).
+2. `GET https://<host>/config` → the host returns `nativeStreamEndpoint`, `mediaHost`,
+   `authMode` and `oauth`. The UI shows server status + latency and adapts to the auth
+   mode (Discord login vs allowed groups; in groups mode it lists the enabled groups).
+3. Copies the **Vencord dist** (bundled with the plugin) into the data dir.
+4. Writes `settings.json` (plugin config) + `native-settings.json` (`customCspRules`
+   for the domain) into the data dir.
+5. Downloads the **Vencord Installer CLI** and injects with `VENCORD_USER_DATA_DIR` +
+   `VENCORD_DEV_INSTALL=1` (the same mechanism as `pnpm inject`).
+6. **"Open the site"** button → opens the entered host (the hub).
 
-O hub é servido pelo próprio servidor (`server/`); o login usa OAuth do Discord —
-como configurar em [../docs/DISCORD-OAUTH.md](../docs/DISCORD-OAUTH.md).
+The hub is served by the server itself (`server/`); login uses Discord OAuth — how to
+configure it in [../docs/DISCORD-OAUTH.md](../docs/DISCORD-OAUTH.md).
 
-## Instalação em 1 comando (recomendado)
+## One-command install (recommended)
 
-Os scripts de bootstrap fazem **tudo** — checam dependências, baixam e compilam o
-Vencord **com o plugin** (num cache do seu usuário, sem você clonar nada) e abrem o
-instalador. Eles **explicam o que será feito** e avisam sobre a senha de admin.
+The bootstrap scripts do **everything** — check dependencies, download and build
+Vencord **with the plugin** (in a per-user cache, without you cloning anything) and
+open the installer. They **explain what will be done** and warn about the admin
+password.
 
 **macOS:**
 ```bash
@@ -36,91 +39,96 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\installer\scripts\install-windows.ps1
 ```
 
-> Sobre admin: o patch do Discord pode pedir sua senha (macOS, quando o Discord está
-> em `/Aplicativos`). No Windows normalmente não precisa (grava em `%LocalAppData%`).
-> O que muda: injeta o Vencord + ativa o plugin + grava settings e uma regra de CSP
-> só do seu domínio. Nada é enviado a terceiros. **Feche o Discord antes de aplicar.**
+> About admin: patching Discord may ask for your password (macOS, when Discord is in
+> `/Applications`). On Windows it usually does not (it writes to `%LocalAppData%`).
+> What it changes: injects Vencord + enables the plugin + writes settings and a CSP
+> rule for your domain only. Nothing is sent to third parties. **Close Discord before
+> applying.**
 
-## Desenvolvimento
+## Development
 
 ```bash
 npm install
 npm run typecheck
-npm run build:vencord   # gera installer/vencord-dist (clona o Vencord, compila o plugin)
-npm start               # roda o app (precisa do vencord-dist/)
-npm run start:full      # build:vencord + start, num passo só
-npm run dist            # build:vencord + empacota .dmg (mac) / .exe (win)
+npm run build:vencord   # builds installer/vencord-dist (clones Vencord, compiles the plugin)
+npm start               # runs the app (needs vencord-dist/)
+npm run start:full      # build:vencord + start, in one step
+npm run dist            # build:vencord + packages .dmg (mac) / .exe (win)
 ```
 
-## Gerar o app (.app / .exe) e publicar uma versão
+## Build the app (.app / .exe) and publish a release
 
-Scripts prontos (fazem `npm install`, compilam o Vencord com o plugin, o app e empacotam):
+Ready-made scripts (run `npm install`, build Vencord with the plugin, the app, and
+package it):
 
 | | macOS | Windows |
 |---|---|---|
-| Compilar | `bash installer/scripts/build-app.sh` | `installer\scripts\build-app.bat` |
-| Publicar | `bash installer/scripts/publish-release.sh` | `installer\scripts\publish-release.bat` |
+| Build | `bash installer/scripts/build-app.sh` | `installer\scripts\build-app.bat` |
+| Publish | `bash installer/scripts/publish-release.sh` | `installer\scripts\publish-release.bat` |
 
-- **macOS** gera `release/FRD-GoLive-<v>-{arm64,x64}.dmg` (1ª instalação), `.zip` (usado
-  pelo auto-update), `latest-mac.yml` e `release/mac*/FRD GoLive.app`. Opções:
+- **macOS** produces `release/FRD-GoLive-<v>-{arm64,x64}.dmg` (first install), `.zip`
+  (used by auto-update), `latest-mac.yml` and `release/mac*/FRD GoLive.app`. Options:
   `--bump patch|minor|major`, `--arch arm64|x64|both`, `--skip-vencord`.
-- **Windows** gera `release/FRD-GoLive-Setup-<v>.exe`, `.blockmap`, `latest.yml` e
-  `release/win-unpacked/`. Opções: `--bump`, `--skip-vencord`. O `.exe` só é gerado
-  no Windows (NSIS).
-- **Publicar** usa o GitHub CLI (`gh auth login` antes) e sobe tudo de `release/` para a
-  release `v<versão do package.json>` em BirdRa1n/FRD_GOLIVE. Mac e Windows podem
-  publicar em momentos diferentes: o 1º cria a release, o 2º só anexa os arquivos.
-  `--draft` cria rascunho (o auto-update ignora rascunhos até publicar).
+- **Windows** produces `release/FRD-GoLive-Setup-<v>.exe`, `.blockmap`, `latest.yml`
+  and `release/win-unpacked/`. Options: `--bump`, `--skip-vencord`. The `.exe` is only
+  produced on Windows (NSIS).
+- **Publish** uses the GitHub CLI (`gh auth login` first) and uploads everything from
+  `release/` to the `v<package.json version>` release of the configured repository
+  (set `FRD_RELEASE_REPO=<org>/<repo>` or pass `--repo <org>/<repo>`). Mac and Windows
+  can publish at different times: the first creates the release, the second just
+  attaches the files. `--draft` creates a draft (auto-update ignores drafts until
+  published).
 
-Fluxo de uma nova versão: `build-app --bump patch` → testar → commit/push do
-`package.json` → `publish-release` (em cada SO).
+A new-version flow: `build-app --bump patch` → test → commit/push `package.json` →
+`publish-release` (on each OS).
 
 ### Auto-update (electron-updater)
 
-Ao abrir, o app empacotado procura uma release nova neste repositório, baixa e reinicia
-já atualizado (se estiver no meio do "Aplicar", espera terminar). A faixa no topo da
-janela mostra o progresso. Em dev (`npm start`) fica desligado; `FRD_DISABLE_UPDATES=1`
-desliga em builds empacotados.
+On open, the packaged app looks for a new release in the configured repository,
+downloads it and restarts updated (if it is mid-"Apply", it waits to finish). The
+banner at the top of the window shows progress. In dev (`npm start`) it is off;
+`FRD_DISABLE_UPDATES=1` disables it in packaged builds.
 
-- **Windows:** atualiza sozinho mesmo sem assinatura (o SmartScreen avisa na 1ª instalação).
-- **macOS:** o Squirrel.Mac só instala sozinho em app assinado com **Developer ID**
-  (defina `CSC_LINK`/`CSC_KEY_PASSWORD` ou tenha o certificado no keychain). Sem ele, o
-  build é assinado **ad-hoc** (`scripts/after-pack.cjs`) — abre normalmente (1ª vez:
-  botão direito → Abrir) e, quando há versão nova, o app mostra "baixe a nova versão"
-  com o link da release.
-- As releases deste repositório são do **instalador**: o updater pega a mais recente
-  (não-rascunho), então não publique releases de outras partes com tag `v*` aqui.
+- **Windows:** updates itself even without a signature (SmartScreen warns on the first
+  install).
+- **macOS:** Squirrel.Mac only self-installs for an app signed with a **Developer ID**
+  (set `CSC_LINK`/`CSC_KEY_PASSWORD` or have the certificate in the keychain). Without
+  it, the build is signed **ad-hoc** (`scripts/after-pack.cjs`) — it opens normally
+  (first time: right-click → Open) and, when there is a new version, the app shows
+  "download the new version" with the release link.
+- The releases of this repository are the **installer's**: the updater takes the
+  latest (non-draft), so do not publish releases of other parts with a `v*` tag here.
 
-## O `vencord-dist/` (bundle)
+## The `vencord-dist/` bundle
 
-O app precisa de um **Vencord já compilado com o plugin** em `installer/vencord-dist/`
-(gitignored). Gere com o script cross-platform:
+The app needs a **Vencord already built with the plugin** in `installer/vencord-dist/`
+(gitignored). Generate it with the cross-platform script:
 
 ```bash
 npm run build:vencord   # = node scripts/build-vencord-dist.mjs
 ```
 
-Ele clona o Vencord em `~/.frd-golive/build` (**fora do repo**, evitando o problema do
-pnpm "subir"), copia `client/src`, roda `pnpm build` e publica o `dist/` resultante em
-`installer/vencord-dist`. Variáveis: `FRD_BUILD_DIR` (cache), `VENCORD_REPO`.
+It clones Vencord into `~/.frd-golive/build` (**outside the repo**, avoiding the pnpm
+"walk up" problem), copies `client/src`, runs `pnpm build`, and publishes the resulting
+`dist/` to `installer/vencord-dist`. Variables: `FRD_BUILD_DIR` (cache), `VENCORD_REPO`.
 
-Em dev, dá para apontar para um Vencord já compilado sem gerar o bundle:
+In dev you can point at an already-built Vencord without generating the bundle:
 `FRD_VENCORD_DIST=~/Vencord/dist npm start`.
 
-## Qual Discord é modificado (sem prompt)
+## Which Discord is modified (no prompt)
 
-O instalador roda o Vencord CLI de forma **não-interativa** (`-install -branch auto`),
-detectando o Discord instalado automaticamente — não abre o menu "Select Discord
-install to patch". Para forçar uma branch específica, defina
+The installer runs the Vencord CLI **non-interactively** (`-install -branch auto`),
+detecting the installed Discord automatically — it does not open the "Select Discord
+install to patch" menu. To force a specific branch, set
 `FRD_DISCORD_BRANCH=stable|ptb|canary` (default `auto`).
 
 ## Troubleshooting
 
-- **`Electron failed to install correctly`** (comum no **Node 26+**): o postinstall
-  do Electron usa `extract-zip`, que quebra no Node bleeding-edge — baixa mas extrai
-  só o `LICENSES.chromium.html`. Soluções:
-  - **Recomendado:** usar **Node LTS (20 ou 22)** para este app.
-  - **Workaround** (baixa o binário na mão):
+- **`Electron failed to install correctly`** (common on **Node 26+**): Electron's
+  postinstall uses `extract-zip`, which breaks on bleeding-edge Node — it downloads but
+  only extracts `LICENSES.chromium.html`. Fixes:
+  - **Recommended:** use **Node LTS (20 or 22)** for this app.
+  - **Workaround** (download the binary by hand):
     ```bash
     VER=$(node -p "require('./node_modules/electron/package.json').version")
     A=$(uname -m); [ "$A" = arm64 ] && A=arm64 || A=x64   # macOS
@@ -129,17 +137,17 @@ install to patch". Para forçar uma branch específica, defina
     unzip -q /tmp/e.zip -d node_modules/electron/dist
     printf 'Electron.app/Contents/MacOS/Electron' > node_modules/electron/path.txt
     ```
-- **npm bloqueando install-scripts** (`allowScripts`): aprove com
-  `npm install-scripts approve electron esbuild` e `npm rebuild electron esbuild`.
+- **npm blocking install scripts** (`allowScripts`): approve with
+  `npm install-scripts approve electron esbuild` and `npm rebuild electron esbuild`.
 
-## Pontos a validar em máquina real (WIP)
+## Points to validate on real machines (WIP)
 
-Este instalador precisa de teste em Mac e Windows reais. Verificar:
-- **Flag do Installer CLI** (`-install`) e comportamento headless por plataforma.
-- **Caminho das native settings** do Vencord (`settings/native.json` /
-  `customCspRules`) — pode variar por versão do Vencord.
-- Assinatura/notarização (macOS) e SmartScreen (Windows) dos binários.
-- Fechar o Discord antes de injetar.
+This installer needs testing on real Mac and Windows. Check:
+- **Installer CLI flag** (`-install`) and headless behavior per platform.
+- Vencord's **native settings path** (`settings/native-settings.json` /
+  `customCspRules`) — it can vary by Vencord version.
+- Signing/notarization (macOS) and SmartScreen (Windows) of the binaries.
+- Closing Discord before injecting.
 
-Enquanto isso, o método manual (client/README.md + copiar `client/src` + `pnpm
-build` + `pnpm inject`) continua válido.
+In the meantime, the manual method (copy `client/src` + `pnpm build` + `pnpm inject`)
+remains valid.

@@ -1,4 +1,4 @@
-appId: com.birdra1n.frdgolive
+appId: com.frdgolive.app
 productName: FRD GoLive
 directories:
   output: release
@@ -21,8 +21,8 @@ artifactName: FRD-GoLive-${version}-${arch}.${ext}
 # o electron-builder só gera (--publish never).
 publish:
   provider: github
-  owner: BirdRa1n
-  repo: FRD_GOLIVE
+  owner: your-org
+  repo: your-repo
   releaseType: release
 
 mac:

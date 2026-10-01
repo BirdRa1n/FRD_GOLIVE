@@ -4,7 +4,7 @@ import { OptionType } from "@utils/types";
 export const settings = definePluginSettings({
     nativeStreamEndpoint: {
         type: OptionType.STRING,
-        description: "Servidor privado do Go Live nativo — ex.: golivefrd.SEU.com/dstream. O instalador preenche isto. Quem transmite e quem assiste precisam dele. Vazio = desligado (o Go Live vai para o Discord).",
+        description: "Private native Go Live server — e.g. stream.example.com/dstream. The installer fills this in. Both senders and viewers need it. Empty = disabled (Go Live goes to Discord).",
         default: "",
         restartNeeded: true,
     },
@@ -31,7 +31,6 @@ export const settings = definePluginSettings({
         default: "2026-08-video-guard",
     },
 
-    // --- Diagnóstico ---
     streamProbe: {
         type: OptionType.BOOLEAN,
         description: "[Diagnóstico] Registrar o protocolo do Go Live nativo no console (FRDStreamProbe.copy() copia o log). Só leitura.",

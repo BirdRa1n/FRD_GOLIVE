@@ -1,52 +1,36 @@
-# Roadmap v2
+# Roadmap
 
-Fases incrementais. Cada uma entrega algo testável e não quebra a v1 (SFU) até a
-migração estar pronta.
+Where the project is and what is next. The transport history (mesh → SFU → native
+Go Live) is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Fase A — Transporte P2P/mesh (fundação)
-- [ ] Interface `RtcTransport` no plugin (abstrai `mesh` | `sfu`).
-- [ ] **Signaling server** mínimo (Node + `ws`): salas por channelId, repasse de
-      offer/answer/ICE, atrás do Cloudflare (HTTP/WS).
-- [ ] Cliente de signaling no plugin.
-- [ ] Mesh: `RTCPeerConnection` por peer; publicar tela/câmera; assinar remotos.
-- [ ] ICE: STUN público por padrão; TURN opcional via config.
-- **Teste:** 2–3 clientes, só com Cloudflare (sem VPS), veem a transmissão em NAT
-  amigável. Documentar o caso de NAT simétrico (precisa TURN).
+## Shipped
 
-## Fase B — Auth + quotas + config endpoint
-- [ ] DB (SQLite) de usuários, quotas, flags de habilitação.
-- [ ] Login/registro; admin habilita usuários; quota de resolução/FPS por usuário.
-- [ ] `GET /config` retorna signaling URL, ICE servers, políticas, versão.
-- [ ] Signaling valida habilitação + aplica quota ao montar a sala.
-- [ ] Plugin aplica a quota recebida (limita maxHeight/fps).
-- **Teste:** usuário não habilitado é barrado; quota limita a qualidade.
+- **Native Go Live transport.** The plugin redirects Discord's native Go Live to the
+  private server (`/dstream`); the media (RTP) enters over UDP through a public IP. The
+  `keyframe_interval` in op4 unlocks the encoder. See [GOLIVE-NATIVE.md](GOLIVE-NATIVE.md).
+- **Audio E2EE (DAVE v1 / MLS).** See [DAVE.md](DAVE.md).
+- **Hub + auth + admin.** Discord OAuth login, per-user enablement + quotas, and a
+  tabbed admin dashboard (overview, groups, users, settings) with guild icons and user
+  avatars served from a server-side image cache.
+- **Channel-based enablement.** `channels` mode: anyone in an enabled voice channel can
+  stream (except banned members). The real channel is resolved via the bot gateway.
+- **Config endpoint.** `GET /config` returns the `/dstream` endpoint, media host, auth
+  mode and OAuth flag; `GET /groups` exposes the enabled groups to the installer.
+- **Electron installer (Mac + Windows).** Enter your own server host (remembered across
+  updates), live status + latency, auth-mode-aware UI, auto-update.
 
-## Fase C — Hub web (golivefrd.birdra1n.com)
-- [ ] App web (Next.js) com auth.
-- [ ] Fluxo "solicitar acesso" → admin aprova.
-- [ ] Push de "habilitado" pelo WS → plugin liga funções + avisa no Discord.
-- [ ] Painel admin: usuários, quotas, **transmissões ativas**.
-- [ ] Dashboard: CPU, memória, rede, salas/peers (métricas do servidor).
-- **Teste:** habilitar no hub reflete no Discord em segundos; dash mostra a call ativa.
+## Next
 
-## Fase D — Instalador Electron (Mac + Windows)
-- [ ] App Electron: detecta Discord/Vencord, aplica a modificação (build + inject).
-- [ ] Opção "servidor birdra1n" vs "próprio"; ao inserir host, puxa `GET /config`.
-- [ ] Aplica CSP do domínio automaticamente; grava config do plugin.
-- [ ] Botão "Abrir navegador" → hub.
-- [ ] Empacotar/assinar para macOS (.dmg/.pkg) e Windows (.exe/NSIS).
-- **Teste:** do zero ao Discord modificado sem terminal, nos dois SOs.
+- [ ] Persist the store in SQLite/Postgres instead of a JSON file (`server/src/store.ts`).
+- [ ] Optional: block the screen-thumbnail upload (`POST /streams/:key/preview`) in the
+      client for a stricter privacy posture.
+- [ ] macOS stream audio (the desktopCapturer does not deliver it today — see the audio
+      note in [CLAUDE.md](../CLAUDE.md)).
+- [ ] Session history, quota alerts, audit logs.
+- [ ] Decouple the installer auto-update from a specific release host if the project
+      moves off GitHub releases.
 
-## Fase E — Observabilidade + polimento
-- [ ] Reporte de estado (transmitindo/assistindo) do plugin ao servidor.
-- [ ] Histórico de sessões; alertas de quota; logs de auditoria.
-- [ ] Modo `sfu` opcional para grupos grandes (reusa a v1/LiveKit).
+## Out of scope (for now)
 
-## Ordem sugerida
-A → B → C → D → E. A Fase A é a que remove o VPS (o pedido nº 1) e destrava o
-resto. As fases C/D dependem de A/B (config + auth).
-
-## Fora de escopo (por ora)
-- Gravação de sessões.
-- Reencode server-side (é P2P; sem SFU não há transcode central).
-- SFU escalável gerenciado (fica como modo opcional, não default).
+- Session recording.
+- Server-side transcoding (the media is relayed, not re-encoded centrally).

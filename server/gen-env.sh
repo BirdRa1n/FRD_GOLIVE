@@ -59,7 +59,7 @@ NATIVE_STREAM_DAVE=1
 # Crie um app em https://discord.com/developers/applications (veja docs/DISCORD-OAUTH.md).
 DISCORD_CLIENT_ID=
 DISCORD_CLIENT_SECRET=
-DISCORD_REDIRECT_URI=https://golivefrd.SEU.com/auth/callback
+DISCORD_REDIRECT_URI=https://stream.example.com/auth/callback
 # Assina o cookie de sessão. Gerado aleatoriamente.
 SESSION_SECRET=$SESSION_SECRET
 # IDs (Discord) dos admins, separados por vírgula — acessam /admin pelo login.

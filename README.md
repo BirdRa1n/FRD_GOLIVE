@@ -1,90 +1,95 @@
-# FRD GoLive — Transmissão de tela/câmera privada para Discord (via Vencord)
+# FRD GoLive — private screen sharing for Discord (via Vencord)
 
-Modificação de cliente (plugin Vencord) + servidor auto‑hospedável que permite que
-pessoas na **mesma call de voz do Discord** compartilhem **tela e câmera entre si sem
-que o vídeo passe pelos servidores do Discord**. O vídeo trafega por um **SFU privado
-(LiveKit)** da própria organização, que entra por um **IP público definido pelo host**;
-o servidor central faz **hub/login/auth/habilitação/quotas/admin** e **emite os tokens**.
-A **voz continua normal, pelo Discord**.
+A Discord client modification (Vencord plugin) + a self-hostable server that lets
+people in the **same Discord voice call** share their **screen without the video
+going through Discord's servers**. The screen video is carried by the
+organization's own **private server**; **voice (and camera) stay native on
+Discord**.
 
-Foco: **empresas com regras rígidas de privacidade** que não querem dados de
-transmissão (tela/câmera) trafegando pela infraestrutura do Discord.
+Focus: **companies with strict privacy rules** that do not want screen-share media
+flowing through Discord's infrastructure.
 
-## Como funciona (resumo)
+## How it works (summary)
 
-O plugin **não substitui** o "Go Live" nativo — isso é tecnicamente inviável (o SFU
-do Discord é proprietário e criptografado). Em vez disso, cria um **pipeline
-paralelo**:
+Instead of reimplementing streaming, the plugin **reuses Discord's native Go Live**
+and only **redirects** where its media goes:
 
-1. O plugin captura tela/câmera com as APIs do navegador (`getDisplayMedia` /
-   `getUserMedia`) — as mesmas que o Discord já usa.
-2. Pede um **token** ao servidor (só se o usuário estiver **habilitado** no hub) e
-   publica no **SFU (LiveKit)** privado, numa sala = **ID do canal de voz do Discord**.
-3. Os outros participantes (com o plugin, mesmo servidor, mesmo canal) **assinam** o
-   stream pelo SFU e assistem num painel próprio do plugin.
-4. A **voz segue 100% pelo Discord**. O áudio do sistema **pode** ser incluído no
-   stream privado (opcional).
+1. The user starts Discord's **native Go Live** as usual.
+2. The plugin redirects the Go Live **control connection** to the private server
+   (WS `/dstream`); the native `discord_voice` module sends the **RTP (video +
+   audio)** to the server.
+3. The control plane is HTTP/WS (can go through a reverse proxy / tunnel); the
+   **media is UDP** and enters through a **public IP** the host configures
+   (usually a VPS that relays it to a home/office server).
+4. **Voice (and camera) stay 100% on Discord.** The screen audio is **E2EE**
+   (DAVE v1 / MLS).
 
 ```
-  Usuário A (plugin)                 Servidor privado                Usuário B (plugin)
- ┌──────────────────┐   token/WS   ┌──────────────────┐   token/WS ┌──────────────────┐
- │ getDisplayMedia  │─────────────▶│  hub/auth/admin  │◀───────────│  Painel de vídeo │
- │ tela+áudio sist. │──publica────▶│  + SFU (LiveKit) │───assina──▶│  do plugin       │
- └──────────────────┘  UDP 7882    │  IP público/relay│  UDP 7882  └──────────────────┘
-        voz ▲                      └──────────────────┘                    voz ▲
-            └───────────── Discord (gateway + voz nativa) ───────────────────┘
+  User A (plugin)                  Private server                 User B (Discord)
+ ┌──────────────────┐  WS /dstream ┌──────────────────┐          ┌──────────────────┐
+ │ native Go Live   │─────────────▶│  hub/auth/admin  │          │  native Go Live  │
+ │ (discord_voice)  │──RTP/UDP────▶│  + media relay   │──RTP────▶│  viewer          │
+ └──────────────────┘              │  public IP/relay │          └──────────────────┘
+        voice ▲                    └──────────────────┘                 voice ▲
+            └───────────── Discord (gateway + native voice) ─────────────────┘
 ```
 
-## Componentes
+> **History:** earlier versions used a mesh/P2P transport and then an SFU (LiveKit).
+> Both were removed once native Go Live worked through the private server.
+
+## Components
 
 ```
 .
-├── client/     # userplugin do Vencord (TypeScript/React), transporte mesh
-├── installer/  # instalador gráfico (Electron, Mac/Windows) que aplica a mod
-├── server/     # signaling + auth + config + admin + hub (Node, Docker)
-└── docs/       # arquitetura, roadmap e guias
+├── client/     # Vencord userplugin (TypeScript/React) — redirect + diagnostics
+├── installer/  # graphical installer (Electron, Mac/Windows) that applies the mod
+├── server/     # hub + auth + config + admin + native Go Live media (Node, Docker)
+└── docs/       # architecture, roadmap and guides
 ```
 
-- **Servidor** ([server/README.md](server/README.md)): hub (login Discord) + auth/
-  habilitação + quotas + admin + config, e emite os **tokens do LiveKit**. Sobe o
-  **SFU (LiveKit)** junto. Controle é HTTP/WS (Cloudflare); a **mídia** entra pela
-  **UDP 7882** no **IP público** que o host define (ver [docs/RELAY-UDP.md](docs/RELAY-UDP.md)).
-- **Instalador** ([installer/README.md](installer/README.md)): app gráfico que aplica
-  a modificação no Discord sem terminal, puxa a config do host e abre o hub.
-- **Plugin** ([client/README.md](client/README.md)): captura, mesh P2P, tiles
-  nativos, teatro e hijack dos botões nativos do Discord.
+- **Server** ([server/README.md](server/README.md)): hub (Discord login) + auth /
+  enablement + quotas + admin + config, and the native Go Live media relay. The
+  control plane is HTTP/WS (reverse proxy / tunnel); the **media** enters over UDP on
+  the **public IP** the host configures (see [docs/RELAY-UDP.md](docs/RELAY-UDP.md)).
+- **Installer** ([installer/README.md](installer/README.md)): a graphical app that
+  applies the modification to Discord without a terminal, pulls the config from the
+  host and opens the hub.
+- **Plugin** (`client/`): redirects native Go Live to the private server and provides
+  live diagnostics.
 
-## Começar rápido
+## Quick start
 
-**Servidor** (Linux com Docker):
+**Server** (Linux with Docker):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BirdRa1n/FRD_GOLIVE/main/server/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/<your-org>/<your-repo>/main/server/install.sh | sh
 ```
 
-No Cloudflare Tunnel, exponha **2 rotas HTTP/WS**: `golivefrd.SEU.com`→`:8090` (hub)
-e `media.SEU.com`→`:7880` (WS do LiveKit). A **mídia UDP 7882** entra pelo IP público
-(ver [docs/RELAY-UDP.md](docs/RELAY-UDP.md)). OAuth do hub: [docs/DISCORD-OAUTH.md](docs/DISCORD-OAUTH.md).
+Expose **one HTTP/WS route** through your reverse proxy / tunnel:
+`stream.example.com`→`:8090` (hub + WS `/dstream`). The **UDP media** enters through
+the public IP (see [docs/RELAY-UDP.md](docs/RELAY-UDP.md)). Hub OAuth:
+[docs/DISCORD-OAUTH.md](docs/DISCORD-OAUTH.md).
 
-**Clientes**: rodam o **instalador** (`installer/`), escolhem o servidor birdra1n ou
-o próprio host, e depois pedem acesso no hub. O admin libera pelo painel.
+**Clients**: run the **installer** (`installer/`), enter **their own server host**,
+then (in login mode) request access in the hub. The admin enables them from the
+dashboard. In channels mode, any voice channel the admin enabled is ready to use.
 
-## Requisitos de uso
+## Usage requirements
 
-- **Todos os participantes precisam ter o plugin instalado** (via instalador) e
-  apontando para o **mesmo servidor**. Quem não tiver não vê a transmissão privada.
-- O servidor é auto‑hospedado pela organização (Docker), atrás do Cloudflare, com a
-  mídia entrando por um IP público (VPS/relay) — ver [docs/RELAY-UDP.md](docs/RELAY-UDP.md).
-- Só quem o admin **habilitar** no hub consegue transmitir/assistir.
+- **Every participant must have the plugin installed** (via the installer) and point
+  it at the **same server**. People without it do not see the private stream.
+- The server is self-hosted by the organization (Docker), behind a reverse proxy, with
+  the media entering through a public IP (VPS/relay) — see
+  [docs/RELAY-UDP.md](docs/RELAY-UDP.md).
+- Only people the admin **enables** in the hub (or who are in an enabled channel) can
+  stream.
 
-## Aviso legal / ToS
+## Legal / ToS notice
 
-Este projeto usa um **client mod (Vencord)**, cujo uso é contra os Termos de
-Serviço do Discord — o risco é do usuário. O objetivo é **privacidade corporativa**:
-manter mídia de tela/câmera fora da infraestrutura de terceiros. Não há engenharia
-reversa do protocolo de mídia do Discord; usamos apenas APIs padrão de captura do
-navegador e WebRTC P2P.
+This project uses a **client mod (Vencord)**, whose use is against Discord's Terms of
+Service — the risk is the user's. The goal is **corporate privacy**: keeping
+screen-share media out of third-party infrastructure.
 
-## Licença
+## License
 
-MIT — veja [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

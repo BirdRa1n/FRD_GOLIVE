@@ -1,4 +1,3 @@
-// Tipos compartilhados do servidor v2.
 
 export interface User {
     id: string; // = user id do Discord
@@ -10,15 +9,13 @@ export interface User {
     enabledAt?: number;
 }
 
-/** Config que o cliente recebe do host (GET /config). */
 export interface ClientConfig {
-    // Host (sem esquema) do WS de controle do Go Live nativo — o Discord prefixa wss://.
-    // Ex.: "golivefrd.SEU.com/dstream". O plugin redireciona o Go Live nativo para cá.
     nativeStreamEndpoint: string;
-    // IP/host público por onde a mídia (UDP) entra — informativo (instalador/diagnóstico).
     mediaHost: string;
     version: string;
     transport: "native"; // Go Live nativo do Discord, redirecionado para o servidor privado
+    authMode: AuthMode;
+    oauth: boolean;
 }
 
 export interface RTCIceServerConfig {
@@ -26,8 +23,6 @@ export interface RTCIceServerConfig {
     username?: string;
     credential?: string;
 }
-
-// --- Mensagens de signaling (cliente <-> servidor) ---
 
 export type ClientMessage =
     | { type: "join"; room: string; id: string; name: string; token?: string; }
@@ -62,17 +57,12 @@ export interface ActiveTransmission {
     since: number;
 }
 
-// --- Bot / canais / habilitação por canal ---
-
-/** Como o servidor decide quem pode transmitir. */
 export type AuthMode = "login" | "channels";
 
 export interface ServerSettings {
-    /** "login" = OAuth + habilitação manual; "channels" = canais habilitados pelo bot. */
     authMode: AuthMode;
 }
 
-/** Um canal de voz de um servidor do Discord, configurado pelo admin (modo channels). */
 export interface ChannelCfg {
     guildId: string;
     guildName: string;
@@ -80,9 +70,7 @@ export interface ChannelCfg {
     channelName: string;
     enabled: boolean;
     addedAt: number;
-    /** userIds banidos de transmitir NESTE canal (blocklist). */
     bans: string[];
-    /** membros vistos transmitindo/assistindo aqui (para o admin agir sem digitar id). */
     seen: SeenMember[];
 }
 
@@ -92,14 +80,11 @@ export interface SeenMember {
     lastSeen: number;
 }
 
-/** Estado ao vivo de uma sala de mídia (nativeStream) para a dashboard. */
 export interface LiveRoom {
-    /** server_id do IDENTIFY — id efêmero da sessão de mídia (só p/ debug). */
     roomId: string;
-    /** guild REAL de onde vêm as pessoas (do gateway do bot), quando conhecida. */
     guildId?: string;
     guildName?: string;
-    /** Rótulo da tela: o canal real (ex.: "Sala-01"), quando conhecido. */
+    guildIcon?: string;
     label?: string;
     channelId?: string;
     channelName?: string;
@@ -111,10 +96,35 @@ export interface LiveRoom {
 export interface LiveMember {
     userId: string;
     name?: string;
+    avatar?: string;
     streamer: boolean;
-    /** Quando começou a transmitir (ms). */
     since?: number;
     channelId?: string;
     channelName?: string;
     guildId?: string;
+}
+
+export interface Group {
+    guildId: string;
+    guildName?: string;
+    guildIcon?: string;
+    botPresent: boolean;
+    channels: GroupChannel[];
+}
+
+export interface GroupChannel {
+    channelId: string;
+    channelName: string;
+    enabled: boolean;
+    bans: string[];
+    seen: SeenMember[];
+    liveMembers: LiveMember[];
+    streamers: number;
+    viewers: number;
+}
+
+export interface PublicGroup {
+    guildId: string;
+    guildName: string;
+    icon?: string;
 }

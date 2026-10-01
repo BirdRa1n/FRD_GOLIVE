@@ -11,7 +11,7 @@
 #   .\installer\scripts\install-windows.ps1
 
 $ErrorActionPreference = "Stop"
-$RepoUrl  = "https://github.com/BirdRa1n/FRD_GOLIVE"
+$RepoUrl  = "https://github.com/your-org/your-repo"
 $CacheDir = Join-Path $env:LOCALAPPDATA "frd-golive"
 
 function Info($m) { Write-Host "> $m" -ForegroundColor Blue }

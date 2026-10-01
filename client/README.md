@@ -1,109 +1,103 @@
-# Cliente FRD GoLive (userplugin do Vencord)
+# FRD GoLive client (Vencord userplugin)
 
-Userplugin do Vencord que compartilha tela/câmera por um **SFU privado (LiveKit)** —
-fora do Discord. A voz continua no Discord. O acesso é liberado pelo admin no hub.
+A Vencord userplugin that makes Discord's **native Go Live** send its media to a
+**private server** instead of Discord's — so the screen video never touches Discord's
+infrastructure. Voice (and camera) stay native. Access is granted by the admin in the hub
+(or by being in an enabled channel).
 
-> 🪟 **No Windows?** Veja o passo a passo dedicado em [WINDOWS.md](WINDOWS.md).
-> 🖱️ **Não quer terminal?** Use o **instalador gráfico** em [../installer/](../installer)
-> — ele aplica a mod e configura o servidor por você.
+> 🪟 **On Windows?** See the dedicated walkthrough in [WINDOWS.md](WINDOWS.md).
+> 🖱️ **No terminal?** Use the **graphical installer** in [../installer/](../installer)
+> — it applies the mod and configures the server for you.
 
-## Estrutura
+## Layout
 
 ```
 src/
-├── index.tsx               # definePlugin: wiring, subscribe em VOICE_CHANNEL_SELECT
-├── settings.ts             # aba de settings (transport, servidor, vídeo)
-├── discordState.ts         # lê canal de voz atual + usuário (stores do Discord)
-├── rtc/
-│   ├── session.ts          # transporte SFU (LiveKit) — a mídia ✔ typecheckável
-│   ├── signalingClient.ts  # canal de CONTROLE (WS): policy/habilitação + estado
-│   └── controller.ts       # orquestra: config → controle → token → LiveKit
-├── state/
-│   └── streamStore.ts      # store reativo puro (streams, connected, sharing)
-└── ui/                     # painel, teatro, picker, tiles nativos, hijack de botões
+├── index.tsx                      # definePlugin: wiring (redirect, video-guard unlock)
+├── settings.ts                    # plugin settings (@api/Settings)
+├── probe/
+│   ├── nativeStreamRedirect.ts    # redirects native Go Live to /dstream + unlocks DAVE downgrade
+│   └── streamProbe.ts             # read-only protocol probe (diagnostics)
+├── diagBridge.ts                  # MCP bridge (renderer) — live diagnostics (see docs/MCP-DIAG.md)
+├── native.ts                      # NATIVE module (main process): desktopCapturer + MCP bridge IPC
+└── types.ts                       # pure types (NativeSource) — ✔ typecheckable in isolation
 ```
 
-**Camada RTC pura** não importa nada do Vencord e é validada isolada:
+**Pure types** import nothing from Vencord and are validated in isolation:
 
 ```bash
 npm install
 npm run typecheck:rtc
 ```
 
-O resto (`@webpack/common`, `@api/Settings`, `@utils/types`) só resolve dentro do
-build do Vencord.
+The rest (`@webpack/common`, `@api/Settings`, `@utils/types`, `@main/*`) only resolves
+inside the Vencord build.
 
-## Como funciona (fluxo)
+## How it works
 
-1. Ao entrar num canal de voz (`VOICE_CHANNEL_SELECT`), o plugin puxa `GET <host>/config`
-   e conecta o **canal de controle** (WebSocket), numa sala = **ID do canal de voz**.
-2. Se o usuário está **habilitado** (policy do controle), pede `POST /token` e conecta
-   no **SFU (LiveKit)** para a mídia. Se não, o painel mostra "aguardando liberação".
-3. "Compartilhar tela" captura via `getDisplayMedia` (com áudio do sistema, se ligado)
-   e publica no SFU. Os outros do mesmo canal assinam e assistem.
-4. Ao sair do canal, desconecta e limpa.
+1. The user starts Discord's **native Go Live**.
+2. `nativeStreamRedirect.ts` intercepts `STREAM_SERVER_UPDATE` and points the streaming
+   endpoint at the private server's WS `/dstream` (setting `nativeStreamEndpoint`).
+3. The native `discord_voice` module sends the RTP (video + audio) to the server; the
+   audio is E2EE (DAVE v1) when `nativeStreamDave` is on.
+4. The censored native video buttons are unlocked via an experiment override.
 
-O admin precisa **habilitar** o usuário (via hub); a policy (enabled + quotas) chega
-pelo canal de controle e libera as funções na hora.
+Who can stream is decided on the server (`/dstream`): a user enabled in the hub, or
+anyone in an enabled channel (channels mode).
 
-## Instalação
+## Installation
 
-### Opção A — instalador gráfico (recomendado)
+### Option A — graphical installer (recommended)
 
-Rode o app em [../installer/](../installer): ele aplica a modificação, grava as
-settings + a CSP do domínio e abre o hub. Sem terminal.
+Run the app in [../installer/](../installer): it applies the modification, writes the
+settings + the domain CSP, and opens the hub. No terminal.
 
-### Opção B — build manual dentro do Vencord
+### Option B — manual build inside Vencord
 
-O Vencord compila plugins no build (não há runtime loading). Como o plugin importa
-`livekit-client` (transporte da mídia), instale‑o **no repositório do Vencord**.
+Vencord compiles plugins at build time (no runtime loading).
 
-> **Clone o Vencord FORA deste repositório** (ex.: `~/Vencord`). Não clone dentro de
-> `client/`: o `pnpm` "sobe" e usa o `package.json` deste projeto (sem script `build`),
-> causando `Command "build" not found`.
+> **Clone Vencord OUTSIDE this repository** (e.g. `~/Vencord`). Do not clone inside
+> `client/`: `pnpm` would "walk up" and use this project's `package.json` (no `build`
+> script), causing `Command "build" not found`.
 
 ```bash
 git clone https://github.com/Vendicated/Vencord ~/Vencord
 cd ~/Vencord
 pnpm install
-pnpm add livekit-client            # dependência do plugin
 
-# COPIE a pasta src/ como o userplugin (é ela que contém o index.tsx):
+# COPY the src/ folder as the userplugin (it contains index.tsx):
 mkdir -p src/userplugins
-cp -R /caminho/para/FRD_GOLIVE/client/src src/userplugins/frdGoLive
+cp -R /path/to/FRD_GOLIVE/client/src src/userplugins/frdGoLive
 
 pnpm build
-pnpm inject                        # injeta no Discord instalado
+pnpm inject                        # injects into the installed Discord
 ```
 
-> **Copie `client/src`, não use symlink** e não copie `client/` inteiro: o Vencord
-> espera `src/userplugins/frdGoLive/index.tsx`. Symlink quebra a resolução dos aliases
+> **Copy `client/src`, do not symlink** and do not copy `client/` as a whole: Vencord
+> expects `src/userplugins/frdGoLive/index.tsx`. A symlink breaks alias resolution
 > (`@webpack/common` etc.).
 
-Depois, no Discord: Configurações → Vencord → Plugins → **FRDGoLive** → ative e
-configure:
-- **tokenServiceUrl**: o host do servidor (ex.: `https://golivefrd.SEU.com`) — é de
-  onde o plugin puxa `/config` e `/token`. A URL da mídia (LiveKit) vem da config.
+Then, in Discord: Settings → Vencord → Plugins → **FRDGoLive** → enable and configure:
+- **nativeStreamEndpoint**: the server's `/dstream` host (e.g. `stream.example.com/dstream`).
+  The installer fills this in. Both senders and viewers need it. Empty = disabled (Go Live
+  goes to Discord).
+- **nativeStreamDave**: audio E2EE (DAVE v1). Keep it on with the server's
+  `NATIVE_STREAM_DAVE=1`.
 
-> Todos os participantes precisam do plugin apontando para o **mesmo servidor**, e
-> cada um precisa estar **habilitado** pelo admin no hub.
+> Everyone must point the plugin at the **same server**, and (in login mode) each person
+> must be **enabled** by the admin in the hub.
 
-Ao mudar renderer (UI): `Ctrl/Cmd+R` no Discord. Ao mudar CSP/`native.ts`: reinício
-completo do Discord.
+After a renderer (UI) change: `Ctrl/Cmd+R` in Discord. After a CSP/`native.ts` change:
+a full Discord restart.
 
-## Captura nativa (regiões censuradas)
+## Native capture (censored regions)
 
-Em alguns países o Discord **desabilita compartilhar tela**. Como o plugin captura por
-conta própria, isso normalmente não afeta — mas se o `getDisplayMedia` também estiver
-bloqueado, ative **"Captura nativa"** nas settings.
+In some countries Discord **disables screen sharing**. The native capture path uses
+Electron's **`desktopCapturer`** (via `native.ts`) and captures the source with
+`getUserMedia({chromeMediaSource:"desktop"})` — bypassing Discord's `getDisplayMedia`
+and the regional block.
 
-Nesse modo o plugin usa o **`desktopCapturer` do Electron** (via `native.ts`) e captura
-a fonte com `getUserMedia({chromeMediaSource:"desktop"})` — sem passar pelo
-`getDisplayMedia` do Discord, contornando o bloqueio regional.
-
-Notas:
-- Só no **Discord Desktop** (Electron); no web não há `desktopCapturer`.
-- Se o `getDisplayMedia` falhar com erro "duro", o plugin tenta a captura nativa
-  automaticamente.
-- Áudio do sistema por esse caminho depende da plataforma (melhor no Windows); se não
-  suportado, captura só o vídeo.
+Notes:
+- Desktop (Electron) only; the web client has no `desktopCapturer`.
+- System audio through this path depends on the platform (best on Windows); if
+  unsupported, it captures video only. See the audio note in [../CLAUDE.md](../CLAUDE.md).
