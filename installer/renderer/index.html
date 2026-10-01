@@ -56,15 +56,7 @@
     </header>
 
     <section id="step-config" class="stack" style="--gap:18px">
-      <div>
-        <p class="section-title">Servidor</p>
-        <div class="choice" role="radiogroup" aria-label="Servidor" id="server-choice">
-          <button class="choice-card" role="radio" aria-checked="true" data-value="default"><b>Servidor birdra1n</b><span>Mais simples. Você pede acesso no site depois.</span></button>
-          <button class="choice-card" role="radio" aria-checked="false" data-value="own"><b>Meu próprio servidor</b><span>Informe o host — ele devolve toda a config.</span></button>
-        </div>
-      </div>
-
-      <label class="label" id="host-wrap" hidden>Host do servidor
+      <label class="label">Host do servidor
         <input type="url" id="host" class="field mono" placeholder="https://golive.suaempresa.com" spellcheck="false" autocomplete="off" />
       </label>
 
@@ -73,10 +65,25 @@
         <div class="group">
           <div class="row" id="check-row">
             <span class="icon-tile neutral" id="check-icon" data-icon="server"></span>
-            <div class="row-body"><div class="row-title" id="check-title">Verificando o servidor…</div><div class="row-detail mono" id="check-detail"></div></div>
-            <span class="row-accessory" id="check-acc"><span class="spinner"></span></span>
+            <div class="row-body"><div class="row-title" id="check-title">Informe o host do servidor</div><div class="row-detail mono" id="check-detail"></div></div>
+            <span class="row-accessory" id="check-acc"></span>
           </div>
         </div>
+      </div>
+
+      <div id="mode-box" hidden>
+        <p class="section-title">Modo do servidor</p>
+        <div class="group">
+          <div class="row">
+            <span class="icon-tile" id="mode-icon" data-icon="shield"></span>
+            <div class="row-body"><div class="row-title" id="mode-title">—</div><div class="row-detail" id="mode-detail"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="groups-box" hidden>
+        <p class="section-title">Grupos habilitados</p>
+        <div class="group" id="groups-list"></div>
       </div>
 
       <details class="notice">
@@ -101,9 +108,9 @@
       <span class="done-icon" data-icon="check"></span>
       <h2 class="large-title">Pronto!</h2>
       <p class="subhead" id="done-msg"></p>
-      <p class="caption">Agora entre no site para pedir acesso. Quando o admin liberar, o Discord liga as funções sozinho.</p>
+      <p class="caption" id="done-caption">Entre no site para pedir acesso. Quando o admin liberar, o Discord liga as funções sozinho.</p>
       <div class="stack" style="width:100%;--gap:8px">
-        <button class="btn btn-prominent btn-lg btn-block" id="open-hub">Abrir o site e pedir acesso</button>
+        <button class="btn btn-prominent btn-lg btn-block" id="open-hub">Abrir o site</button>
         <button class="btn btn-block" id="restart">Instalar em outro Discord</button>
       </div>
     </section>

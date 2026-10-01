@@ -9,11 +9,10 @@ const applyBtn = $("apply");
 
 if (/Mac/i.test(navigator.platform)) document.body.classList.add("mac");
 
-let defaults = { defaultHost: "", hubUrl: "" };
-let useOwn = false;
-
 function currentHost() {
-    return (useOwn ? hostInput.value.trim() : defaults.defaultHost).replace(/\/+$/, "");
+    let h = hostInput.value.trim().replace(/\/+$/, "");
+    if (h && !/^https?:\/\//i.test(h)) h = "https://" + h;
+    return h;
 }
 
 function say(msg, tone) {
@@ -21,10 +20,9 @@ function say(msg, tone) {
     log.className = "caption" + (tone === "err" ? " text-danger" : tone === "ok" ? " text-ok" : "");
 }
 
-// ------------------------------------------------------------ verificação
-// Confere GET /health antes de aplicar: mostra versão, transporte e latência.
 let checkSeq = 0;
 let checkTimer = null;
+let lastProbe = null;
 
 function setCheck(state, title, detail) {
     const icon = $("check-icon");
@@ -35,28 +33,52 @@ function setCheck(state, title, detail) {
     $("check-acc").innerHTML = state === "loading" ? '<span class="spinner"></span>' : "";
 }
 
+function renderMode(p) {
+    const box = $("mode-box");
+    if (!p || !p.ok) { box.hidden = true; $("groups-box").hidden = true; return; }
+    box.hidden = false;
+    const channels = p.authMode === "channels";
+    $("mode-icon").className = "icon-tile " + (channels ? "gradient" : "");
+    $("mode-icon").innerHTML = ui.icon(channels ? "users" : "discord");
+    $("mode-title").textContent = channels ? "Acesso por grupos permitidos" : "Login do Discord";
+    $("mode-detail").textContent = channels
+        ? "Você transmite em qualquer canal de voz habilitado pelo admin — sem pedir acesso."
+        : p.oauth
+            ? "Entre com o Discord no site e peça acesso; um admin libera a sua conta."
+            : "O servidor pede login do Discord, mas o OAuth não está configurado nele.";
+    if (channels) loadGroups();
+    else $("groups-box").hidden = true;
+}
+
+async function loadGroups() {
+    const host = currentHost();
+    const box = $("groups-box");
+    const list = $("groups-list");
+    const groups = await api.groups(host).catch(() => []);
+    if (!groups.length) { box.hidden = true; return; }
+    box.hidden = false;
+    list.innerHTML = groups.map(g =>
+        '<div class="row">' + ui.thumb(g.icon || "", g.guildName || g.guildId, true) +
+        '<div class="row-body"><div class="row-title">' + ui.escapeHtml(g.guildName || g.guildId) + "</div></div></div>"
+    ).join("");
+}
+
 async function checkServer() {
     const host = currentHost();
     const seq = ++checkSeq;
-    if (!host) { setCheck("idle", "Informe o host do servidor", ""); return; }
-    if (!/^https?:\/\//i.test(host)) { setCheck("err", "Host inválido", "Use https://seu-servidor"); return; }
+    if (!host) { setCheck("idle", "Informe o host do servidor", ""); renderMode(null); return; }
+    if (!/^https?:\/\//i.test(host)) { setCheck("err", "Host inválido", "Use https://seu-servidor"); renderMode(null); return; }
 
     setCheck("loading", "Verificando o servidor…", host);
-    const started = performance.now();
-    try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 6000);
-        const res = await fetch(host + "/health", { signal: ctrl.signal, cache: "no-store" });
-        clearTimeout(t);
-        if (seq !== checkSeq) return;
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const h = await res.json();
-        const ms = Math.round(performance.now() - started);
-        setCheck("ok", "Servidor online", `v${h.version ?? "?"} · ${h.transport ?? "?"} · ${ms} ms`);
-    } catch (e) {
-        if (seq !== checkSeq) return;
-        setCheck("err", "Servidor inacessível", e && e.name === "AbortError" ? "sem resposta em 6 s" : host);
+    const p = await api.probe(host);
+    if (seq !== checkSeq) return;
+    lastProbe = p;
+    if (p.ok) {
+        setCheck("ok", "Servidor online", `v${p.version ?? "?"} · ${p.transport ?? "?"} · ${p.latencyMs} ms`);
+    } else {
+        setCheck("err", "Servidor inacessível", p.error === "timeout" ? "sem resposta em 6 s" : host);
     }
+    renderMode(p);
 }
 
 function scheduleCheck() {
@@ -65,12 +87,11 @@ function scheduleCheck() {
 }
 
 api.defaults().then(d => {
-    defaults = d;
     $("version").textContent = d.version ? `FRD GoLive Instalador v${d.version}` : "";
+    if (d.host) hostInput.value = d.host;
     checkServer();
 });
 
-// ------------------------------------------------------------ auto-update
 function renderUpdate(s) {
     const box = $("update");
     const text = $("update-text");
@@ -101,32 +122,23 @@ function renderUpdate(s) {
             action.onclick = () => api.openRelease();
             break;
         case "error":
-            // Falha silenciosa na UI (sem internet etc.): o app segue funcionando.
-            console.warn("[update]", s.message);
             box.hidden = true;
             break;
         default:
-            box.hidden = true; // disabled / checking / none
+            box.hidden = true;
     }
 }
 api.updateState().then(renderUpdate);
 api.onUpdate(renderUpdate);
 
-$("server-choice").addEventListener("change", e => {
-    useOwn = e.detail.value === "own";
-    $("host-wrap").hidden = !useOwn;
-    if (useOwn) hostInput.focus();
-    scheduleCheck();
-});
 hostInput.addEventListener("input", () => {
     hostInput.removeAttribute("aria-invalid");
     scheduleCheck();
 });
 
-// ------------------------------------------------------------------ aplicar
 applyBtn.addEventListener("click", async () => {
     const host = currentHost();
-    if (useOwn && !host) {
+    if (!host) {
         hostInput.setAttribute("aria-invalid", "true");
         say("Informe o host do seu servidor.", "err");
         hostInput.focus();
@@ -141,6 +153,11 @@ applyBtn.addEventListener("click", async () => {
     try {
         const r = await api.apply(host);
         $("done-msg").textContent = `Servidor ${r.domain} · transporte ${r.transport}. Reinicie o Discord se ele estiver aberto.`;
+        const channels = lastProbe && lastProbe.authMode === "channels";
+        $("done-caption").textContent = channels
+            ? "Entre numa call de voz num grupo habilitado e use os botões de tela do Discord."
+            : "Entre no site para pedir acesso. Quando o admin liberar, o Discord liga as funções sozinho.";
+        $("open-hub").textContent = channels ? "Abrir o site" : "Abrir o site e pedir acesso";
         $("step-config").hidden = true;
         $("step-done").hidden = false;
         ui.toast("Modificação aplicada", "ok");
@@ -154,7 +171,7 @@ applyBtn.addEventListener("click", async () => {
     }
 });
 
-$("open-hub").addEventListener("click", () => api.openHub());
+$("open-hub").addEventListener("click", () => api.openHub(currentHost()));
 $("restart").addEventListener("click", () => {
     $("step-done").hidden = true;
     $("step-config").hidden = false;
