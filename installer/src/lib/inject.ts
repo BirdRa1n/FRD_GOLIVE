@@ -5,7 +5,6 @@ import { app } from "electron";
 
 import { bundledDistDir, installerCliName, installerCliUrl, userDataDir } from "./paths.js";
 
-/** Copia o Vencord dist (com o plugin) para o diretório de dados do instalador. */
 export function ensureBundledDist(): void {
     const src = bundledDistDir();
     if (!existsSync(src) || readdirSync(src).length === 0) {
@@ -16,14 +15,12 @@ export function ensureBundledDist(): void {
                   + "(ou aponte FRD_VENCORD_DIST para um Vencord/dist já compilado).",
         );
     }
-    // Recria o dest limpo para não deixar arquivos velhos de um build anterior.
     const dest = join(userDataDir(), "dist");
     rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
     cpSync(src, dest, { recursive: true });
 }
 
-/** Baixa o Vencord Installer CLI da release oficial (por plataforma). */
 export async function downloadInstallerCli(): Promise<string> {
     const dir = join(app.getPath("temp"), "frd-golive");
     mkdirSync(dir, { recursive: true });
@@ -37,14 +34,6 @@ export async function downloadInstallerCli(): Promise<string> {
     return file;
 }
 
-/**
- * Roda o Installer CLI apontando para o NOSSO build (dev-install), aplicando a
- * modificação no Discord SEM prompt interativo. As envs replicam o `pnpm inject`.
- *
- * O `-branch` evita o menu "Select Discord install to patch": "auto" detecta o
- * install; ou "stable"/"ptb"/"canary". Override via FRD_DISCORD_BRANCH. Um caminho
- * explícito de Discord pode ser passado em `location` (vira `-location`).
- */
 export function runInject(cliPath: string, opts: { branch?: string; location?: string; } = {}): Promise<void> {
     const branch = opts.branch || process.env.FRD_DISCORD_BRANCH || "auto";
     const args = ["-install", "-branch", branch];

@@ -1,12 +1,3 @@
-// Auto-update do instalador via GitHub Releases (electron-updater).
-//
-// Ao abrir o app empacotado: procura uma release nova no repositório configurado
-// (config `publish` do electron-builder.yml), baixa e reinicia já atualizado.
-// Se o usuário estiver aplicando a modificação nessa hora, espera terminar.
-//
-// macOS: o Squirrel.Mac só aceita atualizar apps ASSINADOS (Developer ID). Num
-// build sem assinatura a instalação falha — então caímos para "baixe a nova
-// versão" com o link da release, em vez de travar.
 
 import { app, type BrowserWindow, shell } from "electron";
 import { autoUpdater } from "electron-updater";
@@ -37,7 +28,6 @@ export function currentUpdateState(): UpdateState {
     return last;
 }
 
-/** Marca que o app está no meio do "Aplicar" (adiamos o reinício). */
 export function setBusy(value: boolean): void {
     busy = value;
     if (!busy && pendingInstall) install();
@@ -46,7 +36,6 @@ export function setBusy(value: boolean): void {
 function install(): void {
     pendingInstall = false;
     emit({ state: "installing", version: availableVersion });
-    // dá tempo da UI mostrar "Reiniciando…"
     setTimeout(() => autoUpdater.quitAndInstall(true, true), 1200);
 }
 
@@ -57,7 +46,6 @@ export function openReleasePage(): void {
 export function initUpdater(window: BrowserWindow): void {
     win = window;
 
-    // Em dev (npm start) não há release para comparar.
     if (!app.isPackaged || process.env.FRD_DISABLE_UPDATES === "1") {
         emit({ state: "disabled" });
         return;
@@ -88,7 +76,6 @@ export function initUpdater(window: BrowserWindow): void {
     });
     autoUpdater.on("error", err => {
         const message = err?.message ?? String(err);
-        // Build sem assinatura no macOS: não dá para trocar o app sozinho.
         if (process.platform === "darwin" && availableVersion && /code signature|signature|not signed|Could not get code|code requirement|did not pass validation/i.test(message)) {
             emit({ state: "manual", version: availableVersion, url: RELEASES_URL });
             return;
@@ -96,7 +83,6 @@ export function initUpdater(window: BrowserWindow): void {
         emit({ state: "error", message });
     });
 
-    // Espera a janela carregar para a UI receber os eventos desde o início.
     window.webContents.once("did-finish-load", () => {
         autoUpdater.checkForUpdates().catch(err => emit({ state: "error", message: String(err?.message ?? err) }));
     });

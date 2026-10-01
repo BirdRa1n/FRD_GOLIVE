@@ -1,15 +1,3 @@
-// Ponte local do MCP: HTTP em 127.0.0.1 falando com o Discord.
-//
-// Fluxo: o processo main do Electron (client/src/native.ts) faz POST /poll aqui
-// para baixar chamadas de ferramenta; o renderer (client/src/diagBridge.ts)
-// executa e o main devolve em POST /result. O renderer NUNCA fala com a rede:
-// o CSP do Discord bloquearia conectar em 127.0.0.1, e o processo principal não
-// tem essa restrição.
-//
-// Segurança: bind só em 127.0.0.1 + token em ~/.frd-golive/mcp-token (0600).
-// Uma ponte por vez: se a porta estiver ocupada (outra sessão do OpenCode
-// rodando o mesmo mcp/), os tools respondem o erro em vez de funcionar às
-// avessas.
 
 import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -20,9 +8,7 @@ import { dirname, join } from "node:path";
 export const TOKEN_FILE = join(homedir(), ".frd-golive", "mcp-token");
 export const PORT = Number(process.env.FRD_MCP_PORT ?? 8756);
 const HOST = "127.0.0.1";
-/** Quanto tempo /poll fica em espera com a fila vazia (polling leve). */
 const HOLD_MS = 500;
-/** Sem poll há tanto tempo → Discord ausente. */
 const PRESENCE_MS = 15_000;
 
 export interface Call {
@@ -31,7 +17,6 @@ export interface Call {
     args: Record<string, unknown>;
 }
 
-/** Erro da ponte (porta ocupada etc.) — os tools falham rápido com ele. */
 export let bridgeError: string | null = null;
 
 let lastSeenAt = 0;
@@ -56,7 +41,6 @@ function ensureToken(): void {
             if (token) return;
         }
     } catch {
-        // sem permissão de leitura → recria abaixo
     }
     token = randomBytes(24).toString("hex");
     mkdirSync(dirname(TOKEN_FILE), { recursive: true, mode: 0o700 });
@@ -64,7 +48,6 @@ function ensureToken(): void {
     try {
         chmodSync(TOKEN_FILE, 0o600);
     } catch {
-        // best effort (Windows cuida disso de outro jeito)
     }
 }
 
@@ -77,7 +60,6 @@ function releaseWaiter(): void {
     if (waiter) waiter.resolve();
 }
 
-/** Manda uma ferramenta para o renderer e espera o resultado (ou o timeout). */
 export async function forward(
     tool: string,
     args: Record<string, unknown>,
@@ -121,7 +103,6 @@ function send(res: http.ServerResponse, status: number, body: unknown): void {
     res.end(JSON.stringify(body ?? {}));
 }
 
-/** Long-poll curto: devolve chamadas pendentes ou espera até HOLD_MS. */
 async function handlePoll(res: http.ServerResponse): Promise<void> {
     lastSeenAt = Date.now();
     if (queue.length) {
@@ -150,7 +131,6 @@ function handleResult(payload: { id?: unknown; ok?: unknown; result?: unknown; e
     const id = typeof payload?.id === "string" ? payload.id : null;
     const waiter = id ? pending.get(id) : undefined;
     if (!id || !waiter) {
-        // timeout já resolveu (ou id desconhecido): responde e segue.
         send(res, 200, { stale: true });
         return;
     }

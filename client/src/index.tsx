@@ -15,8 +15,6 @@ export default definePlugin({
 
     patches: [
         {
-            // RTCConnection._maybeRefuseDaveDowngrade(stage, version, transitionId):
-            // aceita DAVE 0 só quando a conexão é com o nosso servidor (ver nativeStreamRedirect).
             find: "Refusing DAVE protocol downgrade to version",
             predicate: () => !!settings.store.nativeStreamEndpoint,
             replacement: {
@@ -29,16 +27,11 @@ export default definePlugin({
     allowDaveDowngrade: isNativeStreamConnection,
 
     start() {
-        // Redireciona o Go Live NATIVO para o servidor privado (vídeo+áudio, DAVE E2EE).
-        // Tem de rodar cedo, antes de o Discord abrir o WS de mídia.
         setNativeStreamEndpoint(settings.store.nativeStreamEndpoint);
         if (settings.store.streamProbe) startStreamProbe();
 
-        // Ponte de diagnóstico para o agente (MCP local) — ver docs/MCP-DIAG.md.
         if (settings.store.diagMcp) startDiagBridge();
 
-        // Desbloqueia os botões nativos de câmera/tela em regiões censuradas — o Go Live
-        // nativo é o caminho de transmissão, então ele PRECISA poder rodar.
         if ((settings.store.nativeStreamEndpoint || settings.store.streamProbe) && settings.store.unlockNativeVideoGate) {
             try {
                 FluxDispatcher.dispatch({

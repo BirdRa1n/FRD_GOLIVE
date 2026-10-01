@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <title>FRD GoLive — Instalador</title>
-<!-- Design system: copiado de server/public/ui no build (scripts/sync-ui.mjs). -->
+
 <link rel="stylesheet" href="./ui/ui.css" />
 <script src="./ui/ui.js"></script>
 <style>
-  /* macOS: semáforo sobre o conteúdo (titleBarStyle hiddenInset) — faixa arrastável */
+
   .titlebar { height: 0; -webkit-app-region: drag; }
   .mac .titlebar { height: 34px; }
   .titlebar-actions { position: fixed; top: 8px; right: 12px; -webkit-app-region: no-drag; z-index: 5; }
@@ -37,7 +37,7 @@
   </div>
 
   <main class="container page">
-    <!-- Auto-update (electron-updater): aparece só quando há algo a dizer. -->
+    
     <div class="notice appear" id="update" hidden role="status">
       <i data-icon="download" id="update-icon"></i>
       <div class="stack grow" style="--gap:6px">

@@ -1,24 +1,3 @@
-// PoC: servidor de mídia compatível com o Go Live NATIVO do Discord.
-//
-// O plugin (setting `nativeStreamEndpoint`) troca o `endpoint` do
-// STREAM_SERVER_UPDATE pelo nosso (ex.: "golivefrd.SEU.com/dstream"). O cliente
-// então fala o protocolo do voice gateway (v8) com este WS e o módulo nativo
-// (discord_voice) manda a mídia RTP para o nosso UDP — nada passa pelo Discord.
-//
-// Protocolo levantado com a sonda (client/src/probe/streamProbe.ts):
-//   C→S op 0 IDENTIFY {server_id, user_id, streams}   S→C op 8 HELLO, op 2 READY {ssrc, ip, port, modes, streams}
-//   C→S op 16 {}                                       S→C op 16 {voice, rtc_worker}
-//   C→S op 12 (quem transmite: ssrcs + streams)        S→C op 12 para os espectadores
-//   C→S op 1 SELECT_PROTOCOL {address, port, mode}     S→C op 4 SESSION_DESCRIPTION {secret_key, codecs, dave}
-//   C→S op 15 (espectador: pixelCounts desejados)      S→C op 15 para quem transmite (0 px = encoder parado)
-//   C→S op 3 heartbeat {t, seq_ack}                    S→C op 6 {t}
-//
-// Mídia: IP discovery (74 bytes) e depois RTP/RTCP com aead_aes256_gcm_rtpsize.
-// Todos da sala recebem a MESMA chave, então o servidor repassa os pacotes sem
-// recifrar: quem transmite → espectadores; espectadores (RTCP/NACK/PLI) → quem
-// transmite. DAVE (E2EE) desligado: dave_protocol_version 0.
-//
-// É um experimento: sem simulcast, sem estimativa de banda própria, sem resume.
 
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { createSocket, type RemoteInfo } from "node:dgram";
@@ -39,39 +18,15 @@ import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
 const {
     NATIVE_STREAM_PUBLIC_IP = "",
     NATIVE_STREAM_UDP_PORT = "7883",
-    // Codec do op 4 (H264 | H265 | VP8). Vazio = segue o cliente, como o Discord
-    // real: escolhe o de MENOR priority (número) com encode:true no op 1 —
-    // neste cliente, H265 (priority 2000; H264 é 3000; AV1 veio encode:false).
     NATIVE_STREAM_VIDEO_CODEC = "",
-    // Experiments do op 2 READY (separados por vírgula). O Discord real (2026-09)
-    // manda "fixed_keyframe_interval"; vazio = experiments: [].
     NATIVE_STREAM_EXPERIMENTS = "fixed_keyframe_interval",
-    // Intervalo de keyframe (ms) no op 4 (SESSION_DESCRIPTION). No cliente, um
-    // keyframe_interval truthy emite "keyframe-interval" → setKeyframeInterval(N)
-    // → setTransportOptions({alwaysSendVideo: true}) e o ENCODER DE VÍDEO LIGA
-    // (sem o campo: kfi=0, alwaysSendVideo=false, framesEncoded=0 para sempre —
-    // ver docs/MCP-DIAG.md, "A parede era o keyframe_interval"). "" = omite.
     NATIVE_STREAM_KEYFRAME_INTERVAL = "2000",
-    // Sem espectador, pede vídeo mesmo assim (dá para testar só com quem transmite).
     NATIVE_STREAM_ALWAYS_WANT = "1",
-    // Aceita qualquer usuário (sem checar a habilitação no hub). Só para teste.
     NATIVE_STREAM_ALLOW_ANY = "0",
-    // Estimativa de banda (REMB) anunciada a quem transmite — teto do encoder.
     NATIVE_STREAM_REMB_BPS = "8000000",
-    // ID da extensão transport-wide-cc no RTP do cliente (5 no Discord desktop atual);
-    // vazio = detecta sozinho nos pacotes de vídeo.
     NATIVE_STREAM_TWCC_EXT_ID = "5",
-    // JSON mesclado no op 4 (SESSION_DESCRIPTION); valor null remove o campo.
-    // Ex.: {"dave_protocol_version":null,"secure_frames_version":null}
     NATIVE_STREAM_SESSION_OVERRIDE = "",
-    // DAVE v1 (E2EE/MLS) — experimental, Phase 1. "1" liga: op 4 anuncia
-    // dave_protocol_version 1 e o servidor entra como external sender (ver dave.ts).
-    // Padrão desligado = comportamento atual (dave 0, sem MLS). Ver docs/DAVE.md.
     NATIVE_STREAM_DAVE = "0",
-    // Híbrido: nunca pede vídeo a quem transmite (sink want sempre 0). O vídeo real vem
-    // pelo LiveKit; o Go Live nativo serve só de shell + áudio E2EE. Assim o encoder/captura
-    // de vídeo nativo não roda à toa (não produzia frames pelo servidor privado de qualquer
-    // forma — ver docs/GOLIVE-NATIVE.md) e a transmissão fica mais leve.
     NATIVE_STREAM_NO_VIDEO = "0",
 } = process.env;
 
@@ -91,17 +46,14 @@ const OP = {
     SPEAKING: 5, HEARTBEAT_ACK: 6, RESUME: 7, HELLO: 8, CLIENTS_CONNECT: 11, VIDEO: 12,
     CLIENT_DISCONNECT: 13, MEDIA_SINK_WANTS: 15, VOICE_BACKEND_VERSION: 16, CLIENT_FLAGS: 18,
     CLIENT_PLATFORM: 20,
-    // DAVE (JSON): transição de protocolo/epoch. Ver docs/DAVE.md.
     PREPARE_TRANSITION: 21, EXECUTE_TRANSITION: 22, TRANSITION_READY: 23, PREPARE_EPOCH: 24,
 } as const;
-/** Opcodes DAVE (E2EE/MLS), frames binários no gateway. Ver docs/DAVE.md. */
 const DAVE_OP: Record<number, string> = {
     21: "PREPARE_TRANSITION", 22: "EXECUTE_TRANSITION", 23: "TRANSITION_READY",
     24: "PREPARE_EPOCH", 25: "MLS_EXTERNAL_SENDER", 26: "MLS_KEY_PACKAGE",
     27: "MLS_PROPOSALS", 28: "MLS_COMMIT_WELCOME", 29: "MLS_ANNOUNCE_COMMIT_TRANSITION",
     30: "MLS_WELCOME", 31: "MLS_INVALID_COMMIT_WELCOME",
 };
-/** Ops que o Discord manda com `seq` (despachos retomáveis). */
 const SEQ_OPS = new Set<number>([OP.SPEAKING, OP.CLIENTS_CONNECT, OP.VIDEO, OP.CLIENT_DISCONNECT, OP.MEDIA_SINK_WANTS, OP.CLIENT_FLAGS, OP.CLIENT_PLATFORM, OP.PREPARE_TRANSITION, OP.EXECUTE_TRANSITION, OP.PREPARE_EPOCH]);
 
 type VideoStream = Record<string, unknown> & { ssrc?: number; rtx_ssrc?: number; };
@@ -117,51 +69,29 @@ interface Member {
     rtxSsrc: number;
     seq: number;
     streamer: boolean;
-    /** Quando começou a transmitir (ms) — para a dashboard mostrar a duração. */
     streamerSince?: number;
-    /** op 12 anunciado por quem transmite (repassado aos espectadores). */
     video?: { audio_ssrc: number; video_ssrc: number; rtx_ssrc?: number; streams: VideoStream[]; };
-    /** Codecs do op 1 (select_protocol) — é de onde sai o video_codec do op 4. */
     clientCodecs?: { name: string; encode: boolean; priority: number; }[];
-    /** Pixels que este espectador quer do vídeo de quem transmite. */
     wantPixels: number;
-    /** Destino para enviar a este membro: o último endereço de onde veio mídia (ou discovery). */
     udp?: RemoteInfo;
-    /** Todos os endereços que fizeram IP discovery — o cliente pode descobrir por mais de um socket. */
     addrs: Set<string>;
-    /** Feedback transport-cc para o que este membro envia. */
     twcc: TwccRecorder;
     twccExtId?: number;
-    /** Detecção do ID: quantos pacotes trouxeram cada ID com 2 bytes. */
     extProbe: { packets: number; len2: Map<number, number>; seen: Map<number, number>; };
     stats: UdpStats;
     decryptedSamples: number;
-    /** Key package MLS do cliente (op 26), guardado para as Add proposals (op 27). */
     daveKeyPackage?: Buffer;
-    /** channel_id do IDENTIFY (voz) — para a dashboard e a habilitação por canal. */
     channelId?: string;
-    /** guild REAL (do gateway do bot); o `room.id` é o server_id efêmero do IDENTIFY. */
     guildId?: string;
-    /** channel_id do IDENTIFY → group_id do MLS (BE8) — sempre o efêmero que o cliente mandou. */
     daveChannelId?: bigint;
-    /** op 27 já enviado (evita comitar duas vezes). */
     daveProposalsSent?: boolean;
-    /** Já entrou no grupo MLS (committer após solo commit; viewer após welcome). */
     daveJoined?: boolean;
-    /** Leaf index no ratchet tree MLS (atribuído no commit que o adicionou; libera no Remove). */
     daveLeaf?: number;
-    /** Debounce do Add do viewer (usa o ÚLTIMO key package). */
     daveAddTimer?: ReturnType<typeof setTimeout>;
-    /** Pares (PT, ssrc) de vídeo já vistos (diag). */
     ptSsrc?: Set<string>;
-    /** Maior seq recebido por ssrc, para os RTCP Receiver Reports. */
     seqBySsrc?: Map<number, { maxSeq: number; cycles: number; }>;
 }
 
-/**
- * Proposta MLS em fila — a spec ("Commit Ordering" / "Member Add") exige que o gateway
- * serialize: broadcasts de op 27 um-por-epoch, primeiro commit do epoch vence.
- */
 type DaveProposal =
     | { kind: "bootstrap"; chId: bigint }
     | { kind: "add"; member: Member; chId: bigint }
@@ -169,23 +99,18 @@ type DaveProposal =
 
 interface Room {
     id: string; key: Buffer; members: Map<string, Member>;
-    /** Nonce dos pacotes que o servidor cifra. */ nonce: number;
-    /** Último PLI enviado (throttle). */ lastPli?: number;
-    /** External sender do DAVE para a sala (só com DAVE_ON). */ dave?: Promise<ExternalSenderKey>;
-    /** Committer do grupo MLS (o 1º membro / transmissor). */ daveCommitter?: Member;
-    /** Epoch atual do grupo (conta commits vistos). */ daveEpoch?: number;
-    /** transition_id atual (incrementa por transição). */ daveTransition?: number;
-    /** Grupo formado (primeiro commit broadcast) — sem isso, só o bootstrap está em voo. */ daveBootstrapped?: boolean;
-    /** Propostas enfileiradas (adds/removes), processadas uma por epoch. */ daveQueue?: DaveProposal[];
-    /** Proposta atualmente em voo (op 27 enviado, aguardando o primeiro op 28 do epoch). */ daveInFlight?: DaveProposal;
-    /** Timeout de segurança do op 27 em voo (committer não respondeu). */ daveInFlightTimer?: ReturnType<typeof setTimeout>;
-    /** op 23 (transition_ready) ainda pendentes da última transição anunciada (op 29/30).
-     * Enquanto existir, o próximo op 27 NÃO sai: proposals do epoch N+1 só são válidas para
-     * membros que já aplicaram o commit do epoch N. (Nunca há gate no tid 0 — o cliente não
-     * manda op 23 para a transição inicial; confirmado em 16h de logs de produção.) */
+ nonce: number;
+ lastPli?: number;
+ dave?: Promise<ExternalSenderKey>;
+ daveCommitter?: Member;
+ daveEpoch?: number;
+ daveTransition?: number;
+ daveBootstrapped?: boolean;
+ daveQueue?: DaveProposal[];
+ daveInFlight?: DaveProposal;
+ daveInFlightTimer?: ReturnType<typeof setTimeout>;
     daveReady?: { tid: number; users: Set<string>; };
     daveReadyTimer?: ReturnType<typeof setTimeout>;
-    /** Próxima leaf a alocar / leaves livres (Remove) — a MLS reutiliza a menor leaf em branco. */
     daveNextLeaf?: number;
     daveFreeLeaves?: number[];
 }
@@ -198,12 +123,10 @@ export function nativeStreamEnabled(): boolean {
     return !!NATIVE_STREAM_PUBLIC_IP;
 }
 
-/** IP/host público por onde a mídia (UDP) do Go Live nativo entra. Informativo (o /config). */
 export function nativeStreamPublicIp(): string {
     return NATIVE_STREAM_PUBLIC_IP;
 }
 
-/** Estado ao vivo das salas de mídia (para a dashboard admin). */
 export function getLiveState(): { roomId: string; members: { userId: string; streamer: boolean; channelId?: string; guildId?: string; since?: number; }[]; streamers: number; viewers: number; }[] {
     const out = [];
     for (const [roomId, room] of rooms) {
@@ -218,11 +141,6 @@ export function getLiveState(): { roomId: string; members: { userId: string; str
     return out;
 }
 
-/**
- * Derruba quem já está conectado num canal (ou um usuário específico nele) — chamado
- * quando o admin desliga o canal ou bane o membro. O 4004 faz o Discord parar a
- * transmissão da pessoa. Retorna quantas conexões foram fechadas.
- */
 export function closeMembersInChannel(channelId: string, userId?: string): number {
     let closed = 0;
     for (const room of [...rooms.values()]) {
@@ -240,8 +158,6 @@ export function closeMembersInChannel(channelId: string, userId?: string): numbe
 const log = (...a: unknown[]) => console.log("[dstream]", ...a);
 const addrKey = (r: { address: string; port: number; }) => `${r.address}:${r.port}`;
 
-// --- WS -------------------------------------------------------------------------
-
 const wss = new WebSocketServer({ noServer: true });
 
 export function handleNativeStreamUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
@@ -255,32 +171,24 @@ function send(ws: WebSocket, op: number, d: unknown, m?: Member): void {
     ws.send(JSON.stringify(msg));
 }
 
-/** Envia um dispatch binário DAVE (op 25/27/29/30) — [seq u16][op][payload], seq compartilhado. */
 function sendDave(m: Member, op: number, payload: Uint8Array): void {
     if (m.ws.readyState !== WebSocket.OPEN) return;
     m.ws.send(encodeServerFrame(m.seq++, op, payload));
 }
 
-/** op 25 (MLS_EXTERNAL_SENDER): anuncia o external sender da sala ao membro. */
 function sendExternalSender(m: Member): void {
     m.room.dave?.then(es => {
         sendDave(m, 25, externalSenderPackage(es));
-        // Transição inicial para DAVE v1 (transition_id 0, epoch 1). O cliente forma o grupo
-        // solo, (re)gera key package e responde op 23 → aí executamos (op 22). Ver docs/DAVE.md.
         sendDavePrepare(m);
         log(`DAVE op25 + op24/op21 (external sender + prepare transition 0) → ${m.userId}`);
     }).catch(e => log("DAVE op25 falhou:", e));
 }
 
-/** op 24 {epoch:1} + op 21 {transition_id:0}: cria/recria o grupo local do cliente (spec:
- * "Sole member reset" / "Key Packages" — epoch 1 faz o cliente gerar novo key package). */
 function sendDavePrepare(m: Member): void {
     send(m.ws, OP.PREPARE_EPOCH, { protocol_version: DAVE_PROTOCOL_VERSION, epoch: 1 }, m);
     send(m.ws, OP.PREPARE_TRANSITION, { transition_id: 0, protocol_version: DAVE_PROTOCOL_VERSION }, m);
 }
 
-/** Destinatários de broadcasts DAVE (op 27/29): membros do grupo + committer no bootstrap.
- * Pendentes (aguardando welcome) e membros flaggados (op 31) ficam de fora. */
 function daveRecipients(room: Room): Member[] {
     return [...room.members.values()].filter(o => o.daveJoined || (o === room.daveCommitter && !room.daveBootstrapped));
 }
@@ -299,21 +207,17 @@ function freeDaveLeaf(room: Room, leaf: number): void {
     free.sort((a, b) => a - b);
 }
 
-/** Enfileira uma proposta (add/remove/bootstrap) e tenta enviá-la (uma por epoch). */
 function enqueueDaveProposal(room: Room, p: DaveProposal): void {
     (room.daveQueue ??= []).push(p);
     flushDaveProposals(room);
 }
 
-/** Emite o próximo op 27 quando não há nada em voo. Broadcast para o grupo inteiro:
- * a spec exige que todos cacheiem a proposal para poderem validar o commit que a referencia. */
 function flushDaveProposals(room: Room): void {
     const dave = room.dave;
     if (!dave || room.daveInFlight || !room.daveCommitter) return;
     if (room.daveReady) return; // espera todos mandarem op23 da transição anterior
     const q = room.daveQueue;
     if (!q?.length) return;
-    // Remove entradas mortas da cabeça da fila (Add de membro que já saiu, ou sem key package).
     const head = q[0];
     if (head.kind === "add" && (room.members.get(head.member.userId) !== head.member || !head.member.daveKeyPackage)) {
         q.shift();
@@ -345,8 +249,6 @@ function flushDaveProposals(room: Room): void {
             room.daveInFlightTimer = setTimeout(() => {
                 if (room.daveInFlight !== p) return;
                 log(`DAVE op27 (${desc}) sem commit há 8s — grupo re-sincronizado (op24 epoch 1 + op21 tid 0)`);
-                // Ninguém comitou: em vez de deixar a sala num grupo inconsistente,
-                // recria o grupo local de todos (só membro re-envia op 26 → novo bootstrap).
                 resetDaveGroup(room, "8s sem commit para a proposta");
             }, 8000);
         })
@@ -356,8 +258,6 @@ function flushDaveProposals(room: Room): void {
         });
 }
 
-/** Libera o próximo op 27 só quando TODOS os destinatários da última transição mandarem
- * op 23 (transition_ready). tid 0 nunca espera (cliente não responde ready para ele). */
 function armDaveReady(room: Room, tid: number, users?: Set<string>): void {
     clearDaveReadyTimer(room);
     if (!users?.size) { room.daveReady = undefined; return; }
@@ -374,7 +274,6 @@ function clearDaveReadyTimer(room: Room): void {
     if (room.daveReadyTimer) { clearTimeout(room.daveReadyTimer); room.daveReadyTimer = undefined; }
 }
 
-/** Um membro não vai mais mandar op23 desta transição (saiu da sala ou foi flaggado em op 31). */
 function daveMemberUnready(room: Room, userId: string): void {
     const r = room.daveReady;
     if (!r || !r.users.delete(userId)) return;
@@ -384,8 +283,6 @@ function daveMemberUnready(room: Room, userId: string): void {
     flushDaveProposals(room);
 }
 
-/** op 31 (MLS_INVALID_COMMIT_WELCOME): cliente recusou commit/welcome → a spec manda remover o
- * membro do grupo (proposta Remove) e devolvê-lo a "pending"; o novo op 26 dele re-enfileira o Add. */
 function daveInvalidCommitWelcome(m: Member, d: unknown): void {
     const room = m.room;
     log(`DAVE op31 (invalid commit/welcome) de ${m.userId}: ${JSON.stringify(d)} — remove + re-add`);
@@ -395,15 +292,12 @@ function daveInvalidCommitWelcome(m: Member, d: unknown): void {
     daveMemberUnready(room, m.userId); // não vai mandar op23 da transição que rejeitou
     const others = [...room.members.values()].filter(o => o.daveJoined);
     if (!others.length) {
-        // Era o único membro do grupo: não há quem comite o Remove → recria o grupo.
         resetDaveGroup(room, "o único membro do grupo recusou o commit");
         return;
     }
     const leaf = m.daveLeaf;
     m.daveLeaf = undefined;
     if (room.daveCommitter === m) {
-        // Quem flaggou é o committer → promove outro membro do grupo antes do Remove,
-        // senão ninguém mais comitaria a proposta.
         const next = others[0];
         room.daveCommitter = next;
         log(`DAVE committer promovido → ${next.userId}`);
@@ -411,8 +305,6 @@ function daveInvalidCommitWelcome(m: Member, d: unknown): void {
     enqueueDaveProposal(room, { kind: "remove", leaf, chId: m.daveChannelId ?? room.daveCommitter?.daveChannelId ?? 0n });
 }
 
-/** Recria o grupo local de todos (op24 epoch 1 + op21 tid 0) e zera o estado DAVE da sala.
- * Usado no "sole member reset" da spec e quando o committer sai sem grupo formado. */
 function resetDaveGroup(room: Room, why: string): void {
     log(`DAVE reset do grupo (${why}) — op24 epoch 1 + op21 tid 0 → ${room.members.size} membro(s)`);
     for (const o of room.members.values()) {
@@ -436,7 +328,6 @@ function resetDaveGroup(room: Room, why: string): void {
     room.daveFreeLeaves = [];
 }
 
-/** Saiu um membro (leave ou replace): Remove no grupo, sole reset ou promover committer. */
 function daveOnDeparture(room: Room, m: Member): void {
     if (!DAVE_ON || !room.dave) return;
     if (m.daveAddTimer) clearTimeout(m.daveAddTimer);
@@ -451,9 +342,6 @@ function daveOnDeparture(room: Room, m: Member): void {
         enqueueDaveProposal(room, { kind: "remove", leaf: m.daveLeaf, chId: m.daveChannelId ?? room.daveCommitter?.daveChannelId ?? 0n });
     }
     if (m.daveJoined && joinedLeft.length <= 1) {
-        // Spec "Sole member reset": o grupo ficou com 1 (ou 0) membro(s) estabelecido(s).
-        // Só entra aqui se quem saiu era membro do grupo — um espectador pendente que cai
-        // antes do welcome não mexe no grupo de ninguém.
         resetDaveGroup(room, `só ${joinedLeft.length} membro(s) do grupo restou`);
         return;
     }
@@ -468,7 +356,6 @@ function daveOnDeparture(room: Room, m: Member): void {
     }
 }
 
-/** Frames binários DAVE do cliente (op 26 key package, 28 commit/welcome, 31). */
 function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
     if (op === 26) {
         m.daveKeyPackage = payload;
@@ -481,7 +368,6 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
         const room = m.room;
         if (!room.dave || m.daveChannelId === undefined) return;
         if (!room.daveCommitter) {
-            // 1º membro = committer. op 27 vazio → comita o próprio grupo (solo bootstrap).
             room.daveCommitter = m; room.daveEpoch = 0; room.daveTransition = 0;
             room.daveBootstrapped = false;
             room.daveNextLeaf = 0; room.daveFreeLeaves = [];
@@ -490,9 +376,6 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
                 enqueueDaveProposal(room, { kind: "bootstrap", chId: m.daveChannelId });
             }
         } else if (!m.daveJoined && (m !== room.daveCommitter || room.daveBootstrapped)) {
-            // Fora do grupo (viewer pendente, OU committer/member que levou op 31 e re-iniciou):
-            // o cliente descarta a chave privada do key package anterior a cada op 26, então
-            // usamos o ÚLTIMO (debounce) e enfileira — Adds são serializados, um por epoch.
             if (room.daveInFlight?.kind === "add" && room.daveInFlight.member === m) return;
             if ((room.daveQueue ?? []).some(p => p.kind === "add" && p.member === m)) return;
             if (m.daveAddTimer) clearTimeout(m.daveAddTimer);
@@ -514,7 +397,6 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
             log(`DAVE op28 de ${m.userId} sem proposta em voo — descartado (commit duplicado/stale)`);
             return;
         }
-        // Spec "Commit Ordering": o gateway só transmite o primeiro commit do epoch ATUAL.
         const msg = decodeMls(payload);
         if (!msg) {
             log(`DAVE op28 de ${m.userId} não decodifica como MLSMessage — descartado`);
@@ -526,8 +408,6 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
             return; // mantém a "porta" aberta esperando o commit válido deste epoch
         }
         if (room.daveInFlightTimer) { clearTimeout(room.daveInFlightTimer); room.daveInFlightTimer = undefined; }
-        // Só o committer (no bootstrap) ou membros já do grupo passam a valer como "joined":
-        // um membro flaggado (op 31) que comite algo não pode virar membro sem leaf.
         if (m.daveJoined || (m === room.daveCommitter && flight.kind === "bootstrap")) m.daveJoined = true;
         else log(`DAVE op28 de ${m.userId} fora do grupo — repassa sem marcá-lo como membro`);
         const { commit, welcome } = splitCommitWelcome(payload);
@@ -536,7 +416,6 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
         const recipients = daveRecipients(room);
         for (const o of recipients) sendDave(o, 29, op29);
         log(`DAVE op29 (announce commit, tid ${tid}) → grupo ${op29.length}B`);
-        // Quem precisa mandar op 23 antes do próximo op 27 (tid 0: cliente não responde).
         const ready = tid > 0 ? new Set(recipients.map(o => o.userId)) : undefined;
         if (flight.kind === "bootstrap") {
             m.daveLeaf = allocDaveLeaf(room);
@@ -551,7 +430,6 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
                 target.daveKeyPackage = undefined; // key package consumido pelo welcome
                 ready?.add(target.userId); // o novo membro também confirma a transição
             } else if (welcome) {
-                // O add foi commitado mas o membro já saiu → limpa a leaf fantasma.
                 const leaf = allocDaveLeaf(room);
                 log(`DAVE op30 descartado (${target.userId} saiu) — remove da leaf ${leaf} em fila`);
                 enqueueDaveProposal(room, { kind: "remove", leaf, chId: flight.chId });
@@ -585,14 +463,12 @@ function safeParseJson(b: Buffer): unknown {
 function onConnection(ws: WebSocket, req: IncomingMessage): void {
     log("conexão", req.url, req.headers["cf-connecting-ip"] ?? req.socket.remoteAddress);
     let member: Member | null = null;
-    /** Mensagens que chegam enquanto o IDENTIFY ainda resolve o canal real (null = livre). */
     let backlog: { op: number; d: any; }[] | null = null;
 
     send(ws, OP.HELLO, { v: 8, heartbeat_interval: HEARTBEAT_INTERVAL });
 
     ws.on("message", (raw, isBinary) => {
         if (isBinary) {
-            // Frame binário C→S = DAVE/MLS: [op u8][payload] (sem seq no sentido cliente→servidor).
             const { op, payload } = parseClientFrame(raw as Buffer);
             if (DAVE_ON && member) { handleDaveBinary(member, op, payload); return; }
             log(`DAVE C→S op ${op} (${DAVE_OP[op] ?? "?"}) ${(raw as Buffer).length}B — não tratado`);
@@ -602,8 +478,6 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
         try { msg = JSON.parse(raw.toString()); } catch { return; }
 
         if (msg.op === OP.IDENTIFY) {
-            // O identify espera (bem rápido) o gateway do bot dizer onde a pessoa está em
-            // voz; o que chegar nesse meio-tempo é enfileirado e processado em seguida.
             backlog = [];
             void identify(ws, msg.d).then(m => {
                 const q = backlog;
@@ -615,7 +489,6 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
             return;
         }
         if (msg.op === OP.HEARTBEAT) { send(ws, OP.HEARTBEAT_ACK, { t: msg.d?.t }); return; }
-        // Sem resume no PoC: 4006 faz o cliente refazer o identify na hora.
         if (msg.op === OP.RESUME) { ws.close(4006, "Session no longer valid."); return; }
         if (backlog) { backlog.push({ op: msg.op, d: msg.d }); return; } // identify ainda resolvendo
         if (!member) { ws.close(4003, "Not authenticated."); return; }
@@ -628,7 +501,6 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
     });
 }
 
-/** Preenche nomes de guild/canal de um canal registrado (best-effort, via bot). */
 function fillChannelNames(guildId: string, channelId: string): Promise<void> {
     if (!botConfigured()) return Promise.resolve();
     return resolveChannelNames(guildId, channelId).then(({ guildName, channelName }) => {
@@ -636,7 +508,6 @@ function fillChannelNames(guildId: string, channelId: string): Promise<void> {
     });
 }
 
-/** Redige segredos de um payload para poder logá-lo inteiro (diagnóstico). */
 function scrubSecrets(v: unknown): unknown {
     if (Array.isArray(v)) return v.map(scrubSecrets);
     if (!v || typeof v !== "object") return v;
@@ -649,10 +520,8 @@ function scrubSecrets(v: unknown): unknown {
     return out;
 }
 
-/** Teto de espera pelo gateway do bot dizer onde a pessoa está em voz (chega em ms). */
 const VOICE_LOOKUP_TIMEOUT_MS = 1200;
 
-/** Espera (breve) a localização real de voz no gateway do bot; `undefined` = não sei. */
 async function waitVoiceLocation(userId: string, sessionId: string): Promise<{ guildId: string; channelId: string; } | undefined> {
     const first = voiceLocation(userId, sessionId);
     if (first) return first;
@@ -666,12 +535,6 @@ async function waitVoiceLocation(userId: string, sessionId: string): Promise<{ g
     return undefined;
 }
 
-/**
- * O gateway ainda não sabia onde esta pessoa estava quando chegou o IDENTIFY: completa a
- * localização depois — e REVALIDA quem pode transmitir (é o que derruba na hora quem já
- * estava conectado num canal que o admin desligou/baneu). Se mesmo assim não vier nada
- * (ex.: guild onde o bot não está), vale o id do IDENTIFY, como antes.
- */
 function resolveLater(m: Member, userId: string, sessionId: string, fallbackChannelId: string, fallbackGuildId: string): void {
     let tries = 0;
     const timer = setInterval(() => {
@@ -686,7 +549,6 @@ function resolveLater(m: Member, userId: string, sessionId: string, fallbackChan
     timer.unref();
 }
 
-/** Passa o membro para o canal real (dashboard + regra) e revalida a permissão. */
 function applyChannel(m: Member, guildId: string, channelId: string): void {
     if (m.channelId !== channelId || m.guildId !== guildId) {
         log(`canal corrigido via gateway: ${m.userId} ${m.channelId ?? "-"} → ${channelId}`);
@@ -709,8 +571,6 @@ function applyChannel(m: Member, guildId: string, channelId: string): void {
 }
 
 async function identify(ws: WebSocket, d: any): Promise<Member | null> {
-    // Payload cru do IDENTIFY (segredos redigidos): server_id/channel_id são EFÊMEROS —
-    // criados quando a transmissão começa, não existem no Discord e mudam a cada sessão.
     log("identify payload:", JSON.stringify(scrubSecrets(d)));
     const userId = String(d?.user_id ?? "");
     const roomId = String(d?.server_id ?? "");
@@ -718,8 +578,6 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
     const sessionId = String(d?.session_id ?? "");
     if (!userId || !roomId) { ws.close(4001, "Invalid identify."); return null; }
 
-    // Guild/canal REAIS vêm do gateway do bot (o `session_id` de lá é o mesmo de aqui);
-    // sem dado, fica o id do IDENTIFY (comportamento antigo, com a "sala" efêmera).
     const loc = await waitVoiceLocation(userId, sessionId);
     const guildId = loc?.guildId ?? roomId;
     const channelId = loc?.channelId ?? mediaChannelId;
@@ -729,8 +587,6 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
     if (pending) {
         log(`canal de ${userId} ainda não resolvido pelo gateway`);
     } else if (store.getSettings().authMode === "channels" && channelId && !store.getChannel(channelId)) {
-        // Modo "channels": o padrão é liberado — canal novo entra habilitado (o admin
-        // desliga o que não quiser) e aparece na dashboard com o nome vindo do bot.
         store.upsertChannel({ guildId, guildName: "", channelId, channelName: "", enabled: true });
         void fillChannelNames(guildId, channelId); // nomes chegam em segundo plano
     } else if (channelId) {
@@ -750,8 +606,6 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
     let room = rooms.get(roomId);
     if (!room) { room = { id: roomId, key: randomBytes(32), members: new Map(), nonce: 0 }; rooms.set(roomId, room); }
     if (DAVE_ON) room.dave ??= createExternalSender();
-    // Reconexão do mesmo user (4005 Replaced): o membro antigo sai do grupo MLS (Remove /
-    // sole reset) ANTES do novo entrar — senão a leaf dele fica fantasma no ratchet tree.
     const prev = room.members.get(userId);
     if (prev) {
         prev.ws.close(4005, "Replaced.");
@@ -772,8 +626,6 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
     room.members.set(userId, m);
     m.channelId = channelId;
     m.guildId = guildId;
-    // DAVE: o group_id deriva do channel_id que o CLIENTE mandou (o efêmero da sessão) —
-    // é o mesmo valor que o cliente usa do lado dele; o canal real fica só na regra e na tela.
     try { m.daveChannelId = BigInt(mediaChannelId || "0"); } catch { /* channel_id inválido */ }
     if (pending) resolveLater(m, userId, sessionId, channelId, guildId);
     log(`identify ${userId} na sala ${roomId} → canal ${channelId}${loc ? "" : " (efêmero do IDENTIFY)"} (${room.members.size} na sala) streams=${JSON.stringify(d?.streams)} dave=${d?.max_dave_protocol_version}`);
@@ -787,7 +639,6 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
         streams: [{ type: "video", ssrc: m.videoSsrc, rtx_ssrc: m.rtxSsrc, rid: "100", quality: 100, active: false }],
     });
 
-    // Apresenta quem já está na sala (como o Discord faz para o espectador).
     const others = [...room.members.values()].filter(o => o !== m);
     if (others.length) send(ws, OP.CLIENTS_CONNECT, { user_ids: others.map(o => o.userId) }, m);
     for (const o of others) {
@@ -814,9 +665,6 @@ function onMessage(m: Member, op: number, d: any): void {
                 .map((c: any) => ({ name: String(c?.name ?? ""), encode: c?.encode !== false, priority: Number(c?.priority ?? 9999) }))
                 .filter((c: { name: string; }) => c.name);
             send(m.ws, OP.SESSION_DESCRIPTION, sessionDescription(m));
-            // O Discord real manda op 15 {any:100} logo após o op 4, ANTES do op 12
-            // de quem transmite (captura 2026-09). Aqui o sendWants era no-op antes
-            // do op 12 (só roda no streamer) — o cliente real não espera isso.
             if (!NO_VIDEO) send(m.ws, OP.MEDIA_SINK_WANTS, { any: 100 }, m);
             if (DAVE_ON) sendExternalSender(m);
             break;
@@ -848,18 +696,14 @@ function onMessage(m: Member, op: number, d: any): void {
             m.wantPixels = counts.length ? Math.max(...counts) : 0;
             log(`sink_wants ${m.userId} → ${m.wantPixels}px ${JSON.stringify(d)}`);
             for (const o of peers(m)) if (o.streamer) sendWants(o);
-            // Espectador quer vídeo: força um keyframe no transmissor, senão o receptor
-            // entra no meio do GOP e estoura em video-stream-receiver-ready-timeout (Erro 2012).
             if (!m.streamer && m.wantPixels > 0) requestKeyframe(m.room);
             break;
         }
 
         case OP.TRANSITION_READY: {
-            // Cliente pronto para a transição → executa (op 22). Só ocorre com DAVE_ON.
             log(`DAVE op23 (transition_ready) de ${m.userId} tid=${d?.transition_id}`);
             send(m.ws, OP.EXECUTE_TRANSITION, { transition_id: d?.transition_id ?? 0 }, m);
             const room = m.room;
-            // Último pendente da transição atual → libera a próxima proposta (op 27).
             const r = room.daveReady;
             if (r && Number(d?.transition_id) === r.tid && r.users.delete(m.userId) && !r.users.size) {
                 room.daveReady = undefined;
@@ -867,9 +711,6 @@ function onMessage(m: Member, op: number, d: any): void {
                 log(`DAVE transição tid ${r.tid} pronta em todos — fila liberada`);
                 flushDaveProposals(room);
             }
-            // Novo epoch → o transmissor re-chaveia e PAUSA a mídia. Re-ativa o encoder no
-            // epoch novo: re-envia o sink want (pixels) e pede um keyframe fresco, com um
-            // pequeno delay para a transição assentar dos dois lados.
             setTimeout(() => {
                 for (const o of room.members.values()) if (o.streamer) sendWants(o);
                 requestKeyframe(room);
@@ -878,9 +719,6 @@ function onMessage(m: Member, op: number, d: any): void {
         }
 
         case 31:
-            // MLS_INVALID_COMMIT_WELCOME (chega como JSON {op:31,d:{transition_id}}; o frame
-            // binário homônimo é tratado em handleDaveBinary). Cliente recusou o commit/welcome
-            // → Remove + re-add dele no grupo (spec "Recovery from Invalid Commit or Welcome").
             daveInvalidCommitWelcome(m, d);
             break;
 
@@ -893,14 +731,6 @@ function onMessage(m: Member, op: number, d: any): void {
     }
 }
 
-/**
- * op 4: o Discord real (captura 2026-09) escolhe o codec de MENOR priority com
- * encode:true no op 1 — aqui, H265 (priority 2000), mesmo com H264 disponível
- * (AV1 veio com encode:false = só decode nesta máquina). NATIVE_STREAM_VIDEO_CODEC
- * (não vazio) força um valor e pula a escolha.
- */
-/** Codecs de VÍDEO conhecidos — o op 1 lista opus (áudio) junto, e ele NÃO pode
- * virar video_codec (prio 1000, ganharia por engano de H265/H264). */
 const VIDEO_CODECS = new Set(["H265", "H264", "VP8", "VP9", "AV1"]);
 
 function pickVideoCodec(m: Member): string {
@@ -911,8 +741,6 @@ function pickVideoCodec(m: Member): string {
 }
 
 function sessionDescription(m: Member): Record<string, unknown> {
-    // kfi truthy no cliente (op 4; o case 14 aceita o mesmo campo) = liga o
-    // encoder de vídeo: emit "keyframe-interval" → setKeyframeInterval → alwaysSendVideo.
     const kf = Number(NATIVE_STREAM_KEYFRAME_INTERVAL);
     const d: Record<string, unknown> = {
         audio_codec: "opus",
@@ -937,20 +765,13 @@ function sessionDescription(m: Member): Record<string, unknown> {
     return d;
 }
 
-/** op 15 para quem transmite: quantos pixels os espectadores querem (0 = encoder parado). */
 function sendWants(m: Member): void {
     if (!m.streamer || !m.video) return;
     const viewers = peers(m);
-    // Se ALGUÉM quer vídeo (ou ALWAYS_WANT), pede a RESOLUÇÃO MÁXIMA padrão do stream
-    // (ex.: 720p = 921600), estável — pedir um valor pequeno/não-padrão (ex.: 94300)
-    // parece deixar o encoder em resolution 0×0.
     const anyWant = !NO_VIDEO && (viewers.some(v => v.wantPixels > 0) || NATIVE_STREAM_ALWAYS_WANT === "1");
     const mr = m.video.streams[0]?.max_resolution as { width?: number; height?: number; } | undefined;
     const maxPx = (mr?.width && mr?.height) ? mr.width * mr.height : FULL_HD_PIXELS;
     const px = anyWant ? maxPx : 0;
-    // Formato real do Discord (capturado, ver docs/DAVE.md): a qualidade por-ssrc e o
-    // `any` são 100; a contagem de pixels vai SÓ em pixelCounts. (O sink want não é o que
-    // destrava o bitrateTarget — isso depende do DAVE; ver docs/DAVE.md.)
     const ssrc = m.video.video_ssrc;
     send(m.ws, OP.MEDIA_SINK_WANTS, { any: 100, [ssrc]: px ? 100 : 0, pixelCounts: { [ssrc]: px } }, m);
 }
@@ -972,8 +793,6 @@ function leave(m: Member): void {
     if (!room.members.size) rooms.delete(room.id);
 }
 
-// --- UDP ------------------------------------------------------------------------
-
 const udp = createSocket("udp4");
 
 function findBySsrc(ssrc: number): Member | undefined {
@@ -983,7 +802,6 @@ function findBySsrc(ssrc: number): Member | undefined {
     return undefined;
 }
 
-/** Acha o membro dono de qualquer ssrc (áudio/vídeo/rtx, atribuído ou reportado no op 12). */
 function findByAnySsrc(ssrc: number): Member | undefined {
     for (const room of rooms.values()) {
         for (const m of room.members.values()) {
@@ -995,7 +813,6 @@ function findByAnySsrc(ssrc: number): Member | undefined {
     return undefined;
 }
 
-/** IP discovery: [type u16=1][len u16=70][ssrc u32][address 64][port u16] → responde type 2 com o endereço visto. */
 function ipDiscovery(msg: Buffer, rinfo: RemoteInfo): boolean {
     if (msg.length !== 74 || msg.readUInt16BE(0) !== 1) return false;
     const ssrc = msg.readUInt32BE(4);
@@ -1016,7 +833,6 @@ function ipDiscovery(msg: Buffer, rinfo: RemoteInfo): boolean {
     return true;
 }
 
-/** Tipo do pacote: "rtcp:<pt>", "pt<n>" (RTP) ou "other". */
 function classify(msg: Buffer): string {
     if (msg.length < 12 || (msg[0] >> 6) !== 2) return "other";
     const pt = msg[1];
@@ -1024,11 +840,6 @@ function classify(msg: Buffer): string {
     return `pt${pt & 0x7f}`;
 }
 
-/**
- * Abre um RTP aead_aes256_gcm_rtpsize: AAD = cabeçalho fixo + CSRCs + 4 bytes do
- * cabeçalho de extensão; nonce = 4 bytes finais (IV = nonce + 8 zeros); tag = 16
- * bytes antes do nonce. O corpo da extensão vem cifrado junto com o payload.
- */
 function openRtp(msg: Buffer, key: Buffer): { exts: Map<number, Buffer>; payload: Buffer; } | null {
     try {
         const cc = msg[0] & 0x0f;
@@ -1054,10 +865,6 @@ function openRtp(msg: Buffer, key: Buffer): { exts: Map<number, Buffer>; payload
 
 const nowUs = () => Number(process.hrtime.bigint() / 1000n);
 
-/**
- * Registra a chegada para o transport-cc. Sem ID configurado, detecta nos pacotes
- * de VÍDEO/RTX — o áudio (opus) do cliente não carrega a extensão transport-wide.
- */
 function trackTwcc(m: Member, exts: Map<number, Buffer>, arrivalUs: number, isAudio: boolean): void {
     if (m.twccExtId === undefined) {
         if (isAudio) return;
@@ -1092,8 +899,6 @@ udp.on("message", (msg, rinfo) => {
     if (ipDiscovery(msg, rinfo)) return;
     let m = byAddr.get(addrKey(rinfo));
     if (!m) {
-        // O cliente Discord usa 2 sockets UDP (mídia e RTX). Um pode não ter feito IP discovery;
-        // associa pelo ssrc RTP (cabeçalho em claro no rtpsize) para não descartar o vídeo.
         if (msg.length >= 12 && (msg[0] >> 6) === 2) {
             m = findByAnySsrc(msg.readUInt32BE(8));
             if (m) {
@@ -1105,8 +910,6 @@ udp.on("message", (msg, rinfo) => {
         if (!m) return;
     }
 
-    // Keepalive do cliente (8 bytes, contador u64): vem do socket primário → o eco e o
-    // destino de feedback (REMB/RR/PLI) vão para ele.
     if (msg.length === 8) {
         m.udp = rinfo;
         udp.send(msg, rinfo.port, rinfo.address);
@@ -1115,8 +918,6 @@ udp.on("message", (msg, rinfo) => {
     }
 
     const kind = classify(msg);
-    // O feedback vai para o socket PRIMÁRIO (áudio/vídeo/RTCP), nunca para o socket de RTX
-    // (senão REMB/RR não são processados). Identifica o primário pelos ssrcs conhecidos.
     const ssrc0 = (msg[0] >> 6) === 2 && msg.length >= 12 ? msg.readUInt32BE(8) : 0;
     const isPrimary = kind.startsWith("rtcp") || ssrc0 === m.audioSsrc || ssrc0 === m.videoSsrc
         || ssrc0 === (m.video?.audio_ssrc ?? -1) || ssrc0 === (m.video?.video_ssrc ?? -1);
@@ -1130,7 +931,6 @@ udp.on("message", (msg, rinfo) => {
         if (rtp) trackTwcc(m, rtp.exts, nowUs(), kind === "pt120");
         trackSeq(m, ssrc0, msg.readUInt16BE(2));
         diagnose(m, rtp?.payload, kind, msg.readUInt32BE(8));
-        // Log dos pares (PT, ssrc) distintos que este membro envia (diag do relay de vídeo).
         if (kind !== "pt120") {
             const combo = `${kind}:${msg.readUInt32BE(8)}`;
             (m.ptSsrc ??= new Set());
@@ -1140,7 +940,6 @@ udp.on("message", (msg, rinfo) => {
         return; // transport-cc do espectador: quem dá o feedback a quem transmite é o servidor
     }
 
-    // Quem transmite → todos; espectador → só quem transmite (RTCP: NACK/PLI/RR).
     const targets = m.streamer ? peers(m) : peers(m).filter(o => o.streamer);
     for (const o of targets) {
         if (!o.udp) continue;
@@ -1149,17 +948,9 @@ udp.on("message", (msg, rinfo) => {
     }
 });
 
-// --- RTCP do servidor ------------------------------------------------------------
-//
-// O nativo limita o vídeo pela estimativa de banda que o RECEPTOR informa
-// (stats: receiverBitrateEstimate). Sem ela a meta do encoder fica 0 e todo
-// quadro é descartado (framesDroppedEncoderQueue) — o áudio não depende disso.
-// O servidor do Discord manda esse feedback; nós mandamos um REMB periódico.
-
 const SERVER_SSRC = 1;
 const REMB_INTERVAL_MS = 1000;
 
-/** RTCP cifrado no modo rtpsize: AAD = 8 bytes de cabeçalho; depois cifra + tag(16) + nonce(4). */
 function encryptRtcp(plain: Buffer, room: Room): Buffer {
     room.nonce = (room.nonce + 1) >>> 0;
     const nonce = Buffer.alloc(4);
@@ -1170,7 +961,6 @@ function encryptRtcp(plain: Buffer, room: Room): Buffer {
     return Buffer.concat([plain.subarray(0, 8), enc, c.getAuthTag(), nonce]);
 }
 
-/** PSFB (206) FMT 15 "REMB": bitrate = mantissa(18 bits) << exp(6 bits). */
 function buildRemb(bps: number, ssrcs: number[]): Buffer {
     let exp = 0;
     let mantissa = Math.max(0, Math.floor(bps));
@@ -1187,7 +977,6 @@ function buildRemb(bps: number, ssrcs: number[]): Buffer {
     return b;
 }
 
-/** PLI (PSFB 206, FMT 1): pede um keyframe ao transmissor. media ssrc = ssrc do vídeo dele. */
 function buildPli(videoSsrc: number): Buffer {
     const b = Buffer.alloc(12);
     b[0] = 0x80 | 1; // V=2, FMT=1 (PLI)
@@ -1198,10 +987,6 @@ function buildPli(videoSsrc: number): Buffer {
     return b;
 }
 
-/**
- * Pede um keyframe aos transmissores da sala (novo espectador / voltou a querer vídeo).
- * Rajada de 3 (0/400/1000ms) porque o relay UDP hairpin perde o primeiro; throttle 1/s.
- */
 function requestKeyframe(room: Room): void {
     const now = Date.now();
     if (now - (room.lastPli ?? 0) < 1000) return;
@@ -1217,7 +1002,6 @@ function requestKeyframe(room: Room): void {
     }
 }
 
-/** RTCP Receiver Report (PT 201): confirma ao transmissor que recebemos a mídia dele. */
 function buildRr(senderSsrc: number, blocks: { ssrc: number; extHighestSeq: number; }[]): Buffer {
     const b = Buffer.alloc(8 + blocks.length * 24);
     b[0] = 0x80 | (blocks.length & 0x1f); // V=2, RC=nº de blocos
@@ -1237,7 +1021,6 @@ function buildRr(senderSsrc: number, blocks: { ssrc: number; extHighestSeq: numb
     return b;
 }
 
-/** Atualiza o maior seq recebido para um ssrc (com detecção simples de wrap). */
 function trackSeq(m: Member, ssrc: number, seq: number): void {
     (m.seqBySsrc ??= new Map());
     const s = m.seqBySsrc.get(ssrc);
@@ -1253,10 +1036,6 @@ setInterval(() => {
     for (const room of rooms.values()) {
         for (const m of room.members.values()) {
             if (!m.udp || m.twccExtId === undefined) continue;
-            // A extensão transport-cc só vem nos pacotes de VÍDEO do cliente (opus
-            // não a carrega — ver trackTwcc): o mediaSSRC do feedback tem que ser o
-            // ssrc de vídeo, senão o BWE do remetente pode descartar/malinhar o
-            // feedback e a estimativa de banda de vídeo fica em 0.
             const fb = m.twcc.build(SERVER_SSRC, m.video?.video_ssrc || m.videoSsrc);
             if (fb) udp.send(encryptRtcp(fb, room), m.udp.port, m.udp.address);
         }

@@ -1,6 +1,3 @@
-// Cache de imagens do Discord (ícones de guild, avatares de usuário). Busca a URL
-// do CDN uma vez, guarda em memória + disco, e serve os bytes — o navegador do
-// admin e o instalador (Electron) nunca batem direto no CDN do Discord.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,10 +14,6 @@ function diskPath(url: string): string {
     return join(DIR, createHash("sha1").update(url).digest("hex") + ".png");
 }
 
-/**
- * Bytes PNG da imagem em `url` (CDN do Discord), vindos do cache quando possível.
- * `null` quando não há URL ou a busca falha — o cliente mostra o fallback (iniciais).
- */
 export async function cachedImage(url: string | undefined): Promise<Buffer | null> {
     if (!url) return null;
     const hit = mem.get(url);

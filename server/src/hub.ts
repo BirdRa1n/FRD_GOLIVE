@@ -1,18 +1,11 @@
-// Páginas HTML do hub (golivefrd). Server-rendered + JS mínimo (fetch/polling).
-// Visual e comportamento vêm do design system em /ui (public/ui/ui.css + ui.js);
-// aqui só vai a estrutura de cada tela.
 
 import type { AuthMode, Policy } from "./types.js";
 
-// Versão nos links dos assets: um deploy novo não fica preso no cache (maxAge 1h).
 const ASSET_V = encodeURIComponent(process.env.VERSION ?? "dev");
 
 interface ShellOptions {
-    /** Mostra a barra superior (brand + tema + ações). */
     topbar?: boolean;
-    /** HTML extra à direita da barra (ex.: avatar/sair). */
     actions?: string;
-    /** Fundo em malha de gradiente (login/erro). */
     mesh?: boolean;
 }
 
@@ -38,7 +31,6 @@ ${opts.topbar === false ? "" : `<header class="topbar"><div class="container">
 ${body}
 </body></html>`;
 
-/** Layout centralizado com card de vidro (login, erro). */
 const centered = (inner: string) => `
 <main class="container" style="min-height:calc(100vh - 60px);display:grid;place-items:center;padding-block:32px">
   <div class="glass stack appear" style="width:min(400px,100%);padding:28px;--gap:18px">${inner}</div>
