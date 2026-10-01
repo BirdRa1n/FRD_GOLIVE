@@ -2,7 +2,7 @@
 # FRD GoLive — publica o instalador compilado como release no GitHub (gh CLI).
 #
 # Sobe o que estiver em installer/release/ (gerado por build-app.sh / .bat) para a
-# release v<versão do package.json> em BirdRa1n/FRD_GOLIVE. É dessa release que o
+# release v<versão do package.json> em your-org/your-repo. É dessa release que o
 # auto-update (electron-updater) dos apps instalados puxa a nova versão.
 #
 # Mac e Windows podem publicar em momentos diferentes: o 1º cria a release, o
@@ -13,7 +13,7 @@
 #     --draft                cria como rascunho (o auto-update IGNORA rascunhos;
 #                            publique depois com: gh release edit vX.Y.Z --draft=false)
 #     --notes "texto"        notas da release (padrão: geradas dos commits)
-#     --repo dono/repo       outro repositório (padrão: BirdRa1n/FRD_GOLIVE ou $FRD_RELEASE_REPO)
+#     --repo dono/repo       outro repositório (padrão: your-org/your-repo ou $FRD_RELEASE_REPO)
 #
 # Requer: gh autenticado (gh auth login) com permissão de escrita no repositório.
 set -euo pipefail
@@ -23,7 +23,7 @@ ok() { printf '\033[1;32m✓\033[0m %s\n' "$1"; }
 warn() { printf '\033[1;33m!\033[0m %s\n' "$1"; }
 die() { printf '\033[1;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
-REPO="${FRD_RELEASE_REPO:-BirdRa1n/FRD_GOLIVE}"
+REPO="${FRD_RELEASE_REPO:-your-org/your-repo}"
 DRAFT=0
 NOTES=""
 while [ $# -gt 0 ]; do

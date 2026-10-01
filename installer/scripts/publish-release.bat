@@ -2,7 +2,7 @@
 rem FRD GoLive - publica o instalador compilado como release no GitHub (gh CLI).
 rem
 rem Sobe o que estiver em installer\release\ (gerado por build-app.bat / .sh) para a
-rem release v<versao do package.json> em BirdRa1n/FRD_GOLIVE. E dessa release que o
+rem release v<versao do package.json> em your-org/your-repo. E dessa release que o
 rem auto-update (electron-updater) dos apps instalados puxa a nova versao.
 rem
 rem Mac e Windows podem publicar em momentos diferentes: o 1o cria a release, o
@@ -13,14 +13,14 @@ rem   installer\scripts\publish-release.bat [--draft] [--notes "texto"] [--repo 
 rem     --draft   cria como rascunho (o auto-update IGNORA rascunhos; publique depois
 rem               com: gh release edit vX.Y.Z --draft=false)
 rem     --notes   notas da release (padrao: geradas dos commits)
-rem     --repo    outro repositorio (padrao: BirdRa1n/FRD_GOLIVE ou %%FRD_RELEASE_REPO%%)
+rem     --repo    outro repositorio (padrao: your-org/your-repo ou %%FRD_RELEASE_REPO%%)
 rem
 rem Requer: gh autenticado (gh auth login) com permissao de escrita no repositorio.
 
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0.."
 
-set "REPO=BirdRa1n/FRD_GOLIVE"
+set "REPO=your-org/your-repo"
 if defined FRD_RELEASE_REPO set "REPO=%FRD_RELEASE_REPO%"
 set "DRAFT="
 set "NOTES="

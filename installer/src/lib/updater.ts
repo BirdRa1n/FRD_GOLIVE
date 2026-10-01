@@ -1,6 +1,6 @@
 // Auto-update do instalador via GitHub Releases (electron-updater).
 //
-// Ao abrir o app empacotado: procura uma release nova em BirdRa1n/FRD_GOLIVE
+// Ao abrir o app empacotado: procura uma release nova no repositório configurado
 // (config `publish` do electron-builder.yml), baixa e reinicia já atualizado.
 // Se o usuário estiver aplicando a modificação nessa hora, espera terminar.
 //
@@ -20,7 +20,7 @@ export type UpdateState =
     | { state: "manual"; version: string; url: string; }
     | { state: "error"; message: string; };
 
-const RELEASES_URL = "https://github.com/BirdRa1n/FRD_GOLIVE/releases/latest";
+const RELEASES_URL = "https://github.com/your-org/your-repo/releases/latest";
 
 let win: BrowserWindow | null = null;
 let last: UpdateState = { state: "disabled" };

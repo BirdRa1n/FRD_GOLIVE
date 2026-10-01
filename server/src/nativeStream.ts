@@ -71,7 +71,7 @@ const {
     // Híbrido: nunca pede vídeo a quem transmite (sink want sempre 0). O vídeo real vem
     // pelo LiveKit; o Go Live nativo serve só de shell + áudio E2EE. Assim o encoder/captura
     // de vídeo nativo não roda à toa (não produzia frames pelo servidor privado de qualquer
-    // forma — ver docs/GOLIVE-NATIVO.md) e a transmissão fica mais leve.
+    // forma — ver docs/GOLIVE-NATIVE.md) e a transmissão fica mais leve.
     NATIVE_STREAM_NO_VIDEO = "0",
 } = process.env;
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Instalador do servidor FRD GoLive v2 (mesh) — estilo "curl | sh".
 #
-#   curl -fsSL https://raw.githubusercontent.com/BirdRa1n/FRD_GOLIVE/main/server/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/<your-org>/<your-repo>/main/server/install.sh | sh
 #
 # O servidor v2 só faz signaling + auth + config + admin (tudo HTTP/WS, uma única
 # porta), então passa 100% pelo Cloudflare Tunnel — sem VPS/UDP. Este script:
@@ -10,7 +10,7 @@
 # o Tailscale, e sobe o container.
 set -eu
 
-REPO_DEFAULT="https://github.com/BirdRa1n/FRD_GOLIVE"
+REPO_DEFAULT="${FRD_REPO_URL:-https://github.com/your-org/your-repo}"
 DIR_DEFAULT="/opt/frd-golive"
 
 # --- helpers de terminal (funcionam mesmo com o script vindo por um pipe) ---
@@ -121,7 +121,7 @@ if confirm "Configurar o login do Discord (hub/admin) agora?"; then
     info "Crie o app em https://discord.com/developers/applications (guia: docs/DISCORD-OAUTH.md)."
     set_env DISCORD_CLIENT_ID "$(ask 'DISCORD_CLIENT_ID' '')" "$ENV_FILE"
     set_env DISCORD_CLIENT_SECRET "$(ask 'DISCORD_CLIENT_SECRET' '')" "$ENV_FILE"
-    HOST=$(ask "Host público do hub (ex.: golivefrd.seu.com)" "")
+    HOST=$(ask "Host público do hub (ex.: stream.example.com)" "")
     [ -n "$HOST" ] && set_env DISCORD_REDIRECT_URI "https://$HOST/auth/callback" "$ENV_FILE"
     set_env ADMIN_DISCORD_IDS "$(ask 'Seu Discord user ID (admin)' '')" "$ENV_FILE"
     set_env DISCORD_BOT_TOKEN "$(ask 'Token do bot (opcional, modo canais na dashboard)' '')" "$ENV_FILE"
@@ -154,5 +154,5 @@ ok "Servidor no ar."
 info "Health:     http://<host>:$PORT/health"
 info "Config:     http://<host>:$PORT/config   (o instalador/plugin puxa daqui)"
 info "Hub/admin:  http://<host>:$PORT/          (login Discord, se configurado)"
-printf '\nExponha via Cloudflare Tunnel: golivefrd.SEU.com -> http://<host>:%s\n' "$PORT"
+printf '\nExpose via a reverse proxy / tunnel: stream.example.com -> http://<host>:%s\n' "$PORT"
 printf '(HTTP e o WS /dstream na MESMA porta — a mídia UDP é separada; ver docs/RELAY-UDP.md.)\n'

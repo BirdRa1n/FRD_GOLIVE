@@ -1,124 +1,129 @@
-# Criar o login do Discord (OAuth2) para o hub/admin
+# Set up Discord login (OAuth2) for the hub/admin
 
-O hub web (`golivefrd.SEU.com`) usa **login do Discord** para identificar quem pede
-acesso e para proteger o painel `/admin`. Ele usa só o escopo `identify` (nome + id,
-sem e‑mail, sem permissões no seu servidor). Este guia cria o app e preenche o `.env`.
+The web hub (`stream.example.com`) uses **Discord login** to identify who requests
+access and to protect the `/admin` panel. It uses only the `identify` scope (name + id,
+no email, no permissions on your server). This guide creates the app and fills the
+`.env`.
 
-## 1. Criar o aplicativo
+## 1. Create the application
 
-1. Acesse **https://discord.com/developers/applications** e clique em **New Application**.
-2. Dê um nome (ex.: `FRD GoLive`) e crie.
-3. No menu lateral, vá em **OAuth2**.
+1. Go to **https://discord.com/developers/applications** and click **New Application**.
+2. Give it a name (e.g. `FRD GoLive`) and create it.
+3. In the sidebar, go to **OAuth2**.
 
-## 2. Client ID e Client Secret
+## 2. Client ID and Client Secret
 
-- Em **OAuth2 → General**, copie o **Client ID**.
-- Clique em **Reset Secret** para gerar o **Client Secret** e copie (aparece uma vez).
+- In **OAuth2 → General**, copy the **Client ID**.
+- Click **Reset Secret** to generate the **Client Secret** and copy it (shown once).
 
-Esses dois valores viram no `.env`:
+Those two values go into the `.env`:
 
 ```
 DISCORD_CLIENT_ID=<Client ID>
 DISCORD_CLIENT_SECRET=<Client Secret>
 ```
 
-## 3. Redirect URI (obrigatório e exato)
+## 3. Redirect URI (required and exact)
 
-Em **OAuth2 → General → Redirects**, clique **Add Redirect** e cadastre **exatamente**
-a URL de callback do seu host (com `https://` e sem barra no final):
-
-```
-https://golivefrd.SEU.com/auth/callback
-```
-
-Salve. O mesmo valor vai no `.env`:
+In **OAuth2 → General → Redirects**, click **Add Redirect** and register **exactly**
+your host's callback URL (with `https://` and no trailing slash):
 
 ```
-DISCORD_REDIRECT_URI=https://golivefrd.SEU.com/auth/callback
+https://stream.example.com/auth/callback
 ```
 
-> Se não bater byte a byte com o que está no portal, o Discord recusa o login com
-> `invalid_redirect_uri`. Em teste local, cadastre também `http://localhost:8090/auth/callback`.
-
-## 4. Definir os administradores
-
-O painel `/admin` é liberado por **Discord user ID**. Para pegar o seu:
-
-1. No Discord, **Configurações → Avançado → Modo de desenvolvedor** (ligado).
-2. Clique com o botão direito no seu nome → **Copiar ID do usuário**.
-
-Coloque os IDs (separados por vírgula) no `.env`:
+Save. The same value goes into the `.env`:
 
 ```
-ADMIN_DISCORD_IDS=<seu_id>[,<outro_admin_id>]
+DISCORD_REDIRECT_URI=https://stream.example.com/auth/callback
 ```
 
-## 5. Segredo da sessão
+> If it does not match byte for byte what is in the portal, Discord rejects the login
+> with `invalid_redirect_uri`. For local testing, also register
+> `http://localhost:8090/auth/callback`.
 
-O cookie de login é assinado com `SESSION_SECRET`. O `gen-env.sh` já gera um
-aleatório; se estiver preenchendo à mão:
+## 4. Define the administrators
+
+The `/admin` panel is opened by **Discord user ID**. To get yours:
+
+1. In Discord, **Settings → Advanced → Developer Mode** (on).
+2. Right-click your name → **Copy User ID**.
+
+Put the IDs (comma-separated) in the `.env`:
+
+```
+ADMIN_DISCORD_IDS=<your_id>[,<other_admin_id>]
+```
+
+## 5. Session secret
+
+The login cookie is signed with `SESSION_SECRET`. `gen-env.sh` already generates a
+random one; if you are filling it by hand:
 
 ```bash
 openssl rand -hex 32
 ```
 
-## 6. Aplicar
+## 6. Apply
 
-Depois de editar o `server/.env`, reinicie o container:
+After editing `server/.env`, restart the container:
 
 ```bash
 cd server && docker compose up -d --build
 ```
 
-Teste: abra `https://golivefrd.SEU.com/` → deve aparecer **Entrar com Discord**;
-após o login, o seu ID nos `ADMIN_DISCORD_IDS` libera o `/admin`.
+Test: open `https://stream.example.com/` → you should see **Sign in with Discord**;
+after logging in, your ID in `ADMIN_DISCORD_IDS` unlocks `/admin`.
 
-## 7. Bot (opcional) — modo "canais" na dashboard
+## 7. Bot (optional) — "channels" mode in the dashboard
 
-Sem bot, a habilitação é **por usuário** (modo `login`). Com o bot, o admin pode
-trocar para o modo **`canais`**: quem está num canal de voz habilitado transmite
-(menos os banidos), sem precisar liberar pessoa a pessoa.
+Without the bot, enablement is **per user** (`login` mode). With the bot, the admin can
+switch to **`channels`** mode: anyone in an enabled voice channel can stream (except
+banned members), without enabling people one by one.
 
-1. No mesmo app, vá em **Bot → Reset Token** e copie:
-
-   ```
-   DISCORD_BOT_TOKEN=<token do bot>
-   ```
-
-2. **Convide o bot para o seu servidor**: em **OAuth2 → URL Generator**, marque o
-   escopo `bot` e a permissão **View Channels** (1024), abra o link gerado.
+1. In the same app, go to **Bot → Reset Token** and copy:
 
    ```
-   https://discord.com/oauth2/authorize?client_id=<Client ID>&scope=bot&permissions=1024
+   DISCORD_BOT_TOKEN=<bot token>
    ```
 
-3. (Opcional) Para exibir **nomes de membros** na dashboard, ligue **Server Members
-   Intent** em **Bot → Privileged Gateway Intents**. Sem isso o painel mostra só os IDs.
+2. **Invite the bot to your server.** The dashboard has an invite link under
+   **Settings → Bot**, or generate one in **OAuth2 → URL Generator** with the `bot`
+   scope and the **View Channels** + **Connect** permissions:
 
-4. **Como o servidor sabe em qual canal alguém está**: o IDENTIFY da mídia do Go Live
-   manda `server_id`/`channel_id` **efêmeros** (criados por sessão, não existem no
-   Discord), então o servidor abre também o **gateway do bot** (intents `GUILDS` +
-   `GUILD_VOICE_STATES`, comuns — nada para ativar no app) e cruza o `session_id`
-   com `VOICE_STATE_UPDATE`. É isso que faz a dashboard mostrar "Sala-01" em vez de
-   um id fantasma e que **desligar/banir derruba na hora** quem já estava no ar.
+   ```
+   https://discord.com/oauth2/authorize?client_id=<Client ID>&scope=bot&permissions=1049600
+   ```
 
-5. No painel `/admin`, em **Quem pode transmitir**, escolha **Canais**: na hora,
-   **todas as salas de voz das guilds do bot entram habilitadas** e você só
-   **desliga** as que não quiser (toggle de cada linha). O botão **Sincronizar com
-   o bot** traz canais novos; **Adicionar canal** inclui um específico (ou cola os
-   IDs, se não houver bot). Canais de guilds sem o bot aparecem sozinhos quando
-   alguém tenta transmitir — **já habilitados**.
+3. (Optional) To show **member names** in the dashboard, enable **Server Members
+   Intent** under **Bot → Privileged Gateway Intents**. Without it the panel shows only
+   the IDs.
 
-> Só o admin configura o bot — os membros não precisam de login no hub para
-> transmitir no modo canais (a checagem acontece no `/dstream`).
+4. **How the server knows which channel someone is in**: the Go Live media IDENTIFY
+   sends **ephemeral** `server_id`/`channel_id` (created per session, not real on
+   Discord), so the server also opens the **bot gateway** (intents `GUILDS` +
+   `GUILD_VOICE_STATES`, non-privileged — nothing to enable in the app) and
+   cross-references the `session_id` with `VOICE_STATE_UPDATE`. That is what makes the
+   dashboard show "Sala-01" instead of a phantom id and what makes **disabling/banning
+   drop whoever is already live**.
 
-## Resumo das variáveis no `.env`
+5. In `/admin`, under **Who can stream**, choose **Channels**: immediately **all voice
+   channels of the bot's guilds become enabled** and you only **turn off** the ones you
+   do not want (per-row toggle). **Sync with the bot** pulls new channels; **Add
+   channel** includes a specific one (or paste the IDs, if there is no bot). Channels of
+   guilds without the bot show up on their own when someone tries to stream — **already
+   enabled**.
 
-| Variável | De onde vem |
+> Only the admin configures the bot — members do not need a hub login to stream in
+> channels mode (the check happens on `/dstream`).
+
+## Summary of `.env` variables
+
+| Variable | Where it comes from |
 |---|---|
 | `DISCORD_CLIENT_ID` | OAuth2 → General → Client ID |
 | `DISCORD_CLIENT_SECRET` | OAuth2 → General → Reset Secret |
-| `DISCORD_REDIRECT_URI` | `https://SEU_HOST/auth/callback` (idêntico ao cadastrado) |
-| `DISCORD_BOT_TOKEN` | Bot → Reset Token (opcional — modo canais) |
-| `ADMIN_DISCORD_IDS` | seu(s) Discord user ID(s), separados por vírgula |
-| `SESSION_SECRET` | `openssl rand -hex 32` (ou gerado pelo `gen-env.sh`) |
+| `DISCORD_REDIRECT_URI` | `https://YOUR_HOST/auth/callback` (identical to the registered one) |
+| `DISCORD_BOT_TOKEN` | Bot → Reset Token (optional — channels mode) |
+| `ADMIN_DISCORD_IDS` | your Discord user ID(s), comma-separated |
+| `SESSION_SECRET` | `openssl rand -hex 32` (or generated by `gen-env.sh`) |
