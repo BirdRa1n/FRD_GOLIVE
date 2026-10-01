@@ -240,9 +240,24 @@
         return ((parts[0] || "?")[0] + (parts[1] ? parts[1][0] : (parts[0][1] || ""))).toUpperCase();
     }
 
+    /**
+     * Avatar com imagem e fallback para iniciais: se a imagem falhar (sem avatar,
+     * sem rede), o <img> some e as iniciais aparecem. `square` para ícones de guild.
+     */
+    function thumb(url, name, square, cls) {
+        return '<span class="avatar' + (square ? " square" : "") + (cls ? " " + cls : "") + '">' + escapeHtml(initials(name)) +
+            (url ? '<img src="' + escapeHtml(url) + '" alt="" loading="lazy" data-fallback>' : "") + "</span>";
+    }
+
     // ------------------------------------------------------------ delegação
     document.addEventListener("pointerdown", function (e) {
         lastPointer = { x: e.clientX, y: e.clientY };
+    }, true);
+
+    // Imagem de avatar/ícone que falhou: remove para revelar as iniciais atrás.
+    document.addEventListener("error", function (e) {
+        var t = e.target;
+        if (t instanceof Element && t.tagName === "IMG" && t.hasAttribute("data-fallback")) t.remove();
     }, true);
 
     document.addEventListener("click", function (e) {
@@ -327,6 +342,9 @@
         settings: '<path d="m19.4 13 .1-1-.1-1 2.1-1.6-2-3.5-2.5 1a7 7 0 0 0-1.7-1L15 3h-4l-.4 2.7a7 7 0 0 0-1.7 1l-2.5-1-2 3.5L6.5 11l-.1 1 .1 1-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5L19.4 13ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/>',
         sparkle: '<path d="M12 2l2.2 5.8L20 10l-5.8 2.2L12 18l-2.2-5.8L4 10l5.8-2.2L12 2Zm7 12 1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1 1-2.6Z"/>',
         discord: '<path d="M19.3 5.3A16.5 16.5 0 0 0 15.2 4l-.5 1a15 15 0 0 0-5.4 0L8.8 4a16.5 16.5 0 0 0-4.1 1.3C2 9.2 1.3 13 1.6 16.7a16.6 16.6 0 0 0 5 2.6l1.1-1.7c-.6-.2-1.2-.5-1.7-.9l.4-.3a11.8 11.8 0 0 0 11.2 0l.4.3c-.5.4-1.1.7-1.7.9l1.1 1.7a16.5 16.5 0 0 0 5-2.6c.4-4.3-.7-8-3.1-11.4ZM8.7 14.5c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6.6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/>',
+        link: '<path d="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h3V7H7a5 5 0 0 0 0 10h3v-1.9H7A3.1 3.1 0 0 1 3.9 12Zm4.1 1h8v-2H8v2Zm9-6h-3v1.9h3a3.1 3.1 0 0 1 0 6.2h-3V17h3a5 5 0 0 0 0-10Z"/>',
+        refresh: '<path d="M12 6V3L8 7l4 4V8a4 4 0 1 1-4 4H6a6 6 0 1 0 6-6Z"/>',
+        bot: '<path d="M12 2a1 1 0 0 1 1 1v1h3a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h3V3a1 1 0 0 1 1-1ZM9 10a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM9 16h6v1.5H9V16ZM3 10h1.5v4H3v-4Zm16.5 0H21v4h-1.5v-4Z"/>',
     };
 
     function icon(name) {
@@ -392,6 +410,7 @@
         relativeTime: relativeTime,
         duration: duration,
         initials: initials,
+        thumb: thumb,
         icon: icon,
         icons: Object.keys(ICONS),
     };

@@ -6,10 +6,11 @@ import express from "express";
 import { botGatewayState, startBotGateway } from "./botGateway.js";
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
+import { cachedImage } from "./imageCache.js";
 import { closeMembersInChannel, getLiveState, handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, nativeStreamPublicIp, startNativeStreamUdp } from "./nativeStream.js";
 import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
-import type { ActiveTransmission, AuthMode, ClientConfig, LiveMember, LiveRoom } from "./types.js";
+import type { ActiveTransmission, AuthMode, ClientConfig, Group, GroupChannel, LiveMember, LiveRoom, PublicGroup } from "./types.js";
 
 const ADMIN_IDS = (process.env.ADMIN_DISCORD_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
 
@@ -63,8 +64,36 @@ app.get("/config", (req, res) => {
         mediaHost: nativeStreamPublicIp(),
         version: VERSION,
         transport: "native",
+        authMode: store.getSettings().authMode,
+        oauth: discord.oauthConfigured(),
     };
     res.json(cfg);
+});
+
+/** Imagem pública (só ícones de guild) — o instalador usa antes do login. */
+app.get("/img/guild/:id", async (req, res) => {
+    const buf = await cachedImage(discord.guildIconUrl(req.params.id, await discord.guildIcon(req.params.id)));
+    if (!buf) return res.sendStatus(404);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.end(buf);
+});
+
+/** Grupos habilitados (guild-level) para o instalador listar antes do login. */
+app.get("/groups", async (req, res) => {
+    if (store.getSettings().authMode !== "channels") return res.json([]);
+    const host = req.headers.host ?? `localhost:${PORT}`;
+    const proto = req.headers["x-forwarded-proto"] === "https" || req.secure ? "https" : "http";
+    const byGuild = new Map<string, PublicGroup>();
+    for (const c of store.listChannels()) {
+        if (!c.enabled || byGuild.has(c.guildId)) continue;
+        byGuild.set(c.guildId, {
+            guildId: c.guildId,
+            guildName: c.guildName || c.guildId,
+            icon: `${proto}://${host}/img/guild/${c.guildId}`,
+        });
+    }
+    res.json([...byGuild.values()]);
 });
 
 /** Usuário pede acesso (vindo do hub após login). */
@@ -174,6 +203,72 @@ app.post("/admin/settings", admin, async (req, res) => {
     catch (e) { res.json({ ...settings, seededError: (e as Error).message }); } // bot fora do ar: o modo muda mesmo assim
 });
 
+// --- Imagens (ícone de guild / avatar de usuário), servidas do cache do hub ---
+app.get("/admin/img/guild/:id", admin, async (req, res) => {
+    const buf = await cachedImage(discord.guildIconUrl(req.params.id, await discord.guildIcon(req.params.id)));
+    if (!buf) return res.sendStatus(404);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.end(buf);
+});
+app.get("/admin/img/user/:id", admin, async (req, res) => {
+    const buf = await cachedImage(discord.userAvatarUrl(req.params.id, await discord.userAvatar(req.params.id)));
+    if (!buf) return res.sendStatus(404);
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.end(buf);
+});
+
+// --- Status e convite do bot (para a aba de configurações) ---
+app.get("/admin/bot", admin, (_req, res) => {
+    res.json({
+        configured: discord.botConfigured(),
+        oauth: discord.oauthConfigured(),
+        invite: discord.botInviteUrl(),
+        gateway: botGatewayState(),
+        adminCount: ADMIN_IDS.length,
+    });
+});
+
+// --- Canais agrupados por guild (dashboard: gerir grupos separadamente) ---
+app.get("/admin/groups", admin, async (_req, res) => {
+    const rooms = await Promise.all(getLiveState().map(enrichRoom));
+    const liveByChannel = new Map<string, LiveMember[]>();
+    for (const r of rooms) {
+        for (const m of r.members) {
+            if (!m.channelId) continue;
+            const arr = liveByChannel.get(m.channelId) ?? [];
+            arr.push(m);
+            liveByChannel.set(m.channelId, arr);
+        }
+    }
+    const groups = new Map<string, Group>();
+    for (const c of store.listChannels()) {
+        let g = groups.get(c.guildId);
+        if (!g) {
+            g = { guildId: c.guildId, guildName: c.guildName || undefined, guildIcon: `/admin/img/guild/${c.guildId}`, botPresent: false, channels: [] };
+            groups.set(c.guildId, g);
+        }
+        const live = liveByChannel.get(c.channelId) ?? [];
+        const channel: GroupChannel = {
+            channelId: c.channelId,
+            channelName: c.channelName || c.channelId,
+            enabled: c.enabled,
+            bans: c.bans,
+            seen: c.seen,
+            liveMembers: live,
+            streamers: live.filter(m => m.streamer).length,
+            viewers: live.filter(m => !m.streamer).length,
+        };
+        g.channels.push(channel);
+    }
+    if (discord.botConfigured()) {
+        try { for (const bg of await discord.botGuilds()) { const g = groups.get(bg.id); if (g) { g.botPresent = true; if (!g.guildName) g.guildName = bg.name; } } }
+        catch { /* bot fora do ar: botPresent fica false */ }
+    }
+    res.json([...groups.values()]);
+});
+
 // --- Bot: navegar guilds/canais de voz para o admin escolher ---
 app.get("/admin/bot/guilds", admin, async (_req, res) => {
     if (!discord.botConfigured()) return res.status(503).json({ error: "bot não configurado (defina DISCORD_BOT_TOKEN)" });
@@ -256,7 +351,7 @@ async function enrichRoom(r: ReturnType<typeof getLiveState>[number]): Promise<L
             name = await nameOf(guildId, m.userId);
             if (name && m.channelId) store.rememberName(m.channelId, m.userId, name);
         }
-        return { userId: m.userId, name, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined, guildId: m.guildId };
+        return { userId: m.userId, name, avatar: `/admin/img/user/${m.userId}`, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined, guildId: m.guildId };
     }));
     const channelId = members.find(m => !!m.channelId)?.channelId;
     const channelName = members.find(m => !!m.channelName)?.channelName;
@@ -264,6 +359,7 @@ async function enrichRoom(r: ReturnType<typeof getLiveState>[number]): Promise<L
         roomId: r.roomId,
         guildId,
         guildName,
+        guildIcon: `/admin/img/guild/${guildId}`,
         label: channelName || channelId,
         channelId,
         channelName,

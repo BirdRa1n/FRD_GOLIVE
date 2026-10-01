@@ -19,6 +19,10 @@ export interface ClientConfig {
     mediaHost: string;
     version: string;
     transport: "native"; // Go Live nativo do Discord, redirecionado para o servidor privado
+    // Como o servidor decide quem transmite — o instalador adapta a UI a isso.
+    authMode: AuthMode;
+    // Login do Discord disponível (OAuth configurado).
+    oauth: boolean;
 }
 
 export interface RTCIceServerConfig {
@@ -99,6 +103,8 @@ export interface LiveRoom {
     /** guild REAL de onde vêm as pessoas (do gateway do bot), quando conhecida. */
     guildId?: string;
     guildName?: string;
+    /** URL (via cache do hub) do ícone do guild, quando houver. */
+    guildIcon?: string;
     /** Rótulo da tela: o canal real (ex.: "Sala-01"), quando conhecido. */
     label?: string;
     channelId?: string;
@@ -111,10 +117,43 @@ export interface LiveRoom {
 export interface LiveMember {
     userId: string;
     name?: string;
+    /** URL (via cache do hub) do avatar do usuário, quando houver. */
+    avatar?: string;
     streamer: boolean;
     /** Quando começou a transmitir (ms). */
     since?: number;
     channelId?: string;
     channelName?: string;
     guildId?: string;
+}
+
+/** Canais configurados agrupados por guild (dashboard admin, modo channels). */
+export interface Group {
+    guildId: string;
+    guildName?: string;
+    /** URL (via cache do hub) do ícone do guild. */
+    guildIcon?: string;
+    /** O bot está nesse guild (gateway/REST). */
+    botPresent: boolean;
+    channels: GroupChannel[];
+}
+
+export interface GroupChannel {
+    channelId: string;
+    channelName: string;
+    enabled: boolean;
+    bans: string[];
+    seen: SeenMember[];
+    /** Quem está no canal agora (do estado ao vivo). */
+    liveMembers: LiveMember[];
+    streamers: number;
+    viewers: number;
+}
+
+/** Guild habilitado exposto publicamente ao instalador (sem dados de membros). */
+export interface PublicGroup {
+    guildId: string;
+    guildName: string;
+    /** URL (via cache do hub) do ícone do guild. */
+    icon?: string;
 }

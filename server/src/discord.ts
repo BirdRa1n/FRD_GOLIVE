@@ -57,6 +57,36 @@ export function botConfigured(): boolean {
     return Boolean(DISCORD_BOT_TOKEN);
 }
 
+/** Application (client) id — usado para montar o link de convite do bot. */
+export function clientId(): string {
+    return DISCORD_CLIENT_ID;
+}
+
+const CDN = "https://cdn.discordapp.com";
+
+export function guildIconUrl(guildId: string, iconHash?: string | null): string | undefined {
+    return iconHash ? `${CDN}/icons/${guildId}/${iconHash}.png?size=128` : undefined;
+}
+
+export function userAvatarUrl(userId: string, avatarHash?: string | null): string | undefined {
+    return avatarHash ? `${CDN}/avatars/${userId}/${avatarHash}.png?size=128` : undefined;
+}
+
+/**
+ * Link de convite do bot (scope bot + applications.commands) com as permissões
+ * mínimas de voz. Permissões: View Channels (1<<10) + Connect (1<<20).
+ */
+export function botInviteUrl(): string | undefined {
+    if (!DISCORD_CLIENT_ID) return undefined;
+    const perms = (1 << 10) | (1 << 20);
+    const p = new URLSearchParams({
+        client_id: DISCORD_CLIENT_ID,
+        scope: "bot applications.commands",
+        permissions: String(perms),
+    });
+    return `https://discord.com/oauth2/authorize?${p.toString()}`;
+}
+
 async function bot<T>(path: string): Promise<T> {
     const res = await fetch(`${API}${path}`, {
         headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` },
@@ -65,16 +95,39 @@ async function bot<T>(path: string): Promise<T> {
     return res.json() as Promise<T>;
 }
 
-const CACHE_TTL = 60_000; // 1 min — evita estourar rate limit a cada poll da dashboard
-let guildsCache: { at: number; list: { id: string; name: string; }[] } = { at: 0, list: [] };
-const channelsCache = new Map<string, { at: number; list: { id: string; name: string; type: number; }[] }>();
+export interface BotGuild { id: string; name: string; icon?: string; }
 
-/** Guilds em que o bot está (cache de 1 min). */
-export async function botGuilds(): Promise<{ id: string; name: string; }[]> {
+const CACHE_TTL = 60_000; // 1 min — evita estourar rate limit a cada poll da dashboard
+let guildsCache: { at: number; list: BotGuild[] } = { at: 0, list: [] };
+const channelsCache = new Map<string, { at: number; list: { id: string; name: string; type: number; }[] }>();
+const avatarCache = new Map<string, { at: number; hash?: string }>(); // userId → hash do avatar
+
+/** Guilds em que o bot está (cache de 1 min), com o hash do ícone. */
+export async function botGuilds(): Promise<BotGuild[]> {
     if (guildsCache.at && Date.now() - guildsCache.at < CACHE_TTL) return guildsCache.list;
-    const gs = await bot<{ id: string; name: string; }[]>("/users/@me/guilds");
-    guildsCache = { at: Date.now(), list: gs.map(g => ({ id: g.id, name: g.name })) };
+    const gs = await bot<{ id: string; name: string; icon?: string; }[]>("/users/@me/guilds");
+    guildsCache = { at: Date.now(), list: gs.map(g => ({ id: g.id, name: g.name, icon: g.icon ?? undefined })) };
     return guildsCache.list;
+}
+
+/** Ícone (hash) de um guild em que o bot está. */
+export async function guildIcon(guildId: string): Promise<string | undefined> {
+    try { return (await botGuilds()).find(g => g.id === guildId)?.icon; }
+    catch { return undefined; }
+}
+
+/** Avatar (hash) de um usuário, via REST do bot (cache de 1 min por usuário). */
+export async function userAvatar(userId: string): Promise<string | undefined> {
+    const hit = avatarCache.get(userId);
+    if (hit && Date.now() - hit.at < CACHE_TTL) return hit.hash;
+    try {
+        const u = await bot<{ avatar?: string; }>(`/users/${userId}`);
+        if (avatarCache.size > 500) avatarCache.clear();
+        avatarCache.set(userId, { at: Date.now(), hash: u.avatar ?? undefined });
+        return u.avatar ?? undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /** Canais de voz (type 2) e stage (13) de um guild (cache de 1 min por guild). */
