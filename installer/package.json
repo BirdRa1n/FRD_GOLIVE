@@ -1,6 +1,6 @@
 {
   "name": "frd-golive-installer",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "private": true,
   "description": "Instalador FRD GoLive — aplica a modificação no Discord (Mac/Windows).",
   "main": "dist/main.js",
