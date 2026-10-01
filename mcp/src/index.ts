@@ -1,10 +1,3 @@
-// MCP "frd-discord" — inspeção ao vivo do Discord para o agente.
-//
-// Duas bocas: stdio (fala MCP com o OpenCode) e HTTP local (fala com o Discord,
-// que faz poll via client/src/native.ts e executa no renderer via
-// client/src/diagBridge.ts). Setup e playbook: docs/MCP-DIAG.md.
-//
-// IMPORTANTE: stdout é o protocolo MCP — nunca logue nele (use console.error).
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -27,7 +20,6 @@ function fail(message: string): ToolResult {
     return { content: [{ type: "text", text: `✗ ${message}` }], isError: true };
 }
 
-/** Handler que encaminha a ferramenta para o renderer com timeout. */
 function call(tool: string, timeoutMs: number) {
     return async (args: Record<string, unknown>): Promise<ToolResult> => {
         try {

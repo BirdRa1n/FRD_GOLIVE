@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { app } from "electron";
 
 export interface Prefs {
-    // Último host do servidor que o usuário informou — relembrado entre atualizações.
     host?: string;
 }
 
@@ -34,10 +33,6 @@ export function rememberHost(host: string): void {
     savePrefs({ ...prev, host });
 }
 
-/**
- * Baixa (e cacheia em disco) uma imagem e devolve um data URL, para o renderer do
- * Electron exibir o ícone do grupo de forma confiável e offline. `undefined` se falhar.
- */
 export async function cachedIconDataUrl(url: string): Promise<string | undefined> {
     const file = join(iconDir(), createHash("sha1").update(url).digest("hex") + ".png");
     if (existsSync(file)) {

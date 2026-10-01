@@ -1,17 +1,5 @@
-/*
- * FRD GoLive — design system (fase 1).
- *
- * Um arquivo só, sem build, usado pelo hub/login/admin (servido em /ui/ui.css)
- * e pelo instalador (copiado para installer/renderer/ui/ no build).
- * Linguagem inspirada no SwiftUI: large titles, listas agrupadas, materiais
- * translúcidos e animações com mola; gradiente roxo que lembra o Discord.
- *
- * Tema: segue o sistema; `data-theme="light|dark"` no <html> força um lado
- * (quem grava isso é o ui.js). Componentes usam SÓ os tokens abaixo.
- * Catálogo de referência: /ui/ (public/ui/index.html).
- */
 
-/* ------------------------------------------------------------------ tokens */
+
 :root {
     --bg: #f4f3fa;
     --bg-2: #ecebf6;
@@ -101,7 +89,6 @@
     color-scheme: dark;
 }
 
-/* -------------------------------------------------------------------- base */
 *, *::before, *::after { box-sizing: border-box; }
 
 html { background: var(--bg); }
@@ -121,11 +108,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 img, svg, video, canvas { max-width: 100%; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
 [hidden] { display: none !important; }
-/* <i data-icon="…"> (hidratado pelo ui.js). Especificidade zero: componentes mandam. */
+
 :where([data-icon]) { display: inline-flex; align-items: center; justify-content: center; font-style: normal; }
 :where([data-icon]) > svg { width: 1.25em; height: 1.25em; }
 
-/* ------------------------------------------------------------- typography */
 .large-title {
     margin: 0;
     font: 800 clamp(26px, 4vw, 32px)/1.1 var(--font-display);
@@ -157,7 +143,6 @@ img, svg, video, canvas { max-width: 100%; }
 .text-warn { color: var(--warn); }
 .text-danger { color: var(--danger); }
 
-/* ------------------------------------------------------------------ layout */
 .container { width: 100%; max-width: 1040px; margin: 0 auto; padding-inline: 20px; }
 .page { padding-block: 28px 56px; display: grid; gap: 22px; }
 .stack { display: grid; gap: var(--gap, 12px); align-content: start; }
@@ -166,7 +151,6 @@ img, svg, video, canvas { max-width: 100%; }
 .grid-auto { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--min, 220px), 1fr)); gap: var(--gap, 14px); }
 .grow { flex: 1; min-width: 0; }
 
-/* --------------------------------------------------------------- top bar */
 .topbar {
     position: sticky;
     top: 0;
@@ -194,7 +178,6 @@ img, svg, video, canvas { max-width: 100%; }
 .logo svg { width: 58%; height: 58%; }
 .logo-lg { width: 52px; height: 52px; border-radius: 15px; }
 
-/* ----------------------------------------------------------------- buttons */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -235,7 +218,6 @@ img, svg, video, canvas { max-width: 100%; }
 .btn-block { width: 100%; }
 .btn-icon { width: 34px; min-height: 34px; padding: 0; }
 
-/* carregando: <button aria-busy="true"> */
 .btn[aria-busy="true"] { pointer-events: none; }
 .btn[aria-busy="true"]::before {
     content: "";
@@ -247,7 +229,6 @@ img, svg, video, canvas { max-width: 100%; }
     animation: ui-spin 0.7s linear infinite;
 }
 
-/* ---------------------------------------------- grouped list (insetGrouped) */
 .section-title {
     margin: 0 0 6px 14px;
     font-size: 12px;
@@ -299,7 +280,6 @@ button.row { width: 100%; border: 0; background: none; text-align: left; cursor:
 .icon-tile.neutral { background: var(--text-3); }
 .icon-tile.gradient { background: var(--gradient); }
 
-/* ------------------------------------------------------------------- cards */
 .card {
     background: var(--surface);
     border: 1px solid var(--separator);
@@ -336,7 +316,6 @@ button.row { width: 100%; border: 0; background: none; text-align: left; cursor:
 .card-hero .chip { background: rgba(255, 255, 255, 0.2); color: #fff; }
 .card-hero.neutral { background: linear-gradient(120deg, #4e4a63, #6b6585); box-shadow: none; }
 
-/* glass card sobre a malha de gradiente (login) */
 .mesh {
     position: fixed;
     inset: 0;
@@ -348,7 +327,7 @@ button.row { width: 100%; border: 0; background: none; text-align: left; cursor:
         var(--bg-2);
     animation: ui-drift 18s ease-in-out infinite alternate;
 }
-/* o fundo do body cobriria a malha (z-index negativo) */
+
 body:has(> .mesh) { background: transparent; }
 .glass {
     background: var(--material);
@@ -359,7 +338,6 @@ body:has(> .mesh) { background: transparent; }
     box-shadow: var(--shadow-lg);
 }
 
-/* ------------------------------------------------------------------ chips */
 .chip {
     display: inline-flex;
     align-items: center;
@@ -388,7 +366,6 @@ body:has(> .mesh) { background: transparent; }
 }
 .chip.live::before { background: #fff; animation: ui-pulse 1.4s ease-in-out infinite; }
 
-/* ------------------------------------------------------------------ avatar */
 .avatar {
     width: 32px;
     height: 32px;
@@ -409,7 +386,6 @@ body:has(> .mesh) { background: transparent; }
 .avatar.lg { width: 40px; height: 40px; font-size: 14px; }
 .avatar.xl { width: 48px; height: 48px; font-size: 16px; border-radius: 13px; }
 
-/* ------------------------------------------------------------ form controls */
 .label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text-2); }
 .field {
     width: 100%;
@@ -426,7 +402,6 @@ body:has(> .mesh) { background: transparent; }
 .field.mono { font-size: 13.5px; }
 .field[aria-invalid="true"] { border-color: var(--danger); }
 
-/* Toggle — <button class="toggle" role="switch" aria-checked="false"> */
 .toggle {
     position: relative;
     width: 46px;
@@ -457,7 +432,6 @@ body:has(> .mesh) { background: transparent; }
 .toggle[aria-checked="true"]:active::after { transform: translateX(14px); }
 .toggle:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Segmented — <div class="segmented" data-segmented> <button aria-pressed> … */
 .segmented {
     position: relative;
     display: inline-flex;
@@ -489,12 +463,11 @@ body:has(> .mesh) { background: transparent; }
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 1px rgba(0, 0, 0, 0.04);
     transition: left 0.38s var(--spring), top 0.38s var(--spring), width 0.38s var(--spring), height 0.38s var(--spring);
 }
-/* sem JS: destaca o botão direto */
+
 .segmented:not(.is-ready) > button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
 .segmented-block { display: flex; }
 .segmented-block > button { flex: 1; }
 
-/* Radio cards — <div role="radiogroup" class="choice"> <button class="choice-card" role="radio"> */
 .choice { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .choice-card {
     display: grid;
@@ -512,7 +485,6 @@ body:has(> .mesh) { background: transparent; }
 .choice-card b { font-size: 14.5px; }
 .choice-card span { font-size: 12.5px; color: var(--text-3); }
 
-/* ------------------------------------------------------ progress / spinner */
 .progress { height: 6px; border-radius: 99px; background: var(--fill-2); overflow: hidden; }
 .progress > i {
     display: block;
@@ -532,7 +504,6 @@ body:has(> .mesh) { background: transparent; }
     animation: ui-spin 0.7s linear infinite;
 }
 
-/* ---------------------------------------------------------- metric tiles */
 .metric {
     display: grid;
     gap: 2px;
@@ -545,18 +516,15 @@ body:has(> .mesh) { background: transparent; }
 .metric-value { font: 750 22px/1.2 var(--font-display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .metric .sparkline { width: 100%; height: 30px; display: block; color: var(--accent); }
 
-/* ------------------------------------------------------------------ table */
 .table-wrap { overflow-x: auto; border: 1px solid var(--separator); border-radius: var(--r-lg); background: var(--surface); }
 .table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .table th, .table td { padding: 10px 14px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--separator); }
 .table th { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); }
 .table tr:last-child td { border-bottom: 0; }
 
-/* ------------------------------------------------------------- empty state */
 .empty { display: grid; justify-items: center; gap: 6px; padding: 28px 16px; text-align: center; color: var(--text-3); }
 .empty svg { width: 30px; height: 30px; opacity: 0.7; }
 
-/* ------------------------------------------------------------------ notice */
 .notice {
     display: flex;
     gap: 10px;
@@ -572,7 +540,6 @@ body:has(> .mesh) { background: transparent; }
 .notice.danger { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--text); }
 .notice.danger svg { color: var(--danger); }
 
-/* --------------------------------------------- sheet — <dialog class="sheet"> */
 dialog.sheet {
     width: min(480px, calc(100vw - 32px));
     max-height: calc(100vh - 48px);
@@ -619,7 +586,6 @@ dialog.sheet.sheet-wide { width: min(880px, calc(100vw - 32px)); }
 .sheet-body { padding: 18px 16px; display: grid; gap: 16px; }
 .sheet-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 16px; }
 
-/* ------------------------------------------------------------------ toast */
 .toast-region {
     position: fixed;
     left: 50%;
@@ -655,7 +621,6 @@ dialog.sheet.sheet-wide { width: min(880px, calc(100vw - 32px)); }
 .toast.danger::before { background: #ff6369; }
 .toast.leaving { animation: ui-toast-out 0.3s var(--ease) forwards; }
 
-/* ------------------------------------------------------------- timeline */
 .timeline { display: grid; padding: 4px 14px; }
 .timeline-item { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; padding: 9px 0; font-size: 13.5px; }
 .timeline-item + .timeline-item { border-top: 1px solid var(--separator); }
@@ -671,7 +636,6 @@ dialog.sheet.sheet-wide { width: min(880px, calc(100vw - 32px)); }
 .timeline-item.pending::before { background: var(--text-3); box-shadow: none; }
 .timeline-item time { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
-/* ---------------------------------------------------------------- motion */
 @keyframes ui-spin { to { transform: rotate(360deg); } }
 @keyframes ui-pulse { 50% { opacity: 0.3; } }
 @keyframes ui-drift { to { transform: translate3d(3%, -2%, 0) rotate(4deg) scale(1.05); } }
@@ -681,7 +645,6 @@ dialog.sheet.sheet-wide { width: min(880px, calc(100vw - 32px)); }
 @keyframes ui-appear { from { opacity: 0; transform: translateY(8px); } }
 .appear { animation: ui-appear 0.5s var(--spring) both; }
 
-/* A troca de tema usa View Transitions (ui.js anima o clip-path). */
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 
 @media (prefers-reduced-motion: reduce) {

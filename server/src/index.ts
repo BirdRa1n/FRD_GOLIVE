@@ -34,8 +34,6 @@ const {
 
 if (!ADMIN_TOKEN) console.warn("[v2] ADMIN_TOKEN vazio — endpoints de admin desprotegidos!");
 
-// --- estado de signaling ---
-// --- HTTP ---
 const app = express();
 app.use(express.json({ limit: "32kb" }));
 app.use((req, res, next) => {
@@ -43,24 +41,19 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Admin-Token");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
     res.setHeader("Access-Control-Max-Age", "86400");
-    // Responde o preflight (OPTIONS) com 204 — senão cai em 404 e o CORS falha.
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
 });
 
-// Design system (CSS/JS/ícones) compartilhado pelas páginas do hub — e catálogo em /ui/.
 const PUBLIC_DIR = fileURLToPath(new URL("../public", import.meta.url));
 app.use("/ui", express.static(`${PUBLIC_DIR}/ui`, { maxAge: "1h" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, version: VERSION, transport: "native" }));
 
-/** Config que o instalador/plugin puxa de um host. */
 app.get("/config", (req, res) => {
     const host = req.headers.host ?? `localhost:${PORT}`;
     const cfg: ClientConfig = {
-        // Host (sem esquema) do WS de controle do Go Live nativo — o plugin redireciona para cá.
         nativeStreamEndpoint: nativeStreamEnabled() ? `${host}${NATIVE_STREAM_PATH}` : "",
-        // IP/host público da mídia (UDP) — informativo.
         mediaHost: nativeStreamPublicIp(),
         version: VERSION,
         transport: "native",
@@ -70,7 +63,6 @@ app.get("/config", (req, res) => {
     res.json(cfg);
 });
 
-/** Imagem pública (só ícones de guild) — o instalador usa antes do login. */
 app.get("/img/guild/:id", async (req, res) => {
     const buf = await cachedImage(discord.guildIconUrl(req.params.id, await discord.guildIcon(req.params.id)));
     if (!buf) return res.sendStatus(404);
@@ -79,7 +71,6 @@ app.get("/img/guild/:id", async (req, res) => {
     res.end(buf);
 });
 
-/** Grupos habilitados (guild-level) para o instalador listar antes do login. */
 app.get("/groups", async (req, res) => {
     if (store.getSettings().authMode !== "channels") return res.json([]);
     const host = req.headers.host ?? `localhost:${PORT}`;
@@ -96,7 +87,6 @@ app.get("/groups", async (req, res) => {
     res.json([...byGuild.values()]);
 });
 
-/** Usuário pede acesso (vindo do hub após login). */
 app.post("/auth/request-access", (req, res) => {
     const { userId, name } = req.body ?? {};
     if (typeof userId !== "string" || typeof name !== "string") {
@@ -108,7 +98,6 @@ app.post("/auth/request-access", (req, res) => {
 
 app.get("/policy/:userId", (req, res) => res.json(store.policyFor(req.params.userId)));
 
-// --- Hub (login Discord + páginas) ---
 app.get("/", (req, res) => {
     const s = getSession(req);
     if (!s) return res.type("html").send(loginPage(discord.oauthConfigured(), VERSION));
@@ -161,7 +150,6 @@ app.get("/admin", (req, res) => {
     res.type("html").send(adminPage(s!.name));
 });
 
-// --- Admin API (aceita sessão de admin OU X-Admin-Token) ---
 function admin(req: express.Request, res: express.Response, next: express.NextFunction): void {
     const tokenOk = Boolean(ADMIN_TOKEN) && req.headers["x-admin-token"] === ADMIN_TOKEN;
     if (tokenOk || isAdmin(getSession(req))) return next();
@@ -177,10 +165,8 @@ app.post("/admin/users/:id/enable", admin, (req, res) => {
     res.json(u);
 });
 
-// --- Modo de autorização (login OU channels) ---
 app.get("/admin/settings", admin, (_req, res) => res.json({ ...store.getSettings(), bot: discord.botConfigured() }));
 
-/** Cria na lista os canais de voz de todas as guilds do bot — habilitados por padrão. */
 async function syncChannelsFromBot(): Promise<{ added: number; total: number; guilds: number }> {
     if (!discord.botConfigured()) return { added: 0, total: store.listChannels().length, guilds: 0 };
     const guilds = await discord.botGuilds();
@@ -197,13 +183,11 @@ app.post("/admin/settings", admin, async (req, res) => {
     const mode = req.body?.authMode as AuthMode;
     if (mode !== "login" && mode !== "channels") return res.status(400).json({ error: "authMode inválido" });
     const settings = store.setAuthMode(mode);
-    // Ativar o modo "canais" já libera todas as salas do bot; o admin desliga as que não quiser.
     if (mode !== "channels") return res.json(settings);
     try { res.json({ ...settings, seeded: await syncChannelsFromBot() }); }
     catch (e) { res.json({ ...settings, seededError: (e as Error).message }); } // bot fora do ar: o modo muda mesmo assim
 });
 
-// --- Imagens (ícone de guild / avatar de usuário), servidas do cache do hub ---
 app.get("/admin/img/guild/:id", admin, async (req, res) => {
     const buf = await cachedImage(discord.guildIconUrl(req.params.id, await discord.guildIcon(req.params.id)));
     if (!buf) return res.sendStatus(404);
@@ -219,7 +203,6 @@ app.get("/admin/img/user/:id", admin, async (req, res) => {
     res.end(buf);
 });
 
-// --- Status e convite do bot (para a aba de configurações) ---
 app.get("/admin/bot", admin, (_req, res) => {
     res.json({
         configured: discord.botConfigured(),
@@ -230,7 +213,6 @@ app.get("/admin/bot", admin, (_req, res) => {
     });
 });
 
-// --- Canais agrupados por guild (dashboard: gerir grupos separadamente) ---
 app.get("/admin/groups", admin, async (_req, res) => {
     const rooms = await Promise.all(getLiveState().map(enrichRoom));
     const liveByChannel = new Map<string, LiveMember[]>();
@@ -269,7 +251,6 @@ app.get("/admin/groups", admin, async (_req, res) => {
     res.json([...groups.values()]);
 });
 
-// --- Bot: navegar guilds/canais de voz para o admin escolher ---
 app.get("/admin/bot/guilds", admin, async (_req, res) => {
     if (!discord.botConfigured()) return res.status(503).json({ error: "bot não configurado (defina DISCORD_BOT_TOKEN)" });
     try { res.json(await discord.botGuilds()); } catch (e) { res.status(502).json({ error: (e as Error).message }); }
@@ -279,9 +260,7 @@ app.get("/admin/bot/guilds/:id/channels", admin, async (req, res) => {
     try { res.json(await discord.guildVoiceChannels(req.params.id)); } catch (e) { res.status(502).json({ error: (e as Error).message }); }
 });
 
-// --- Canais configurados (modo channels) ---
 app.get("/admin/channels", admin, (_req, res) => res.json(store.listChannels()));
-// Traz os canais que ainda faltam (habilitados); nunca mexe nos já configurados.
 app.post("/admin/channels/sync", admin, async (_req, res) => {
     if (!discord.botConfigured()) return res.status(503).json({ error: "bot não configurado (defina DISCORD_BOT_TOKEN)" });
     try { res.json(await syncChannelsFromBot()); } catch (e) { res.status(502).json({ error: (e as Error).message }); }
@@ -295,7 +274,6 @@ app.post("/admin/channels/:id/enable", admin, (req, res) => {
     const enabled = Boolean(req.body?.enabled ?? true);
     const ch = store.setChannelEnabled(req.params.id, enabled);
     if (!ch) return res.status(404).json({ error: "canal não encontrado" });
-    // Desligou: quem já está transmitindo/assistindo aqui cai fora na hora (4004).
     const kicked = enabled ? 0 : closeMembersInChannel(ch.channelId);
     res.json({ ...ch, kicked });
 });
@@ -309,14 +287,12 @@ app.post("/admin/channels/:id/ban", admin, (req, res) => {
 });
 app.delete("/admin/channels/:id", admin, (req, res) => res.json({ ok: store.removeChannel(req.params.id) }));
 
-// --- Resolver nome de um membro (best-effort via bot) ---
 app.get("/admin/resolve", admin, async (req, res) => {
     const guildId = String(req.query.guild ?? ""), userId = String(req.query.user ?? "");
     if (!discord.botConfigured() || !guildId || !userId) return res.json({ userId, name: undefined });
     res.json({ userId, name: await discord.memberName(guildId, userId) });
 });
 
-// --- Estado ao vivo: salas de mídia e quem transmite/assiste agora ---
 const nameMem = new Map<string, string>(); // guildId:userId → nome resolvido (evita bater no Discord a cada poll)
 
 async function nameOf(guildId: string, userId: string): Promise<string | undefined> {
@@ -338,9 +314,6 @@ async function guildNameOf(guildId: string): Promise<string | undefined> {
 }
 
 async function enrichRoom(r: ReturnType<typeof getLiveState>[number]): Promise<LiveRoom> {
-    // `roomId` é o server_id EFÊMERO do IDENTIFY (só agrupa a mídia); guild/canal reais
-    // vêm do gateway do bot junto de cada membro — é o que a tela mostra e o que vale
-    // na regra de quem pode transmitir.
     const guildId = r.members.find(m => m.guildId)?.guildId ?? r.roomId;
     const configured = store.listChannels().find(c => c.guildId === guildId)?.guildName;
     const guildName = configured || await guildNameOf(guildId);
@@ -398,7 +371,6 @@ app.get("/admin/metrics", admin, (_req, res) => {
     });
 });
 
-// --- HTTP + upgrade (só a mídia do Go Live nativo, /dstream) ---
 const httpServer = createServer(app);
 httpServer.on("upgrade", (req, socket, head) => {
     const path = (req.url ?? "").split("?")[0];
@@ -409,8 +381,6 @@ httpServer.on("upgrade", (req, socket, head) => {
     }
 });
 if (nativeStreamEnabled()) startNativeStreamUdp();
-// Gateway do bot: é ele que diz em qual CANAL REAL cada pessoa está (o IDENTIFY da mídia
-// só traz ids efêmeros da sessão) — sem token, vale o id do IDENTIFY mesmo.
 if (discord.botConfigured()) startBotGateway();
 
 httpServer.listen(Number(PORT), () => {

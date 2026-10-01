@@ -1,14 +1,3 @@
-// Ponte de diagnóstico MCP no renderer (parte do plugin).
-//
-// Fica em poll com o processo main (native.ts → diagPoll), que por sua vez fala
-// com o servidor MCP local (mcp/) onde está o agente. O renderer não abre
-// rede direto: o CSP do Discord bloquearia conectar em 127.0.0.1.
-//
-// Ferramentas expostas ao agente (lista espelhada no mcp/src/index.ts — se
-// mudar uma, mude a outra): status, eval, media stats/watch, flux, probe,
-// console, store, settings, dispatch e discord_voice.
-//
-// Só roda com a setting [Diagnóstico] "Ponte MCP" ligada (default: desligado).
 
 import { FluxDispatcher } from "@webpack/common";
 
@@ -36,7 +25,6 @@ let running = false;
 let consoleWrapped = false;
 const origConsole: Record<string, (...a: unknown[]) => unknown> = {};
 let consoleBuf: { t: number; level: string; line: string; }[] = [];
-/** addInterceptor não tem remove: instalado uma vez, liga/liga por flag. */
 let fluxInstalled = false;
 let fluxRecording = false;
 let fluxFilter: string | null = null;
@@ -61,7 +49,6 @@ function findStore(name: string): any {
     return store;
 }
 
-/** Só os campos que interessam para observar o encoder (bitrate/frames/…). */
 const WATCH_FIELDS = /bitrate|frameRate|frames|resolution|quality|bytes|packets|nack|pli|codec|roundTrip|available/i;
 
 function watchView(value: any): any {
@@ -73,17 +60,11 @@ function watchView(value: any): any {
     return out;
 }
 
-/**
- * O Discord atual (0.0.412) tem UMA conexão unificada (context "default") com
- * áudio e vídeo juntos — filtrar context === "stream" acha nada (verificado via
- * MCP em 2026-09). Pega todas as conexões do MediaEngine.
- */
 function mediaConnections(): any[] {
     const engine = findStore("MediaEngineStore").getMediaEngine?.();
     return [...((engine?.connections ?? []) as any[])];
 }
 
-/** Campos de controle do encoder no nível da conexão (fora do getStats). */
 function connView(c: any): any {
     return {
         context: c.context ?? null,
@@ -132,8 +113,6 @@ function stringifyArg(value: unknown): string {
     }
 }
 
-// --- Console --------------------------------------------------------------------
-
 function installConsoleHook(): void {
     if (consoleWrapped) return;
     consoleWrapped = true;
@@ -146,7 +125,6 @@ function installConsoleHook(): void {
                     consoleBuf.push({ t: Date.now(), level, line: args.map(stringifyArg).join(" ") });
                     if (consoleBuf.length > CONSOLE_RING) consoleBuf.shift();
                 } catch {
-                    // nunca quebrar o console
                 }
             }
             orig(...args);
@@ -161,30 +139,20 @@ function restoreConsole(): void {
     consoleWrapped = false;
 }
 
-// --- Flux -----------------------------------------------------------------------
-
 function installFluxInterceptor(): void {
     if (fluxInstalled) return;
     fluxInstalled = true;
-    // O dispatcher não tem removeInterceptor: fica instalado e vira no-op.
     FluxDispatcher.addInterceptor((action: { type?: string; }) => {
-        // NUNCA lançar daqui: uma exception no interceptor quebra o dispatch do
-        // Discord inteiro. Grava a REFERÊNCIA (barato) e redige só no dump —
-        // redigir toda action durante o flood do start do Go Live custava caro
-        // no renderer (e podia estourar com circular).
         try {
             if (fluxRecording && action?.type && (!fluxFilter || action.type.startsWith(fluxFilter))) {
                 fluxBuf.push({ t: Date.now(), type: action.type, data: action });
                 if (fluxBuf.length > FLUX_RING) fluxBuf.shift();
             }
         } catch {
-            // silencioso: diagnóstico nunca derruba o fluxo
         }
         return false;
     });
 }
-
-// --- Ferramentas ----------------------------------------------------------------
 
 const handlers: Record<string, (args: Args) => Promise<unknown>> = {
     async discord_status() {
@@ -350,9 +318,6 @@ const handlers: Record<string, (args: Args) => Promise<unknown>> = {
         if (typeof fn !== "function") throw new Error(`discord_voice.${method} não é função`);
         const callArgs = Array.isArray(args) ? [...args] : [];
         if (!withCallback) return redact(await fn.apply(mod, callArgs));
-        // JSON não transporta funções: injeta o callback como último argumento e
-        // espera o resultado (ou 5s) — é o padrão de getters como
-        // getCodecCapabilities / getSupportedBandwidthEstimationExperiments.
         return redact(await new Promise(resolve => {
             let done = false;
             const timer = setTimeout(() => finish("<callback não chamado em 5s>"), 5000);
@@ -385,7 +350,6 @@ async function handleCall(helper: DiagHelper, call: DiagCall): Promise<void> {
         try {
             await helper.diagReply({ id: call.id, ok: false, error });
         } catch {
-            // helper sumiu (plugin parado?) — o MCP dá timeout e explica
         }
     }
 }
@@ -409,8 +373,6 @@ async function pollLoop(): Promise<void> {
         await sleep(POLL_MS);
     }
 }
-
-// --- API ------------------------------------------------------------------------
 
 export function startDiagBridge(): void {
     if (running) return;
@@ -437,7 +399,6 @@ export function stopDiagBridge(): void {
         const helper = getHelper();
         if (helper?.diagStop) void helper.diagStop().catch(() => {});
     } catch {
-        // processo main já morreu
     }
     console.log(TAG, "ponte desligada");
 }

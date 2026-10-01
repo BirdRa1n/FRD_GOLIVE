@@ -1,4 +1,3 @@
-// Discord OAuth2 (scope identify) para o login do hub.
 
 const {
     DISCORD_CLIENT_ID = "",
@@ -49,15 +48,12 @@ export async function getUser(accessToken: string): Promise<{ id: string; name: 
     return { id: u.id, name: u.global_name || u.username };
 }
 
-// --- Bot (REST) — para o modo "channels": listar guilds/canais e resolver nomes ---
-
 const API = "https://discord.com/api/v10";
 
 export function botConfigured(): boolean {
     return Boolean(DISCORD_BOT_TOKEN);
 }
 
-/** Application (client) id — usado para montar o link de convite do bot. */
 export function clientId(): string {
     return DISCORD_CLIENT_ID;
 }
@@ -72,10 +68,6 @@ export function userAvatarUrl(userId: string, avatarHash?: string | null): strin
     return avatarHash ? `${CDN}/avatars/${userId}/${avatarHash}.png?size=128` : undefined;
 }
 
-/**
- * Link de convite do bot (scope bot + applications.commands) com as permissões
- * mínimas de voz. Permissões: View Channels (1<<10) + Connect (1<<20).
- */
 export function botInviteUrl(): string | undefined {
     if (!DISCORD_CLIENT_ID) return undefined;
     const perms = (1 << 10) | (1 << 20);
@@ -102,7 +94,6 @@ let guildsCache: { at: number; list: BotGuild[] } = { at: 0, list: [] };
 const channelsCache = new Map<string, { at: number; list: { id: string; name: string; type: number; }[] }>();
 const avatarCache = new Map<string, { at: number; hash?: string }>(); // userId → hash do avatar
 
-/** Guilds em que o bot está (cache de 1 min), com o hash do ícone. */
 export async function botGuilds(): Promise<BotGuild[]> {
     if (guildsCache.at && Date.now() - guildsCache.at < CACHE_TTL) return guildsCache.list;
     const gs = await bot<{ id: string; name: string; icon?: string; }[]>("/users/@me/guilds");
@@ -110,13 +101,11 @@ export async function botGuilds(): Promise<BotGuild[]> {
     return guildsCache.list;
 }
 
-/** Ícone (hash) de um guild em que o bot está. */
 export async function guildIcon(guildId: string): Promise<string | undefined> {
     try { return (await botGuilds()).find(g => g.id === guildId)?.icon; }
     catch { return undefined; }
 }
 
-/** Avatar (hash) de um usuário, via REST do bot (cache de 1 min por usuário). */
 export async function userAvatar(userId: string): Promise<string | undefined> {
     const hit = avatarCache.get(userId);
     if (hit && Date.now() - hit.at < CACHE_TTL) return hit.hash;
@@ -130,7 +119,6 @@ export async function userAvatar(userId: string): Promise<string | undefined> {
     }
 }
 
-/** Canais de voz (type 2) e stage (13) de um guild (cache de 1 min por guild). */
 export async function guildVoiceChannels(guildId: string): Promise<{ id: string; name: string; type: number; }[]> {
     const hit = channelsCache.get(guildId);
     if (hit && Date.now() - hit.at < CACHE_TTL) return hit.list;
@@ -141,7 +129,6 @@ export async function guildVoiceChannels(guildId: string): Promise<{ id: string;
     return list;
 }
 
-/** Resolve nomes de guild e canal (best-effort; para rotular canais auto-descobertos). */
 export async function resolveChannelNames(guildId: string, channelId: string): Promise<{ guildName?: string; channelName?: string; }> {
     try {
         const [gs, chs] = await Promise.all([botGuilds(), guildVoiceChannels(guildId)]);
@@ -154,7 +141,6 @@ export async function resolveChannelNames(guildId: string, channelId: string): P
     }
 }
 
-/** Resolve o nome de um membro (best-effort; usado só para exibição). */
 export async function memberName(guildId: string, userId: string): Promise<string | undefined> {
     try {
         const m = await bot<{ nick?: string; user?: { global_name?: string; username?: string; }; }>(`/guilds/${guildId}/members/${userId}`);

@@ -31,7 +31,6 @@ export const settings = definePluginSettings({
         default: "2026-08-video-guard",
     },
 
-    // --- Diagnóstico ---
     streamProbe: {
         type: OptionType.BOOLEAN,
         description: "[Diagnóstico] Registrar o protocolo do Go Live nativo no console (FRDStreamProbe.copy() copia o log). Só leitura.",

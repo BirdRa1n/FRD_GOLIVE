@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface ClientConfig {
-    // Host (sem esquema) do WS de controle do Go Live nativo — ex.: "golivefrd.SEU.com/dstream".
     nativeStreamEndpoint: string;
     mediaHost: string; // IP/host público da mídia (UDP) — informativo
     version: string;
@@ -15,7 +14,6 @@ function normalizeHost(host: string): string {
     return h;
 }
 
-/** Pergunta ao host toda a config do cliente (o próprio host devolve tudo). */
 export async function fetchConfig(host: string): Promise<{ base: string; config: ClientConfig; }> {
     const base = normalizeHost(host);
     const res = await fetch(`${base}/config`);
@@ -24,17 +22,10 @@ export async function fetchConfig(host: string): Promise<{ base: string; config:
     return { base, config };
 }
 
-/**
- * Grava a config do plugin e as regras de CSP no diretório de dados do Vencord.
- * NOTA: o layout de settings do Vencord pode variar por versão — ver README.
- */
 export function writeVencordConfig(dir: string, base: string, config: ClientConfig): string {
     const settingsDir = join(dir, "settings");
     mkdirSync(settingsDir, { recursive: true });
 
-    // 1) settings do plugin — Go Live NATIVO redirecionado para o servidor privado.
-    //    hijackNativeControls fica DESLIGADO de propósito: é o Go Live nativo do Discord
-    //    que roda (o plugin só o redireciona), então os botões nativos não são sequestrados.
     const domain = new URL(base).hostname;
     const endpoint = config.nativeStreamEndpoint || `${domain}/dstream`;
     const settingsFile = join(settingsDir, "settings.json");
@@ -49,9 +40,6 @@ export function writeVencordConfig(dir: string, base: string, config: ClientConf
     };
     writeFileSync(settingsFile, JSON.stringify(settings, null, 4));
 
-    // 2) CSP: libera o host do /dstream (WS de controle do Go Live nativo) no connect-src.
-    //    A mídia é UDP (não passa por CSP). O Vencord lê as native settings de
-    //    "native-settings.json" e injeta a chave LITERALMENTE — cobrimos HTTPS e WSS.
     const hosts = new Set<string>([domain]);
     try { const h = endpoint.replace(/^wss?:\/\//, "").split("/")[0]; if (h) hosts.add(h); } catch { /* endpoint inválido */ }
 
