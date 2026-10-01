@@ -94,8 +94,15 @@ export interface SeenMember {
 
 /** Estado ao vivo de uma sala de mídia (nativeStream) para a dashboard. */
 export interface LiveRoom {
-    roomId: string; // server_id (guild)
+    /** server_id do IDENTIFY — id efêmero da sessão de mídia (só p/ debug). */
+    roomId: string;
+    /** guild REAL de onde vêm as pessoas (do gateway do bot), quando conhecida. */
+    guildId?: string;
     guildName?: string;
+    /** Rótulo da tela: o canal real (ex.: "Sala-01"), quando conhecido. */
+    label?: string;
+    channelId?: string;
+    channelName?: string;
     members: LiveMember[];
     streamers: number;
     viewers: number;
@@ -109,4 +116,5 @@ export interface LiveMember {
     since?: number;
     channelId?: string;
     channelName?: string;
+    guildId?: string;
 }

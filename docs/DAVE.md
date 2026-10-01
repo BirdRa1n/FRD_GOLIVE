@@ -145,7 +145,8 @@ op27 (servidor: Add proposal do key package do cliente)
 e cpp/src/mls/session.cpp):**
 - **group_id** = 8 bytes **big-endian** de `BigInt(channel_id)` (`session.cpp`:
   `groupId_ = BigEndianBytesFrom(groupId)`; `DaveSessionManager.ts`:
-  `Init(version, BigInt(groupId), selfUserId, key)`). O `channel_id` vem do **IDENTIFY**.
+  `Init(version, BigInt(groupId), selfUserId, key)`). O `channel_id` vem do **IDENTIFY** — é o id **efêmero** da sessão (o mesmo que o
+  cliente manda; o canal real só alimenta a regra/dashboard, ver `server/src/botGateway.ts`).
 - **credential do external sender** = basic, identity `{0x00,0x01,0x01,0x00}` (já aplicado
   em `createExternalSender`).
 - **signerIndex** (índice na extensão external_senders) = **0**.

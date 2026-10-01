@@ -122,6 +122,22 @@ class Store {
         return ch;
     }
 
+    /**
+     * Cria todos os canais que ainda não existem, **habilitados** (padrão do modo
+     * canais: libera tudo e o admin desliga as exceções). Canais já conhecidos não
+     * são tocados — nem o `enabled` nem as listas de banido.
+     */
+    seedChannels(list: { guildId: string; guildName: string; channelId: string; channelName: string; }[]): number {
+        let added = 0;
+        for (const c of list) {
+            if (this.channels.has(c.channelId)) continue;
+            this.channels.set(c.channelId, { ...c, enabled: true, addedAt: Date.now(), bans: [], seen: [] });
+            added++;
+        }
+        if (added) this.persist();
+        return added;
+    }
+
     setChannelEnabled(channelId: string, enabled: boolean): ChannelCfg | undefined {
         const ch = this.channels.get(channelId);
         if (!ch) return undefined;

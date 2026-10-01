@@ -3,9 +3,10 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import express from "express";
 
+import { botGatewayState, startBotGateway } from "./botGateway.js";
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
-import { getLiveState, handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, nativeStreamPublicIp, startNativeStreamUdp } from "./nativeStream.js";
+import { closeMembersInChannel, getLiveState, handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, nativeStreamPublicIp, startNativeStreamUdp } from "./nativeStream.js";
 import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
 import type { ActiveTransmission, AuthMode, ClientConfig, LiveMember, LiveRoom } from "./types.js";
@@ -149,10 +150,28 @@ app.post("/admin/users/:id/enable", admin, (req, res) => {
 
 // --- Modo de autorização (login OU channels) ---
 app.get("/admin/settings", admin, (_req, res) => res.json({ ...store.getSettings(), bot: discord.botConfigured() }));
-app.post("/admin/settings", admin, (req, res) => {
+
+/** Cria na lista os canais de voz de todas as guilds do bot — habilitados por padrão. */
+async function syncChannelsFromBot(): Promise<{ added: number; total: number; guilds: number }> {
+    if (!discord.botConfigured()) return { added: 0, total: store.listChannels().length, guilds: 0 };
+    const guilds = await discord.botGuilds();
+    const lists = await Promise.all(guilds.map(async g => ({
+        guild: g,
+        channels: await discord.guildVoiceChannels(g.id).catch(() => [] as { id: string; name: string; type: number; }[]),
+    })));
+    const flat = lists.flatMap(({ guild, channels }) =>
+        channels.map(c => ({ guildId: guild.id, guildName: guild.name, channelId: c.id, channelName: c.name })));
+    return { added: store.seedChannels(flat), total: store.listChannels().length, guilds: guilds.length };
+}
+
+app.post("/admin/settings", admin, async (req, res) => {
     const mode = req.body?.authMode as AuthMode;
     if (mode !== "login" && mode !== "channels") return res.status(400).json({ error: "authMode inválido" });
-    res.json(store.setAuthMode(mode));
+    const settings = store.setAuthMode(mode);
+    // Ativar o modo "canais" já libera todas as salas do bot; o admin desliga as que não quiser.
+    if (mode !== "channels") return res.json(settings);
+    try { res.json({ ...settings, seeded: await syncChannelsFromBot() }); }
+    catch (e) { res.json({ ...settings, seededError: (e as Error).message }); } // bot fora do ar: o modo muda mesmo assim
 });
 
 // --- Bot: navegar guilds/canais de voz para o admin escolher ---
@@ -167,22 +186,31 @@ app.get("/admin/bot/guilds/:id/channels", admin, async (req, res) => {
 
 // --- Canais configurados (modo channels) ---
 app.get("/admin/channels", admin, (_req, res) => res.json(store.listChannels()));
+// Traz os canais que ainda faltam (habilitados); nunca mexe nos já configurados.
+app.post("/admin/channels/sync", admin, async (_req, res) => {
+    if (!discord.botConfigured()) return res.status(503).json({ error: "bot não configurado (defina DISCORD_BOT_TOKEN)" });
+    try { res.json(await syncChannelsFromBot()); } catch (e) { res.status(502).json({ error: (e as Error).message }); }
+});
 app.post("/admin/channels", admin, (req, res) => {
     const { guildId, guildName = "", channelId, channelName = "", enabled = true } = req.body ?? {};
     if (!guildId || !channelId) return res.status(400).json({ error: "guildId e channelId obrigatórios" });
     res.json(store.upsertChannel({ guildId, guildName, channelId, channelName, enabled: Boolean(enabled) }));
 });
 app.post("/admin/channels/:id/enable", admin, (req, res) => {
-    const ch = store.setChannelEnabled(req.params.id, Boolean(req.body?.enabled ?? true));
+    const enabled = Boolean(req.body?.enabled ?? true);
+    const ch = store.setChannelEnabled(req.params.id, enabled);
     if (!ch) return res.status(404).json({ error: "canal não encontrado" });
-    res.json(ch);
+    // Desligou: quem já está transmitindo/assistindo aqui cai fora na hora (4004).
+    const kicked = enabled ? 0 : closeMembersInChannel(ch.channelId);
+    res.json({ ...ch, kicked });
 });
 app.post("/admin/channels/:id/ban", admin, (req, res) => {
     const { userId, banned = true } = req.body ?? {};
     if (!userId) return res.status(400).json({ error: "userId obrigatório" });
     const ch = store.setBan(req.params.id, String(userId), Boolean(banned));
     if (!ch) return res.status(404).json({ error: "canal não encontrado" });
-    res.json(ch);
+    const kicked = banned ? closeMembersInChannel(ch.channelId, String(userId)) : 0;
+    res.json({ ...ch, kicked });
 });
 app.delete("/admin/channels/:id", admin, (req, res) => res.json({ ok: store.removeChannel(req.params.id) }));
 
@@ -215,23 +243,39 @@ async function guildNameOf(guildId: string): Promise<string | undefined> {
 }
 
 async function enrichRoom(r: ReturnType<typeof getLiveState>[number]): Promise<LiveRoom> {
-    const configured = store.listChannels().find(c => c.guildId === r.roomId)?.guildName;
-    const guildName = configured || await guildNameOf(r.roomId);
+    // `roomId` é o server_id EFÊMERO do IDENTIFY (só agrupa a mídia); guild/canal reais
+    // vêm do gateway do bot junto de cada membro — é o que a tela mostra e o que vale
+    // na regra de quem pode transmitir.
+    const guildId = r.members.find(m => m.guildId)?.guildId ?? r.roomId;
+    const configured = store.listChannels().find(c => c.guildId === guildId)?.guildName;
+    const guildName = configured || await guildNameOf(guildId);
     const members: LiveMember[] = await Promise.all(r.members.map(async m => {
         const ch = m.channelId ? store.getChannel(m.channelId) : undefined;
         let name = ch?.seen.find(s => s.userId === m.userId)?.name;
         if (!name) {
-            name = await nameOf(r.roomId, m.userId);
+            name = await nameOf(guildId, m.userId);
             if (name && m.channelId) store.rememberName(m.channelId, m.userId, name);
         }
-        return { userId: m.userId, name, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined };
+        return { userId: m.userId, name, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined, guildId: m.guildId };
     }));
-    return { roomId: r.roomId, guildName, members, streamers: r.streamers, viewers: r.viewers };
+    const channelId = members.find(m => !!m.channelId)?.channelId;
+    const channelName = members.find(m => !!m.channelName)?.channelName;
+    return {
+        roomId: r.roomId,
+        guildId,
+        guildName,
+        label: channelName || channelId,
+        channelId,
+        channelName,
+        members,
+        streamers: r.streamers,
+        viewers: r.viewers,
+    };
 }
 
 app.get("/admin/live", admin, async (_req, res) => {
     const rooms = await Promise.all(getLiveState().map(enrichRoom));
-    res.json({ rooms, settings: store.getSettings(), bot: discord.botConfigured() });
+    res.json({ rooms, settings: store.getSettings(), bot: discord.botConfigured(), voice: botGatewayState().connected });
 });
 
 app.get("/admin/transmissions", admin, async (_req, res) => {
@@ -239,7 +283,7 @@ app.get("/admin/transmissions", admin, async (_req, res) => {
     for (const r of await Promise.all(getLiveState().map(enrichRoom))) {
         for (const m of r.members) {
             if (!m.streamer) continue;
-            active.push({ userId: m.userId, name: m.name || m.userId, room: m.channelName || r.guildName || r.roomId, kind: "screen", since: m.since ?? 0 });
+            active.push({ userId: m.userId, name: m.name || m.userId, room: m.channelName || r.label || r.guildName || r.roomId, kind: "screen", since: m.since ?? 0 });
         }
     }
     res.json(active);
@@ -269,6 +313,9 @@ httpServer.on("upgrade", (req, socket, head) => {
     }
 });
 if (nativeStreamEnabled()) startNativeStreamUdp();
+// Gateway do bot: é ele que diz em qual CANAL REAL cada pessoa está (o IDENTIFY da mídia
+// só traz ids efêmeros da sessão) — sem token, vale o id do IDENTIFY mesmo.
+if (discord.botConfigured()) startBotGateway();
 
 httpServer.listen(Number(PORT), () => {
     console.log(`[v2] servidor ouvindo na porta ${PORT} (mídia em ${NATIVE_STREAM_PATH})`);

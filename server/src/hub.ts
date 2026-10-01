@@ -174,6 +174,7 @@ export function adminPage(name: string): string {
           <p class="section-title" style="margin:0">Canais do Discord</p>
           <div class="cluster">
             <span class="chip" id="bot-chip">verificando bot</span>
+            <button class="btn btn-sm btn-plain" data-act="chan-sync">Sincronizar com o bot</button>
             <button class="btn btn-sm" data-act="chan-add"><i data-icon="plus"></i>Adicionar canal</button>
           </div>
         </div>
@@ -230,7 +231,7 @@ export function adminPage(name: string): string {
     <dialog class="sheet" id="addchan" aria-labelledby="addchan-title">
       <div class="sheet-header"><h2 class="title" id="addchan-title">Adicionar canal</h2><button class="btn btn-icon btn-plain" data-sheet-close aria-label="Fechar"><i data-icon="x"></i></button></div>
       <div class="sheet-body">
-        <div class="notice" id="ac-hint"><i data-icon="info"></i><span>Escolha um servidor onde o bot está e um canal de voz. Todo mundo nesse canal poderá transmitir (menos os banidos).</span></div>
+        <div class="notice" id="ac-hint"><i data-icon="info"></i><span>Escolha um servidor onde o bot está e um canal de voz. Ele entra <b>habilitado</b>: todo mundo nele pode transmitir (menos os banidos) — desligue o toggle da linha se não quiser.</span></div>
         <div id="ac-bot">
           <div class="label">Servidor
             <select class="field" id="ac-guild"><option value="">Carregando…</option></select>
@@ -308,7 +309,7 @@ export function adminPage(name: string): string {
           var out = [];
           live.rooms.forEach(function (r) {
             r.members.forEach(function (m) {
-              if (m.streamer) out.push({ userId: m.userId, name: m.name || m.userId, room: m.channelName || r.guildName || r.roomId, since: m.since || 0 });
+              if (m.streamer) out.push({ userId: m.userId, name: m.name || m.userId, room: m.channelName || r.label || r.guildName || r.roomId, since: m.since || 0 });
             });
           });
           return out;
@@ -320,14 +321,17 @@ export function adminPage(name: string): string {
               var n = esc(m.name || m.userId);
               return '<span class="chip' + (m.streamer ? " live" : "") + '">' + n + (m.streamer ? " · no ar" : "") + "</span>";
             }).join("");
+            // Título = canal real ("Sala-01"); o roomId é o id EFÊMERO da sessão de mídia
+            // (existe só para a gente casar a sala), por isso vai no detalhe.
+            var title = r.label || r.guildName || r.roomId;
+            var detail = r.label
+              ? 'canal <span class="mono">' + esc(r.channelId || "") + "</span> · " + esc(r.guildName || r.guildId || "")
+              : 'sala <span class="mono">' + esc(r.roomId) + "</span>";
             return '<div class="row"><span class="icon-tile gradient" data-icon="live"></span>' +
-              '<div class="row-body"><div class="row-title">' + esc(r.guildName || r.roomId) +
+              '<div class="row-body"><div class="row-title">' + esc(title) +
               ' <span class="chip' + (r.streamers ? " danger" : "") + '">' + r.streamers + " transmitindo</span>" +
               ' <span class="chip">' + r.viewers + " assistindo</span></div>" +
-              '<div class="row-detail">sala <span class="mono">' + esc(r.roomId) + "</span>" +
-              (r.members.some(function (m) { return m.channelName; })
-                ? " · canal " + esc(r.members.filter(function (m) { return m.channelName; })[0].channelName) : "") +
-              "</div>" +
+              '<div class="row-detail">' + detail + "</div>" +
               (who ? '<div class="cluster" style="margin-top:7px">' + who + "</div>" : "") +
               "</div></div>";
           }).join("") : empty("live", "Nenhuma sala agora", "Quando alguém entrar numa call, aparece aqui.");
@@ -337,11 +341,13 @@ export function adminPage(name: string): string {
           var mode = (live.settings && live.settings.authMode) || "login";
           ui.select($("#mode"), mode);
           $("#mode-detail").textContent = mode === "channels"
-            ? "Qualquer membro de um canal habilitado pode transmitir (menos os banidos)."
+            ? "Todas as salas entram habilitadas — desligue as que não quiser. Quem está num canal habilitado pode transmitir (menos os banidos)."
             : "Só quem foi liberado na lista de usuários pode transmitir.";
           var chip = $("#bot-chip");
-          chip.className = "chip " + (live.bot ? "ok" : "warn");
-          chip.textContent = live.bot ? "bot conectado" : "bot não configurado";
+          var ok = live.bot && live.voice;
+          chip.className = "chip " + (ok ? "ok" : "warn");
+          chip.textContent = !live.bot ? "bot não configurado"
+            : live.voice ? "bot + voz conectados" : "bot ok · voz desconectada";
         }
 
         function renderChannels() {
@@ -359,7 +365,7 @@ export function adminPage(name: string): string {
               '<button class="btn btn-sm" data-act="chan-members" data-id="' + esc(c.channelId) + '">Membros</button>' +
               '<button class="btn btn-destructive btn-sm" data-act="chan-remove" data-id="' + esc(c.channelId) + '">Remover</button>' +
               "</div></div>";
-          }).join("") : empty("users", "Nenhum canal configurado", "Adicione um canal — ou entre numa call e ele aparece aqui (desabilitado).");
+          }).join("") : empty("users", "Nenhum canal configurado", "Dê Sincronizar com o bot, adicione um canal — ou entre numa call e ele aparece aqui.");
         }
 
         function memberRow(c, userId, name, banned, lastSeen) {
@@ -446,6 +452,16 @@ export function adminPage(name: string): string {
 
           if (act === "chan-toggle") return; // o ui.js já inverteu o switch; confirmamos no "change"
           if (act === "chan-add") { openAddChan(); return; }
+          if (act === "chan-sync") {
+            b.setAttribute("aria-busy", "true");
+            try {
+              var r = await post("/admin/channels/sync", {});
+              ui.toast(r.added ? r.added + " canal(is) adicionado(s), habilitados" : "Lista já está completa (" + r.total + " canais)", "ok");
+              load();
+            } catch (err) { ui.toast("Falha ao sincronizar: " + err.message, "danger"); }
+            finally { b.removeAttribute("aria-busy"); }
+            return;
+          }
           if (act === "chan-members") { openMembers(id); return; }
           if (act === "chan-remove") {
             var ch = channels.find(function (x) { return x.channelId === id; }); if (!ch) return;
@@ -497,13 +513,18 @@ export function adminPage(name: string): string {
           }
         });
 
-        // Modo de acesso: login (liberação manual) OU canais (bot).
+        // Modo de acesso: login (liberação manual) OU canais (todas as salas ligadas por padrão).
         $("#mode").addEventListener("change", async function (e) {
           var mode = e.detail && e.detail.value;
           if (mode !== "login" && mode !== "channels") return;
           try {
-            await post("/admin/settings", { authMode: mode });
-            ui.toast(mode === "channels" ? "Modo canais ativo: quem está nos canais habilitados pode transmitir" : "Modo login ativo: liberação manual por usuário", "ok");
+            var s = await post("/admin/settings", { authMode: mode });
+            var msg;
+            if (mode !== "channels") msg = "Modo login ativo: liberação manual por usuário";
+            else if (!live.bot) msg = "Modo canais ativo — sem bot, adicione os canais pelos IDs";
+            else if (s.seeded) msg = s.seeded.added ? s.seeded.added + " canal(is) novo(s) habilitado(s) · " + s.seeded.total + " no total" : s.seeded.total + " canais habilitados";
+            else msg = "Modo canais ativo (não deu para sincronizar: " + (s.seededError || "erro") + ")";
+            ui.toast(msg, "ok");
             load();
           } catch (err) { ui.toast("Falha: " + err.message, "danger"); load(); }
         });
