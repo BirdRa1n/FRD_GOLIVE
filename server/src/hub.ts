@@ -153,6 +153,7 @@ export function adminPage(name: string): string {
         <button data-value="overview" aria-pressed="true">Visão geral</button>
         <button data-value="groups" aria-pressed="false">Grupos</button>
         <button data-value="users" aria-pressed="false">Usuários</button>
+        <button data-value="logs" aria-pressed="false">Logs</button>
         <button data-value="settings" aria-pressed="false">Configurações</button>
       </div>
 
@@ -192,6 +193,26 @@ export function adminPage(name: string): string {
             <input class="field" id="q" type="search" placeholder="Buscar por nome ou ID" aria-label="Buscar usuários" style="max-width:260px;min-height:34px;padding-block:6px"/>
           </div>
           <div class="group" id="users"></div>
+        </div>
+      </section>
+
+      <section id="tab-logs" class="stack" style="--gap:14px" hidden>
+        <div class="stack" style="--gap:6px">
+          <p class="section-title" style="margin-left:14px">Logs enviados pelos clientes</p>
+          <div class="group" id="logs-users"></div>
+        </div>
+        <div class="stack" id="logs-viewer" style="--gap:10px" hidden>
+          <div class="cluster">
+            <select class="field" id="logs-day" aria-label="Dia" style="max-width:220px"></select>
+            <select class="field" id="logs-level" aria-label="Nível" style="max-width:220px">
+              <option value="">Todos os níveis</option>
+              <option value="warn,error">Só avisos e erros</option>
+            </select>
+            <a class="btn" id="logs-download" download>Baixar</a>
+            <button class="btn btn-destructive" id="logs-delete">Apagar logs deste usuário</button>
+          </div>
+          <p class="caption" id="logs-count"></p>
+          <pre class="mono caption" id="logs-text" style="margin:0;max-height:480px;overflow:auto;white-space:pre-wrap;word-break:break-word"></pre>
         </div>
       </section>
 
@@ -716,10 +737,47 @@ export function adminPage(name: string): string {
         $("#q").addEventListener("input", renderUsers);
 
         // Abas: mostra só a seção escolhida (segmented dispara "change").
-        var panels = { overview: "#tab-overview", groups: "#tab-groups", users: "#tab-users", settings: "#tab-settings" };
+        var panels = { overview: "#tab-overview", groups: "#tab-groups", users: "#tab-users", logs: "#tab-logs", settings: "#tab-settings" };
         $("#tabs").addEventListener("change", function (e) {
           var v = e.detail && e.detail.value; if (!panels[v]) return;
           Object.keys(panels).forEach(function (k) { $(panels[k]).hidden = k !== v; });
+          if (v === "logs") loadLogUsers();
+        });
+
+        var logUsers = [], logUser = null;
+        function fmtBytes(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.ceil(n / 1024) + " KB"; }
+        async function loadLogUsers() {
+          try { logUsers = await j("/admin/logs"); } catch (err) { ui.toast("Falha ao listar logs: " + err.message, "danger"); return; }
+          $("#logs-users").innerHTML = logUsers.length ? logUsers.map(function (u) {
+            return '<div class="row" role="button" tabindex="0" data-log-user="' + esc(u.userId) + '" style="cursor:pointer">' + ui.thumb(u.avatar, u.name || u.userId) +
+              '<div class="row-body"><div class="row-title">' + esc(u.name || u.userId) + '</div><div class="row-detail">' + fmtBytes(u.bytes) + " · " + u.days.length + " dia(s) · último envio " + esc(new Date(u.lastAt).toLocaleString()) + "</div></div></div>";
+          }).join("") : '<div class="row"><div class="row-body"><div class="row-detail">Nenhum log recebido ainda.</div></div></div>';
+          if (logUser && !logUsers.some(function (u) { return u.userId === logUser.userId; })) { logUser = null; $("#logs-viewer").hidden = true; }
+        }
+        function openLogUser(id) {
+          logUser = logUsers.find(function (u) { return u.userId === id; }); if (!logUser) return;
+          $("#logs-day").innerHTML = logUser.days.map(function (d) { return '<option value="' + esc(d.day) + '">' + esc(d.day) + " (" + fmtBytes(d.bytes) + ")</option>"; }).join("");
+          $("#logs-viewer").hidden = false;
+          loadLogDay();
+        }
+        async function loadLogDay() {
+          if (!logUser) return;
+          var base = "/admin/logs/" + encodeURIComponent(logUser.userId) + "/" + encodeURIComponent($("#logs-day").value);
+          $("#logs-download").href = base + "?download=1";
+          try {
+            var r = await j(base + "?tail=1000&level=" + encodeURIComponent($("#logs-level").value));
+            $("#logs-count").textContent = "Mostrando " + r.entries.length + " de " + r.total + " linhas";
+            $("#logs-text").textContent = r.entries.map(function (e) { return new Date(e.t).toISOString() + " " + e.l + " " + e.s + " " + e.m; }).join("\\n");
+          } catch (err) { ui.toast("Falha ao ler o log: " + err.message, "danger"); }
+        }
+        $("#logs-users").addEventListener("click", function (e) { var r = e.target.closest("[data-log-user]"); if (r) openLogUser(r.dataset.logUser); });
+        $("#logs-users").addEventListener("keydown", function (e) { var r = e.target.closest("[data-log-user]"); if (r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openLogUser(r.dataset.logUser); } });
+        $("#logs-day").addEventListener("change", loadLogDay);
+        $("#logs-level").addEventListener("change", loadLogDay);
+        $("#logs-delete").addEventListener("click", async function () {
+          if (!logUser || !window.confirm("Apagar todos os logs deste usuário?")) return;
+          try { await j("/admin/logs/" + encodeURIComponent(logUser.userId), { method: "DELETE" }); ui.toast("Logs apagados", "danger"); loadLogUsers(); }
+          catch (err) { ui.toast("Falha ao apagar: " + err.message, "danger"); }
         });
 
         load(); setInterval(load, 4000);

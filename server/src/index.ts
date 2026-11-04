@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 
 import { botGatewayState, startBotGateway } from "./botGateway.js";
+import { clientLogsEnabled, ingest, listUsers, readDay, removeUser, startClientLogSweeper } from "./clientLogs.js";
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
 import { cachedImage } from "./imageCache.js";
@@ -35,6 +36,19 @@ const {
 if (!ADMIN_TOKEN) console.warn("[v2] ADMIN_TOKEN vazio — endpoints de admin desprotegidos!");
 
 const app = express();
+
+// Antes do parser global (32kb). Vem do processo main do mod, por isso não depende de CORS.
+app.post("/logs/ingest", express.json({ limit: "4mb" }), async (req, res) => {
+    if (!clientLogsEnabled) return res.status(410).json({ error: "logs desativados neste servidor" });
+    try {
+        const r = await ingest(req.body);
+        res.status(r.status).json(r.error ? { error: r.error } : { stored: r.stored });
+    } catch (e) {
+        console.warn("[client-logs] falha ao gravar:", (e as Error).message);
+        res.status(500).json({ error: "falha ao gravar" });
+    }
+});
+
 app.use(express.json({ limit: "32kb" }));
 app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -371,6 +385,38 @@ app.get("/admin/metrics", admin, (_req, res) => {
     });
 });
 
+function userLabel(userId: string): string | undefined {
+    const known = store.get(userId)?.name;
+    if (known) return known;
+    for (const c of store.listChannels()) {
+        const seen = c.seen.find(m => m.userId === userId)?.name;
+        if (seen) return seen;
+    }
+    return undefined;
+}
+
+app.get("/admin/logs", admin, async (_req, res) => {
+    const list = await listUsers();
+    res.json(list.map(u => ({ ...u, name: userLabel(u.userId), avatar: `/admin/img/user/${u.userId}` })));
+});
+
+app.get("/admin/logs/:userId/:day", admin, async (req, res) => {
+    const text = await readDay(req.params.userId, req.params.day);
+    if (text === null) return res.status(404).json({ error: "log não encontrado" });
+    if (req.query.download) {
+        res.setHeader("Content-Disposition", `attachment; filename="frd-logs-${req.params.userId}-${req.params.day}.jsonl"`);
+        return res.type("application/x-ndjson").send(text);
+    }
+    const levels = String(req.query.level ?? "").split(",").filter(Boolean);
+    const tail = Math.min(Number(req.query.tail) || 500, 5000);
+    const entries = text.split("\n").filter(Boolean).flatMap(line => {
+        try { return [JSON.parse(line) as { l: string; }]; } catch { return []; }
+    }).filter(e => !levels.length || levels.includes(e.l));
+    res.json({ total: entries.length, entries: entries.slice(-tail) });
+});
+
+app.delete("/admin/logs/:userId", admin, async (req, res) => res.json({ ok: await removeUser(req.params.userId) }));
+
 const httpServer = createServer(app);
 httpServer.on("upgrade", (req, socket, head) => {
     const path = (req.url ?? "").split("?")[0];
@@ -382,6 +428,7 @@ httpServer.on("upgrade", (req, socket, head) => {
 });
 if (nativeStreamEnabled()) startNativeStreamUdp();
 if (discord.botConfigured()) startBotGateway();
+if (clientLogsEnabled) startClientLogSweeper();
 
 httpServer.listen(Number(PORT), () => {
     console.log(`[v2] servidor ouvindo na porta ${PORT} (mídia em ${NATIVE_STREAM_PATH})`);

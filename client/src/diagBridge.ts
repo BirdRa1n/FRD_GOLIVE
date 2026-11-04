@@ -79,7 +79,11 @@ function connView(c: any): any {
     };
 }
 
-async function mediaSnapshot(trim: boolean): Promise<any[]> {
+export function mediaConnectionCount(): number {
+    return mediaConnections().length;
+}
+
+export async function mediaSnapshot(trim: boolean): Promise<any[]> {
     const out: any[] = [];
     for (const c of mediaConnections()) {
         let stats: any;

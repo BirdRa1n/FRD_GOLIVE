@@ -22,7 +22,13 @@ export async function fetchConfig(host: string): Promise<{ base: string; config:
     return { base, config };
 }
 
-export function writeVencordConfig(dir: string, base: string, config: ClientConfig): string {
+// Respeita a escolha feita no próprio Discord: reinstalar não religa o envio escondido.
+export function readLogUpload(dir: string): boolean {
+    const plugins = readJson(join(dir, "settings", "settings.json")).plugins as Record<string, { logUpload?: boolean; }> | undefined;
+    return plugins?.FRDGoLive?.logUpload !== false;
+}
+
+export function writeVencordConfig(dir: string, base: string, config: ClientConfig, logUpload: boolean): string {
     const settingsDir = join(dir, "settings");
     mkdirSync(settingsDir, { recursive: true });
 
@@ -37,6 +43,7 @@ export function writeVencordConfig(dir: string, base: string, config: ClientConf
         nativeStreamDave: true, // E2EE (MLS) no áudio da transmissão
         hijackNativeControls: false,
         unlockNativeVideoGate: true, // libera os botões nativos em regiões censuradas
+        logUpload, // envia os logs ao servidor dos admins a cada 5 min
     };
     writeFileSync(settingsFile, JSON.stringify(settings, null, 4));
 

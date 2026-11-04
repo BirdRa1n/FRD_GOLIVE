@@ -86,11 +86,27 @@
         <div class="group" id="groups-list"></div>
       </div>
 
+      <div class="stack" style="--gap:8px">
+        <p class="section-title">Diagnóstico</p>
+        <div class="group">
+          <div class="row">
+            <span class="icon-tile" data-icon="info"></span>
+            <div class="row-body">
+              <div class="row-title">Enviar logs a cada 5 minutos</div>
+              <div class="row-detail">Console do Discord, conexão e estatísticas de mídia, incluindo IDs de usuário/canal e IPs de conexão. Tokens são removidos. Vão só para o servidor acima.</div>
+            </div>
+            <button class="toggle" role="switch" id="log-upload" aria-checked="true" aria-label="Enviar logs a cada 5 minutos"></button>
+          </div>
+        </div>
+        <div class="notice warn" id="log-upload-warn" hidden><i data-icon="alert"></i><span><b>Sem os logs, fica impossível a gente encontrar eventuais erros</b>, como as quedas de conexão com o Discord.</span></div>
+      </div>
+
       <details class="notice">
         <summary><i data-icon="info" style="color:var(--accent)"></i>O que a modificação faz</summary>
         <ul>
           <li>Injeta o <b>Vencord</b> (client mod) no seu Discord e ativa o plugin FRD GoLive.</li>
           <li>Grava as <b>configurações do plugin</b> e uma regra de <b>CSP</b> liberando só o domínio do seu servidor.</li>
+          <li>Se o envio de logs estiver ligado, manda os <b>logs do Discord</b> (sem tokens) só para o servidor acima, a cada 5 minutos.</li>
           <li>O sistema pode <b>pedir sua senha de administrador</b> — é o passo que modifica o app do Discord (no macOS, quando ele está em /Aplicativos). Nada é enviado a terceiros.</li>
         </ul>
       </details>

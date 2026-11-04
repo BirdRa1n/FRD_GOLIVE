@@ -86,7 +86,21 @@ function scheduleCheck() {
     checkTimer = setTimeout(checkServer, 450);
 }
 
+const logUploadToggle = $("log-upload");
+
+function logUploadOn() {
+    return logUploadToggle.getAttribute("aria-checked") === "true";
+}
+
+function renderLogUpload() {
+    $("log-upload-warn").hidden = logUploadOn();
+}
+
+logUploadToggle.addEventListener("change", renderLogUpload);
+
 api.defaults().then(d => {
+    logUploadToggle.setAttribute("aria-checked", String(d.logUpload !== false));
+    renderLogUpload();
     $("version").textContent = d.version ? `FRD GoLive Instalador v${d.version}` : "";
     if (d.host) hostInput.value = d.host;
     checkServer();
@@ -151,7 +165,7 @@ applyBtn.addEventListener("click", async () => {
     $("progress").hidden = false;
     say("Buscando a config no servidor e aplicando a modificação…");
     try {
-        const r = await api.apply(host);
+        const r = await api.apply(host, logUploadOn());
         $("done-msg").textContent = `Servidor ${r.domain} · transporte ${r.transport}. Reinicie o Discord se ele estiver aberto.`;
         const channels = lastProbe && lastProbe.authMode === "channels";
         $("done-caption").textContent = channels

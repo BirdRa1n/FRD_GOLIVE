@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 
-import { fetchConfig, writeVencordConfig } from "./lib/config.js";
+import { fetchConfig, readLogUpload, writeVencordConfig } from "./lib/config.js";
 import { downloadInstallerCli, ensureBundledDist, runInject } from "./lib/inject.js";
 import { userDataDir } from "./lib/paths.js";
 import { cachedIconDataUrl, loadPrefs, rememberHost } from "./lib/store.js";
@@ -38,7 +38,7 @@ app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
 });
 
-ipcMain.handle("defaults", () => ({ host: loadPrefs().host ?? "", version: app.getVersion() }));
+ipcMain.handle("defaults", () => ({ host: loadPrefs().host ?? "", version: app.getVersion(), logUpload: readLogUpload(userDataDir()) }));
 ipcMain.handle("update-state", () => currentUpdateState());
 ipcMain.handle("open-release", () => openReleasePage());
 
@@ -91,13 +91,13 @@ ipcMain.handle("groups", async (_e, host: string) => {
     }
 });
 
-ipcMain.handle("apply", async (_e, host: string) => {
+ipcMain.handle("apply", async (_e, host: string, logUpload: boolean) => {
     setBusy(true);
     try {
         const { base, config } = await fetchConfig(host);
         rememberHost(base);
         ensureBundledDist();
-        const domain = writeVencordConfig(userDataDir(), base, config);
+        const domain = writeVencordConfig(userDataDir(), base, config, logUpload !== false);
         const cli = await downloadInstallerCli();
         await runInject(cli);
         return { ok: true, domain, transport: config.transport };

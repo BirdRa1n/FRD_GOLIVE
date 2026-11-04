@@ -14,10 +14,10 @@ interface Probe {
 interface Group { guildId: string; guildName: string; icon?: string; }
 
 contextBridge.exposeInMainWorld("installer", {
-    defaults: () => ipcRenderer.invoke("defaults") as Promise<{ host: string; version: string; }>,
+    defaults: () => ipcRenderer.invoke("defaults") as Promise<{ host: string; version: string; logUpload: boolean; }>,
     probe: (host: string) => ipcRenderer.invoke("probe", host) as Promise<Probe>,
     groups: (host: string) => ipcRenderer.invoke("groups", host) as Promise<Group[]>,
-    apply: (host: string) => ipcRenderer.invoke("apply", host) as Promise<{ ok: boolean; domain: string; transport: string; }>,
+    apply: (host: string, logUpload: boolean) => ipcRenderer.invoke("apply", host, logUpload) as Promise<{ ok: boolean; domain: string; transport: string; }>,
     openHub: (host: string) => ipcRenderer.invoke("open-hub", host),
     updateState: () => ipcRenderer.invoke("update-state") as Promise<UpdateState>,
     onUpdate: (cb: (s: UpdateState) => void) => {

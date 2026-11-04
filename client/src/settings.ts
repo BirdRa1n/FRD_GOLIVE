@@ -1,7 +1,19 @@
 import { definePluginSettings } from "@api/Settings";
 import { OptionType } from "@utils/types";
 
+let logUploadListener: ((on: boolean) => void) | null = null;
+
+export function onLogUploadChange(fn: (on: boolean) => void): void {
+    logUploadListener = fn;
+}
+
 export const settings = definePluginSettings({
+    logUpload: {
+        type: OptionType.BOOLEAN,
+        description: "Enviar os logs do Discord (console, conexão e estatísticas de mídia, sem tokens) para o servidor dos admins a cada 5 minutos. Desligar impossibilita a gente de achar eventuais erros.",
+        default: true,
+        onChange: (on: boolean) => logUploadListener?.(on),
+    },
     nativeStreamEndpoint: {
         type: OptionType.STRING,
         description: "Private native Go Live server — e.g. stream.example.com/dstream. The installer fills this in. Both senders and viewers need it. Empty = disabled (Go Live goes to Discord).",

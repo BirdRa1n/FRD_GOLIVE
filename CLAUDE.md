@@ -126,6 +126,9 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   through `server/src/imageCache.ts` (fetched once, cached on disk, served by the hub at
   `/admin/img/{guild,user}/:id` and the public `/img/guild/:id`) — the browser never
   hits Discord directly. The UI falls back to initials when there is no image.
+- **Client logs** (`client/src/logCollector.ts` → `native.ts` → `server/src/clientLogs.ts`):
+  on by default (`logUpload`), sent every 5 min, opt-out warns the user. `data:` URIs must
+  stay scrubbed: they carry the screen thumbnail. See [docs/CLIENT-LOGS.md](docs/CLIENT-LOGS.md).
 - **Camera = native Discord** (goes through Discord's servers); only the **screen**
   (Go Live) is private. A product decision made when LiveKit was removed.
 - **Discord's CSP** blocks connections to domains outside its list. You **must** add

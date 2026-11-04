@@ -1,10 +1,29 @@
-import { FluxDispatcher } from "@webpack/common";
+import { Alerts, FluxDispatcher } from "@webpack/common";
 import definePlugin from "@utils/types";
 
 import { startDiagBridge, stopDiagBridge } from "./diagBridge";
+import { disableLogCollector, startLogCollector, stopLogCollector } from "./logCollector";
 import { isNativeStreamConnection, setNativeStreamEndpoint } from "./probe/nativeStreamRedirect";
 import { startStreamProbe, stopStreamProbe } from "./probe/streamProbe";
-import { settings } from "./settings";
+import { onLogUploadChange, settings } from "./settings";
+
+function applyLogUpload(on: boolean): void {
+    if (on) {
+        if (settings.store.nativeStreamEndpoint) startLogCollector();
+        return;
+    }
+    disableLogCollector();
+    Alerts.show({
+        title: "Desligar o envio de logs?",
+        body: "Sem os logs, fica impossível a gente encontrar eventuais erros — como as quedas de conexão com o Discord. Os logs que ainda não foram enviados foram apagados.",
+        confirmText: "Manter desligado",
+        cancelText: "Ligar de novo",
+        onCancel: () => {
+            settings.store.logUpload = true;
+            applyLogUpload(true);
+        },
+    });
+}
 
 export default definePlugin({
     name: "FRDGoLive",
@@ -27,6 +46,15 @@ export default definePlugin({
     allowDaveDowngrade: isNativeStreamConnection,
 
     start() {
+        onLogUploadChange(applyLogUpload);
+        // Antes da sonda e da ponte MCP: o console delas também entra nos logs.
+        // Uma falha no diagnóstico não pode impedir o redirecionamento: sem ele, a tela iria para o Discord.
+        try {
+            if (settings.store.logUpload && settings.store.nativeStreamEndpoint) startLogCollector();
+        } catch (e) {
+            console.error("[FRD GoLive] falha ao iniciar os logs:", e);
+        }
+
         setNativeStreamEndpoint(settings.store.nativeStreamEndpoint);
         if (settings.store.streamProbe) startStreamProbe();
 
@@ -48,6 +76,7 @@ export default definePlugin({
     stop() {
         stopStreamProbe();
         stopDiagBridge();
+        stopLogCollector();
         setNativeStreamEndpoint("");
     },
 });
