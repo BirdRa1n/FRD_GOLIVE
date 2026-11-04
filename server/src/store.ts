@@ -53,6 +53,12 @@ class Store {
         return this.settings;
     }
 
+    setClientLogsPaused(paused: boolean): ServerSettings {
+        this.settings.clientLogsPaused = paused;
+        this.persist();
+        return this.settings;
+    }
+
     requestAccess(id: string, name: string): User {
         let u = this.users.get(id);
         if (!u) {

@@ -116,6 +116,12 @@ export async function removeUser(userId: string): Promise<boolean> {
     return true;
 }
 
+export async function removeAll(): Promise<number> {
+    const ids = (await readdir(DIR).catch(() => [] as string[])).filter(n => USER_RE.test(n));
+    await Promise.all(ids.map(id => rm(join(DIR, id), { recursive: true, force: true })));
+    return ids.length;
+}
+
 export async function sweep(now = Date.now()): Promise<void> {
     const cutoff = new Date(now - RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10);
     const all: { userId: string; day: string; bytes: number; }[] = [];

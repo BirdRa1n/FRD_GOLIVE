@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 
 import { botGatewayState, startBotGateway } from "./botGateway.js";
-import { clientLogsEnabled, ingest, listUsers, readDay, removeUser, startClientLogSweeper } from "./clientLogs.js";
+import { clientLogsEnabled, ingest, listUsers, readDay, removeAll, removeUser, startClientLogSweeper } from "./clientLogs.js";
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
 import { cachedImage } from "./imageCache.js";
@@ -39,7 +39,8 @@ const app = express();
 
 // Antes do parser global (32kb). Vem do processo main do mod, por isso não depende de CORS.
 app.post("/logs/ingest", express.json({ limit: "4mb" }), async (req, res) => {
-    if (!clientLogsEnabled) return res.status(410).json({ error: "logs desativados neste servidor" });
+    // 410 faz o cliente descartar o lote: o que chega durante a pausa não é gravado depois.
+    if (!clientLogsEnabled || store.getSettings().clientLogsPaused) return res.status(410).json({ error: "logs desativados neste servidor" });
     try {
         const r = await ingest(req.body);
         res.status(r.status).json(r.error ? { error: r.error } : { stored: r.stored });
@@ -414,6 +415,13 @@ app.get("/admin/logs/:userId/:day", admin, async (req, res) => {
     }).filter(e => !levels.length || levels.includes(e.l));
     res.json({ total: entries.length, entries: entries.slice(-tail) });
 });
+
+app.post("/admin/logs/pause", admin, (req, res) => {
+    if (typeof req.body?.paused !== "boolean") return res.status(400).json({ error: "paused inválido" });
+    res.json({ paused: Boolean(store.setClientLogsPaused(req.body.paused).clientLogsPaused) });
+});
+
+app.delete("/admin/logs", admin, async (_req, res) => res.json({ users: await removeAll() }));
 
 app.delete("/admin/logs/:userId", admin, async (req, res) => res.json({ ok: await removeUser(req.params.userId) }));
 

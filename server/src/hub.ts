@@ -197,6 +197,11 @@ export function adminPage(name: string): string {
       </section>
 
       <section id="tab-logs" class="stack" style="--gap:14px" hidden>
+        <div class="cluster">
+          <button class="btn" id="logs-pause">Pausar armazenamento</button>
+          <button class="btn btn-destructive" id="logs-delete-all">Apagar todos os logs</button>
+        </div>
+        <div class="notice warn" id="logs-paused" hidden><i data-icon="alert"></i><span><b>Armazenamento pausado.</b> Os logs enviados pelos clientes são descartados e não voltam ao retomar.</span></div>
         <div class="stack" style="--gap:6px">
           <p class="section-title" style="margin-left:14px">Logs enviados pelos clientes</p>
           <div class="group" id="logs-users"></div>
@@ -746,8 +751,13 @@ export function adminPage(name: string): string {
 
         var logUsers = [], logUser = null;
         function fmtBytes(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.ceil(n / 1024) + " KB"; }
+        var logsPaused = false;
+        function renderLogsPaused() {
+          $("#logs-paused").hidden = !logsPaused;
+          $("#logs-pause").textContent = logsPaused ? "Retomar armazenamento" : "Pausar armazenamento";
+        }
         async function loadLogUsers() {
-          try { logUsers = await j("/admin/logs"); } catch (err) { ui.toast("Falha ao listar logs: " + err.message, "danger"); return; }
+          try { logsPaused = Boolean((await j("/admin/settings")).clientLogsPaused); renderLogsPaused(); logUsers = await j("/admin/logs"); } catch (err) { ui.toast("Falha ao listar logs: " + err.message, "danger"); return; }
           $("#logs-users").innerHTML = logUsers.length ? logUsers.map(function (u) {
             return '<div class="row" role="button" tabindex="0" data-log-user="' + esc(u.userId) + '" style="cursor:pointer">' + ui.thumb(u.avatar, u.name || u.userId) +
               '<div class="row-body"><div class="row-title">' + esc(u.name || u.userId) + '</div><div class="row-detail">' + fmtBytes(u.bytes) + " · " + u.days.length + " dia(s) · último envio " + esc(new Date(u.lastAt).toLocaleString()) + "</div></div></div>";
@@ -774,8 +784,19 @@ export function adminPage(name: string): string {
         $("#logs-users").addEventListener("keydown", function (e) { var r = e.target.closest("[data-log-user]"); if (r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openLogUser(r.dataset.logUser); } });
         $("#logs-day").addEventListener("change", loadLogDay);
         $("#logs-level").addEventListener("change", loadLogDay);
+        $("#logs-pause").addEventListener("click", async function () {
+          var next = !logsPaused;
+          if (next && !(await ui.confirm({ title: "Pausar o armazenamento de logs?", message: "Os logs enviados pelos clientes durante a pausa são descartados. Sem eles, fica impossível encontrar erros que aconteçam nesse período.", confirmLabel: "Pausar" }))) return;
+          try { logsPaused = (await post("/admin/logs/pause", { paused: next })).paused; renderLogsPaused(); ui.toast(logsPaused ? "Armazenamento pausado" : "Armazenamento retomado"); }
+          catch (err) { ui.toast("Falha ao alterar: " + err.message, "danger"); }
+        });
+        $("#logs-delete-all").addEventListener("click", async function () {
+          if (!(await ui.confirm({ title: "Apagar todos os logs?", message: "Os logs de todos os usuários são apagados do servidor. Isso não pode ser desfeito.", confirmLabel: "Apagar tudo", destructive: true }))) return;
+          try { await j("/admin/logs", { method: "DELETE" }); logUser = null; $("#logs-viewer").hidden = true; ui.toast("Logs apagados", "danger"); loadLogUsers(); }
+          catch (err) { ui.toast("Falha ao apagar: " + err.message, "danger"); }
+        });
         $("#logs-delete").addEventListener("click", async function () {
-          if (!logUser || !window.confirm("Apagar todos os logs deste usuário?")) return;
+          if (!logUser || !(await ui.confirm({ title: "Apagar os logs deste usuário?", message: "Isso não pode ser desfeito.", confirmLabel: "Apagar", destructive: true }))) return;
           try { await j("/admin/logs/" + encodeURIComponent(logUser.userId), { method: "DELETE" }); ui.toast("Logs apagados", "danger"); loadLogUsers(); }
           catch (err) { ui.toast("Falha ao apagar: " + err.message, "danger"); }
         });

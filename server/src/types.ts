@@ -61,6 +61,7 @@ export type AuthMode = "login" | "channels";
 
 export interface ServerSettings {
     authMode: AuthMode;
+    clientLogsPaused?: boolean;
 }
 
 export interface ChannelCfg {

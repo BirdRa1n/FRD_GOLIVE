@@ -59,6 +59,10 @@ retention removes them or an admin deletes them.
 | `CLIENT_LOGS_USER_MAX_MB` | `200` | compressed size; oldest days go first |
 | `CLIENT_LOGS_TOTAL_MAX_MB` | `5000` | compressed size; oldest days go first |
 
+The dashboard's Logs tab can also pause storage and delete everything. While paused,
+`/logs/ingest` answers 410, so clients discard those batches and they are never stored,
+even after resuming (`POST /admin/logs/pause`, `DELETE /admin/logs`).
+
 `GET /admin/logs`, `GET /admin/logs/:userId/:day` (`?level=warn,error&tail=500`, or
 `?download=1` for the raw JSONL) and `DELETE /admin/logs/:userId` use the usual admin auth.
 
