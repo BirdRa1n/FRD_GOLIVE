@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from "electron";
 
 import { fetchConfig, readLogUpload, writeVencordConfig } from "./lib/config.js";
 import { downloadInstallerCli, ensureBundledDist, runInject } from "./lib/inject.js";
@@ -23,11 +23,35 @@ function createWindow(): void {
         ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
         webPreferences: { preload: join(__dirname, "preload.js") },
     });
+    // Sem menu em nenhum sistema (Menu.setApplicationMenu(null) no whenReady). No macOS,
+    // sem o menu "Editar" os atalhos de edição e de janela param: tratamos aqui.
+    if (process.platform === "darwin") {
+        win.webContents.on("before-input-event", (event, input) => {
+            if (input.type !== "keyDown" || !input.meta || input.control || input.alt) return;
+            const wc = win.webContents;
+            const key = input.key.toLowerCase();
+            const actions: Record<string, () => void> = {
+                c: () => wc.copy(),
+                v: () => wc.paste(),
+                x: () => wc.cut(),
+                a: () => wc.selectAll(),
+                z: () => (input.shift ? wc.redo() : wc.undo()),
+                q: () => app.quit(),
+                w: () => win.close(),
+                h: () => app.hide(),
+                m: () => win.minimize(),
+            };
+            const run = actions[key];
+            if (run) { event.preventDefault(); run(); }
+        });
+    }
     initUpdater(win);
     void win.loadFile(join(__dirname, "..", "renderer", "index.html"));
 }
 
 app.whenReady().then(() => {
+    // Sem a barra "File Edit View Window Help" (Windows/Linux) nem os menus do macOS.
+    Menu.setApplicationMenu(null);
     createWindow();
     app.on("activate", () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
