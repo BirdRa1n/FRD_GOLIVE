@@ -13,6 +13,7 @@ import {
 import { gatewayEnabled, onVoiceStateChange, voiceLocation } from "./botGateway.js";
 import { botConfigured, resolveChannelNames } from "./discord.js";
 import { store } from "./store.js";
+import { addActivity, pushMediaSample } from "./stats.js";
 import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
 
 const {
@@ -79,6 +80,11 @@ interface Member {
     twccExtId?: number;
     extProbe: { packets: number; len2: Map<number, number>; seen: Map<number, number>; };
     stats: UdpStats;
+    /** kbps recebidos do cliente no último intervalo de stats. */
+    kbps?: number;
+    /** RTT do WS de controle (ping/pong), em ms. */
+    rttMs?: number;
+    pingAt?: number;
     decryptedSamples: number;
     daveKeyPackage?: Buffer;
     channelId?: string;
@@ -128,10 +134,10 @@ export function nativeStreamPublicIp(): string {
     return NATIVE_STREAM_PUBLIC_IP;
 }
 
-export function getLiveState(): { roomId: string; members: { userId: string; streamer: boolean; channelId?: string; guildId?: string; since?: number; }[]; streamers: number; viewers: number; }[] {
+export function getLiveState(): { roomId: string; members: { userId: string; streamer: boolean; channelId?: string; guildId?: string; since?: number; kbps?: number; rttMs?: number; }[]; streamers: number; viewers: number; }[] {
     const out = [];
     for (const [roomId, room] of rooms) {
-        const members = [...room.members.values()].map(m => ({ userId: m.userId, streamer: m.streamer, channelId: m.channelId, guildId: m.guildId, since: m.streamer ? m.streamerSince : undefined }));
+        const members = [...room.members.values()].map(m => ({ userId: m.userId, streamer: m.streamer, channelId: m.channelId, guildId: m.guildId, since: m.streamer ? m.streamerSince : undefined, kbps: m.kbps, rttMs: m.rttMs }));
         out.push({
             roomId,
             members,
@@ -662,6 +668,9 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
         extProbe: { packets: 0, len2: new Map(), seen: new Map() },
     };
     room.members.set(userId, m);
+    ws.on("pong", () => {
+        if (m.pingAt) { m.rttMs = Date.now() - m.pingAt; m.pingAt = undefined; }
+    });
     m.channelId = channelId;
     m.guildId = guildId;
     m.sessionId = sessionId || undefined;
@@ -1103,14 +1112,29 @@ setInterval(() => {
 }, RR_INTERVAL_MS).unref();
 
 setInterval(() => {
+    let totalKbps = 0;
+    const rtts: number[] = [];
+    const liveChannels: string[] = [];
     for (const room of rooms.values()) {
         for (const m of room.members.values()) {
+            m.kbps = Math.round((m.stats.bytes * 8) / STATS_INTERVAL_MS);
+            if (m.streamer) {
+                totalKbps += m.kbps;
+                if (m.channelId) liveChannels.push(m.channelId);
+            }
+            if (m.pingAt) m.rttMs = undefined; // o último ping ficou sem pong
+            if (m.rttMs !== undefined) rtts.push(m.rttMs);
+            m.pingAt = Date.now();
+            try { m.ws.ping(); } catch { /* socket fechando */ }
             if (!m.stats.packets) continue;
-            const kbps = Math.round((m.stats.bytes * 8) / STATS_INTERVAL_MS);
+            const kbps = m.kbps;
             log(`udp ${m.userId}${m.streamer ? " (transmite)" : ""}: ${m.stats.packets} pkts ${kbps} kbps repassados=${m.stats.forwarded} ${JSON.stringify(m.stats.byPt)}`);
             m.stats = { packets: 0, bytes: 0, byPt: {}, forwarded: 0 };
         }
     }
+    rtts.sort((a, b) => a - b);
+    pushMediaSample(totalKbps, rtts.length ? rtts[rtts.length >> 1] : null);
+    addActivity(liveChannels, STATS_INTERVAL_MS / 1000);
 }, STATS_INTERVAL_MS).unref();
 
 export function startNativeStreamUdp(): void {

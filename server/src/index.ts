@@ -4,13 +4,14 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 
 import { botGatewayState, memberInfo, startBotGateway, userAvatarHash } from "./botGateway.js";
-import { clientLogsEnabled, ingest, listUsers, readDay, removeAll, removeUser, startClientLogSweeper } from "./clientLogs.js";
+import { clientLogsEnabled, ingest, listUsers, readDay, removeAll, removeUser, seedLogCounts, startClientLogSweeper } from "./clientLogs.js";
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
 import { cachedImage } from "./imageCache.js";
 import { closeMembersInChannel, getLiveState, handleNativeStreamUpgrade, NATIVE_STREAM_PATH, nativeStreamEnabled, nativeStreamPublicIp, startNativeStreamUdp } from "./nativeStream.js";
 import { COOKIE_NAME, parseCookies, type Session, sign, verify } from "./session.js";
 import { store } from "./store.js";
+import { getStats } from "./stats.js";
 import type { ActiveTransmission, AuthMode, ClientConfig, Group, GroupChannel, LiveMember, LiveRoom, PublicGroup } from "./types.js";
 
 const ADMIN_IDS = (process.env.ADMIN_DISCORD_IDS ?? "").split(",").map(s => s.trim()).filter(Boolean);
@@ -346,7 +347,7 @@ async function enrichRoom(r: ReturnType<typeof getLiveState>[number]): Promise<L
         if (!name) name = await nameOf(guildId, m.userId);
         if (name && m.channelId) store.rememberName(m.channelId, m.userId, name);
         const avatar = `/admin/img/user/${m.userId}${info?.avatar ? `?h=${info.avatar}` : ""}`; // hash muda → navegador busca a nova
-        return { userId: m.userId, name, avatar, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined, guildId: m.guildId };
+        return { userId: m.userId, name, avatar, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined, guildId: m.guildId, kbps: m.kbps, rttMs: m.rttMs };
     }));
     const channelId = members.find(m => !!m.channelId)?.channelId;
     const channelName = members.find(m => !!m.channelName)?.channelName;
@@ -379,6 +380,9 @@ app.get("/admin/transmissions", admin, async (_req, res) => {
     }
     res.json(active);
 });
+
+// Séries para os gráficos do painel: bitrate/RTT (1 h), logs por hora e atividade por canal (24 h).
+app.get("/admin/stats", admin, (_req, res) => res.json(getStats()));
 
 app.get("/admin/metrics", admin, (_req, res) => {
     const mem = { total: os.totalmem(), free: os.freemem() };
@@ -443,7 +447,7 @@ httpServer.on("upgrade", (req, socket, head) => {
 });
 if (nativeStreamEnabled()) startNativeStreamUdp();
 if (discord.botConfigured()) startBotGateway();
-if (clientLogsEnabled) startClientLogSweeper();
+if (clientLogsEnabled) { startClientLogSweeper(); void seedLogCounts(); }
 
 httpServer.listen(Number(PORT), () => {
     console.log(`[v2] servidor ouvindo na porta ${PORT} (mídia em ${NATIVE_STREAM_PATH})`);

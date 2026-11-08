@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { gunzip, gzipSync } from "node:zlib";
 import { promisify } from "node:util";
 
+import { countLogs } from "./stats.js";
+
 const gunzipAsync = promisify(gunzip);
 
 const DIR = process.env.CLIENT_LOGS_DIR ?? join(dirname(process.env.DB_FILE ?? "./users.json"), "client-logs");
@@ -75,7 +77,26 @@ export async function ingest(body: any): Promise<IngestResult> {
     const text = [meta, ...entries].map(e => JSON.stringify(e)).join("\n") + "\n";
     // Membros gzip concatenados continuam sendo um gzip válido: dá para só anexar.
     await appendFile(join(dir, `${now.toISOString().slice(0, 10)}.jsonl.gz`), gzipSync(text));
+    countLogs(entries);
     return { status: 200, stored: entries.length };
+}
+
+/** Recarrega as contagens por hora (últimas 24 h) dos arquivos de hoje e de ontem. */
+export async function seedLogCounts(now = Date.now()): Promise<void> {
+    const days = [new Date(now).toISOString().slice(0, 10), new Date(now - 86_400_000).toISOString().slice(0, 10)];
+    const ids = (await readdir(DIR).catch(() => [] as string[])).filter(n => USER_RE.test(n));
+    for (const userId of ids) {
+        for (const day of days) {
+            const text = await readDay(userId, day).catch(() => null);
+            if (!text) continue;
+            const entries: { t: number; l: string; }[] = [];
+            for (const line of text.split("\n")) {
+                if (!line) continue;
+                try { const e = JSON.parse(line); if (typeof e.t === "number") entries.push({ t: e.t, l: String(e.l) }); } catch { /* linha quebrada */ }
+            }
+            countLogs(entries);
+        }
+    }
 }
 
 async function userDays(userId: string): Promise<(ClientLogDay & { mtime: number; })[]> {
