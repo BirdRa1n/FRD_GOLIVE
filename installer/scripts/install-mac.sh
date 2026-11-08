@@ -10,7 +10,7 @@
 # Uso:  bash installer/scripts/install-mac.sh
 set -euo pipefail
 
-REPO_URL="https://github.com/your-org/your-repo"
+REPO_URL="https://github.com/BirdRa1n/FRD_GOLIVE"
 CACHE_DIR="$HOME/.frd-golive"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }

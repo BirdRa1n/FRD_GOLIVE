@@ -6,6 +6,8 @@ node_modules/
 # Builds
 dist/
 build/
+# exceção: ícone do instalador (fonte SVG + PNG que o electron-builder converte)
+!installer/build/
 out/
 *.tsbuildinfo
 
