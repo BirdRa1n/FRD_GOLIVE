@@ -6,14 +6,48 @@
 
 <link rel="stylesheet" href="./ui/ui.css" />
 <script src="./ui/ui.js"></script>
+<script src="./ui/ui-canvas.js"></script>
 <style>
-
-  .titlebar { height: 0; -webkit-app-region: drag; }
-  .mac .titlebar { height: 34px; }
-  .titlebar-actions { position: fixed; top: 8px; right: 12px; -webkit-app-region: no-drag; z-index: 5; }
-  .mac .titlebar-actions { top: 4px; }
-  main.container { max-width: 520px; }
-  .hero { display: grid; justify-items: start; gap: 12px; }
+  /* Tela dividida: painel azul com a conexão animada à esquerda, passos à direita. */
+  html, body { height: 100%; }
+  body { overflow: hidden; }
+  .wiz { display: grid; grid-template-columns: 360px minmax(0, 1fr); height: 100vh; }
+  .wiz-art {
+    -webkit-app-region: drag;
+    position: relative;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 16px;
+    padding: 28px;
+    color: var(--on-color);
+    background: var(--accent);
+    overflow: hidden;
+  }
+  .mac .wiz-art { padding-top: 44px; }
+  .wiz-art::after {
+    content: "";
+    position: absolute;
+    right: -90px;
+    bottom: -90px;
+    width: 260px;
+    height: 260px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--on-color) 10%, transparent);
+    pointer-events: none;
+  }
+  .wiz-art .brand { color: var(--on-color); }
+  .wiz-art .logo { background: var(--on-color); color: var(--accent); box-shadow: none; }
+  .wiz-art canvas { align-self: center; height: 220px; }
+  .wiz-art h1 { margin: 0; font: 750 26px/1.15 var(--font-display); letter-spacing: -0.02em; text-wrap: balance; }
+  .wiz-art p { margin: 8px 0 0; color: color-mix(in srgb, var(--on-color) 82%, transparent); font-size: 14px; max-width: 34ch; }
+  .wiz-body { overflow-y: auto; padding: 26px 28px 22px; display: grid; gap: 18px; align-content: start; }
+  .mac .wiz-body { padding-top: 40px; }
+  .wiz-top { -webkit-app-region: no-drag; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .steps i { position: relative; height: 6px; border-radius: 3px; background: var(--fill-2); overflow: hidden; }
+  .steps i::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform 0.5s var(--ease); }
+  .steps i.on::after { transform: scaleX(1); }
+  .step-label { margin-top: 6px; font-size: 12.5px; color: var(--text-3); }
   details.notice { display: block; }
   details.notice summary { cursor: pointer; font-weight: 600; color: var(--text); list-style: none; display: flex; align-items: center; gap: 8px; }
   details.notice summary::-webkit-details-marker { display: none; }
@@ -21,117 +55,120 @@
   details.notice[open] summary::after { transform: rotate(90deg); }
   details.notice ul { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; }
   #log { white-space: pre-wrap; margin: 0; }
-  .done-icon { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--gradient); box-shadow: var(--glow); animation: pop .6s var(--spring); }
+  .done-icon { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; color: var(--on-color); background: var(--ok); box-shadow: 0 8px 22px color-mix(in srgb, var(--ok) 40%, transparent); animation: pop .6s var(--spring); }
   .done-icon svg { width: 30px; height: 30px; }
   @keyframes pop { from { transform: scale(.3); opacity: 0; } }
+  @media (max-width: 760px) {
+    body { overflow: auto; }
+    .wiz { grid-template-columns: 1fr; height: auto; }
+    .wiz-art canvas { height: 150px; }
+  }
 </style>
 </head>
 <body>
-  <div class="titlebar"></div>
-  <div class="titlebar-actions">
-    <div class="segmented" data-theme-switch aria-label="Tema">
-      <button data-value="system" aria-pressed="true">Sistema</button>
-      <button data-value="light" aria-pressed="false">Claro</button>
-      <button data-value="dark" aria-pressed="false">Escuro</button>
-    </div>
-  </div>
-
-  <main class="container page">
-    
-    <div class="notice appear" id="update" hidden role="status">
-      <i data-icon="download" id="update-icon"></i>
-      <div class="stack grow" style="--gap:6px">
-        <span id="update-text"></span>
-        <div class="progress" id="update-progress" hidden><i></i></div>
-      </div>
-      <button class="btn btn-sm" id="update-action" hidden>Baixar</button>
-    </div>
-
-    <header class="hero appear">
-      <span class="logo logo-lg" data-icon="logo"></span>
-      <div class="stack" style="--gap:4px">
-        <h1 class="large-title">Instalar o <span class="gradient-text">FRD GoLive</span></h1>
-        <p class="subhead">Aplica a modificação no Discord para transmitir tela e câmera pelo servidor da sua empresa.</p>
-      </div>
-    </header>
-
-    <section id="step-config" class="stack" style="--gap:18px">
-      <label class="label">Host do servidor
-        <input type="url" id="host" class="field mono" placeholder="https://golive.suaempresa.com" spellcheck="false" autocomplete="off" />
-      </label>
-
+  <div class="wiz">
+    <aside class="wiz-art">
+      <span class="brand"><span class="logo" data-icon="logo"></span>FRD GoLive</span>
+      <canvas id="link" role="img" aria-label="Conexão entre o seu computador e o servidor"></canvas>
       <div>
-        <p class="section-title">Verificação</p>
-        <div class="group">
+        <h1>Sua tela, no servidor da empresa.</h1>
+        <p>O vídeo vai direto para o servidor privado. Voz e câmera continuam no Discord.</p>
+      </div>
+    </aside>
+
+    <main class="wiz-body">
+      <div class="wiz-top">
+        <div class="grow">
+          <div class="steps" aria-hidden="true"><i id="s1" class="on"></i><i id="s2"></i><i id="s3"></i></div>
+          <div class="step-label" id="step-label">Passo 1 de 3 · Servidor</div>
+        </div>
+        <div class="segmented" data-theme-switch aria-label="Tema">
+          <button data-value="system" aria-pressed="true">Sistema</button>
+          <button data-value="light" aria-pressed="false">Claro</button>
+          <button data-value="dark" aria-pressed="false">Escuro</button>
+        </div>
+      </div>
+
+      <div class="notice appear" id="update" hidden role="status">
+        <i data-icon="download" id="update-icon"></i>
+        <div class="stack grow" style="--gap:6px">
+          <span id="update-text"></span>
+          <div class="progress" id="update-progress" hidden><i></i></div>
+        </div>
+        <button class="btn btn-sm" id="update-action" hidden>Baixar</button>
+      </div>
+
+      <section id="step-config" class="stack" style="--gap:16px">
+        <div class="stack in" style="--gap:4px">
+          <h2 class="large-title">Qual é o endereço do servidor?</h2>
+          <p class="subhead">Use o endereço que a sua empresa passou. O instalador busca a configuração nele.</p>
+        </div>
+
+        <input type="url" id="host" class="field mono in" style="--i:1" placeholder="https://golive.suaempresa.com" spellcheck="false" autocomplete="off" aria-label="Host do servidor" />
+
+        <div class="group in" style="--i:2">
           <div class="row" id="check-row">
             <span class="icon-tile neutral" id="check-icon" data-icon="server"></span>
             <div class="row-body"><div class="row-title" id="check-title">Informe o host do servidor</div><div class="row-detail mono" id="check-detail"></div></div>
             <span class="row-accessory" id="check-acc"></span>
           </div>
-        </div>
-      </div>
-
-      <div id="mode-box" hidden>
-        <p class="section-title">Modo do servidor</p>
-        <div class="group">
-          <div class="row">
+          <div class="row" id="mode-box" hidden>
             <span class="icon-tile" id="mode-icon" data-icon="shield"></span>
             <div class="row-body"><div class="row-title" id="mode-title">—</div><div class="row-detail" id="mode-detail"></div></div>
           </div>
         </div>
-      </div>
 
-      <div id="groups-box" hidden>
-        <p class="section-title">Grupos habilitados</p>
-        <div class="group" id="groups-list"></div>
-      </div>
-
-      <div class="stack" style="--gap:8px">
-        <p class="section-title">Diagnóstico</p>
-        <div class="group">
-          <div class="row">
-            <span class="icon-tile" data-icon="info"></span>
-            <div class="row-body">
-              <div class="row-title">Enviar logs a cada 5 minutos</div>
-              <div class="row-detail">Console do Discord, conexão e estatísticas de mídia, incluindo IDs de usuário/canal e IPs de conexão. Tokens são removidos. Vão só para o servidor acima.</div>
-            </div>
-            <button class="toggle" role="switch" id="log-upload" aria-checked="true" aria-label="Enviar logs a cada 5 minutos"></button>
-          </div>
+        <div id="groups-box" hidden>
+          <p class="section-title">Grupos habilitados</p>
+          <div class="group" id="groups-list"></div>
         </div>
-        <div class="notice warn" id="log-upload-warn" hidden><i data-icon="alert"></i><span><b>Sem os logs, fica impossível a gente encontrar eventuais erros</b>, como as quedas de conexão com o Discord.</span></div>
-      </div>
 
-      <details class="notice">
-        <summary><i data-icon="info" style="color:var(--accent)"></i>O que a modificação faz</summary>
-        <ul>
-          <li>Injeta o <b>Vencord</b> (client mod) no seu Discord e ativa o plugin FRD GoLive.</li>
-          <li>Grava as <b>configurações do plugin</b> e uma regra de <b>CSP</b> liberando só o domínio do seu servidor.</li>
-          <li>Se o envio de logs estiver ligado, manda os <b>logs do Discord</b> (sem tokens) só para o servidor acima, a cada 5 minutos.</li>
-          <li>O sistema pode <b>pedir sua senha de administrador</b> — é o passo que modifica o app do Discord (no macOS, quando ele está em /Aplicativos). Nada é enviado a terceiros.</li>
-        </ul>
-      </details>
+        <div class="stack in" style="--gap:8px;--i:3">
+          <div class="group">
+            <div class="row">
+              <span class="icon-tile" data-icon="info"></span>
+              <div class="row-body">
+                <div class="row-title">Enviar logs a cada 5 minutos</div>
+                <div class="row-detail">Console do Discord, conexão e estatísticas de mídia, incluindo IDs de usuário/canal e IPs de conexão. Tokens são removidos. Vão só para o servidor acima.</div>
+              </div>
+              <button class="toggle" role="switch" id="log-upload" aria-checked="true" aria-label="Enviar logs a cada 5 minutos"></button>
+            </div>
+          </div>
+          <div class="notice warn" id="log-upload-warn" hidden><i data-icon="alert"></i><span><b>Sem os logs, fica impossível a gente encontrar eventuais erros</b>, como as quedas de conexão com o Discord.</span></div>
+        </div>
 
-      <div class="notice warn"><i data-icon="alert"></i><span><b>Feche o Discord</b> antes de aplicar e abra de novo depois.</span></div>
+        <details class="notice in" style="--i:4">
+          <summary><i data-icon="info" style="color:var(--accent)"></i>O que a modificação faz</summary>
+          <ul>
+            <li>Injeta o <b>Vencord</b> (client mod) no seu Discord e ativa o plugin FRD GoLive.</li>
+            <li>Grava as <b>configurações do plugin</b> e uma regra de <b>CSP</b> liberando só o domínio do seu servidor.</li>
+            <li>Se o envio de logs estiver ligado, manda os <b>logs do Discord</b> (sem tokens) só para o servidor acima, a cada 5 minutos.</li>
+            <li>O sistema pode <b>pedir sua senha de administrador</b>. É o passo que modifica o app do Discord (no macOS, quando ele está em /Aplicativos). Nada é enviado a terceiros.</li>
+          </ul>
+        </details>
 
-      <div class="stack" style="--gap:10px">
-        <button class="btn btn-prominent btn-lg btn-block" id="apply">Aplicar modificação</button>
-        <div class="progress indeterminate" id="progress" hidden><i></i></div>
-        <p class="caption" id="log" role="status"></p>
-      </div>
-    </section>
+        <div class="notice warn in" style="--i:5"><i data-icon="alert"></i><span><b>Feche o Discord</b> antes de aplicar e abra de novo depois.</span></div>
 
-    <section id="step-done" class="card appear" hidden style="justify-items:center;text-align:center;padding:28px">
-      <span class="done-icon" data-icon="check"></span>
-      <h2 class="large-title">Pronto!</h2>
-      <p class="subhead" id="done-msg"></p>
-      <p class="caption" id="done-caption">Entre no site para pedir acesso. Quando o admin liberar, o Discord liga as funções sozinho.</p>
-      <div class="stack" style="width:100%;--gap:8px">
-        <button class="btn btn-prominent btn-lg btn-block" id="open-hub">Abrir o site</button>
-        <button class="btn btn-block" id="restart">Instalar em outro Discord</button>
-      </div>
-    </section>
-    <p class="caption" style="text-align:center" id="version"></p>
-  </main>
+        <div class="stack" style="--gap:10px">
+          <button class="btn btn-prominent btn-lg btn-block" id="apply">Aplicar modificação</button>
+          <div class="progress indeterminate" id="progress" hidden><i></i></div>
+          <p class="caption" id="log" role="status"></p>
+        </div>
+      </section>
+
+      <section id="step-done" class="stack appear" hidden style="justify-items:center;text-align:center;padding-top:30px;--gap:14px">
+        <span class="done-icon" data-icon="check"></span>
+        <h2 class="large-title">Pronto!</h2>
+        <p class="subhead" id="done-msg"></p>
+        <p class="caption" id="done-caption">Entre no site para pedir acesso. Quando o admin liberar, o Discord liga as funções sozinho.</p>
+        <div class="stack" style="width:100%;--gap:8px">
+          <button class="btn btn-prominent btn-lg btn-block" id="open-hub">Abrir o site</button>
+          <button class="btn btn-block" id="restart">Instalar em outro Discord</button>
+        </div>
+      </section>
+      <p class="caption" style="text-align:center;margin:0" id="version"></p>
+    </main>
+  </div>
 
   <script src="./app.js"></script>
 </body>

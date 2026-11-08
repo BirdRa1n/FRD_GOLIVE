@@ -205,6 +205,23 @@
         }).join(":");
     }
 
+    /** Anima o número de um elemento até `to` (casas decimais com vírgula, pt-BR). */
+    function countTo(el, to, decimals) {
+        if (!el) return;
+        decimals = decimals || 0;
+        var fmt = function (v) { return v.toFixed(decimals).replace(".", ","); };
+        var from = parseFloat(String(el.dataset.value || "0")) || 0;
+        el.dataset.value = String(to);
+        if (reduceMotion || from === to) { el.textContent = fmt(to); return; }
+        var t0 = performance.now();
+        (function step(now) {
+            var k = Math.min(1, (now - t0) / 700);
+            var e = 1 - Math.pow(1 - k, 3);
+            el.textContent = fmt(from + (to - from) * e);
+            if (k < 1) requestAnimationFrame(step);
+        })(t0);
+    }
+
     function initials(name) {
         var parts = String(name || "?").replace(/[._-]+/g, " ").trim().split(/\s+/);
         return ((parts[0] || "?")[0] + (parts[1] ? parts[1][0] : (parts[0][1] || ""))).toUpperCase();
@@ -303,6 +320,9 @@
         discord: '<path d="M19.3 5.3A16.5 16.5 0 0 0 15.2 4l-.5 1a15 15 0 0 0-5.4 0L8.8 4a16.5 16.5 0 0 0-4.1 1.3C2 9.2 1.3 13 1.6 16.7a16.6 16.6 0 0 0 5 2.6l1.1-1.7c-.6-.2-1.2-.5-1.7-.9l.4-.3a11.8 11.8 0 0 0 11.2 0l.4.3c-.5.4-1.1.7-1.7.9l1.1 1.7a16.5 16.5 0 0 0 5-2.6c.4-4.3-.7-8-3.1-11.4ZM8.7 14.5c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6.6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/>',
         link: '<path d="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h3V7H7a5 5 0 0 0 0 10h3v-1.9H7A3.1 3.1 0 0 1 3.9 12Zm4.1 1h8v-2H8v2Zm9-6h-3v1.9h3a3.1 3.1 0 0 1 0 6.2h-3V17h3a5 5 0 0 0 0-10Z"/>',
         refresh: '<path d="M12 6V3L8 7l4 4V8a4 4 0 1 1-4 4H6a6 6 0 1 0 6-6Z"/>',
+        grid: '<path d="M4 6a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm9 0a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-3a2 2 0 0 1-2-2V6Zm-9 9a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3Zm9 0a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-3a2 2 0 0 1-2-2v-3Z"/>',
+        home: '<path d="M12 3 3 10.4V20a1 1 0 0 0 1 1h5v-6h6v6h5a1 1 0 0 0 1-1v-9.6L12 3Z"/>',
+        pulse: '<path d="M8.6 3.2a1 1 0 0 1 1.9.1L14 15.8l2.1-5.2a1 1 0 0 1 .9-.6h4v2h-3.3l-2.8 7a1 1 0 0 1-1.9-.1L9.5 6.6 7.9 11.4a1 1 0 0 1-1 .6H3v-2h3.3l2.3-6.8Z"/>',
         bot: '<path d="M12 2a1 1 0 0 1 1 1v1h3a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h3V3a1 1 0 0 1 1-1ZM9 10a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM9 16h6v1.5H9V16ZM3 10h1.5v4H3v-4Zm16.5 0H21v4h-1.5v-4Z"/>',
     };
 
@@ -369,6 +389,7 @@
         duration: duration,
         initials: initials,
         thumb: thumb,
+        countTo: countTo,
         icon: icon,
         icons: Object.keys(ICONS),
     };

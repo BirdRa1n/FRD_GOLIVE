@@ -9,5 +9,5 @@ const src = join(here, "..", "..", "server", "public", "ui");
 const dest = join(here, "..", "renderer", "ui");
 
 mkdirSync(dest, { recursive: true });
-for (const file of ["ui.css", "ui.js"]) copyFileSync(join(src, file), join(dest, file));
+for (const file of ["ui.css", "ui.js", "ui-canvas.js"]) copyFileSync(join(src, file), join(dest, file));
 console.log(`[sync-ui] design system copiado para ${dest}`);
