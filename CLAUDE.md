@@ -102,8 +102,9 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   (not subject to CSP). The installer writes this from the host.
 - **Enablement gated on `/dstream`**: `identify()` (`server/src/nativeStream.ts`) only
   accepts peers that pass `store.canStream(userId, channelId)` — `login` mode (user
-  enabled in the hub) or `channels` mode (`store.getSettings().authMode`: channel
-  enabled **and** not banned). In `channels` mode the default is **allowed**: turning
+  enabled in the hub), `channels` mode (`store.getSettings().authMode`: channel
+  enabled **and** not banned) or `both` (user enabled **or** channel enabled; a channel
+  ban still wins). `store.needsChannel()` says when the real channel must be resolved. In `channels` mode the default is **allowed**: turning
   the mode on seeds **all** of the bot's (enabled) rooms, and a new room the **bot
   gateway** sees the user in is auto-discovered **enabled** — the admin only turns off
   the exceptions in the dashboard (unless `NATIVE_STREAM_ALLOW_ANY=1`, test only).
@@ -119,7 +120,11 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   `VOICE_STATE_UPDATE` and tells which channel the person is in. `identify()` is async
   (waits up to 1.2s + `resolveLater()` revalidates), DAVE **still** derives the group_id
   from the ephemeral id the client sent, and the dashboard shows the real
-  `label`/`channelId`/`guildId` under `/admin/live`. No token → gateway off → the
+  `label`/`channelId`/`guildId` under `/admin/live`. Every later `VOICE_STATE_UPDATE`
+  (`onVoiceStateChange`) moves the user's live connections to the new channel and
+  re-checks access; names/avatar hashes also come from the gateway (`memberInfo`), so
+  the dashboard refreshes them. `/admin/groups` merges a user's connections (one per
+  stream room: streaming + watching) into one person per channel. No token → gateway off → the
   IDENTIFY id is used. `DISCORD_GATEWAY_URL` points at a fake gateway (local test).
 - **Live dashboard comes from `nativeStream.getLiveState()`** (the old `/signaling` WS
   was removed): `/admin/live` (rooms/who streams), `/admin/groups` (channels grouped by

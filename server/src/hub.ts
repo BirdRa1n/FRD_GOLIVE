@@ -71,7 +71,7 @@ function userActions(name: string): string {
 }
 
 export function homePage(name: string, policy: Policy, isAdmin: boolean, authMode: AuthMode = "login"): string {
-    const hero = authMode === "channels"
+    const hero = authMode === "channels" || (authMode === "both" && !policy.enabled)
         ? `<div class="card-hero appear">
             <span class="caption" style="color:rgba(255,255,255,.82)">Status do acesso</span>
             <span class="title" style="font-size:26px">Acesso pelos canais</span>
@@ -178,7 +178,7 @@ export function adminPage(name: string): string {
             <button class="btn btn-sm" data-act="chan-add"><i data-icon="plus"></i>Adicionar canal</button>
           </div>
         </div>
-        <div class="notice" id="groups-login-hint" hidden><i data-icon="info"></i><span>O acesso está no modo <b>Login</b>: a gestão por grupos não decide quem transmite. Mude para o modo <b>Canais</b> em Configurações para habilitar grupos.</span></div>
+        <div class="notice" id="groups-login-hint" hidden><i data-icon="info"></i><span>O acesso está no modo <b>Login</b>: a gestão por grupos não decide quem transmite. Mude para o modo <b>Canais</b> ou <b>Ambos</b> em Configurações para habilitar grupos.</span></div>
         <div class="stack" style="--gap:14px" id="groups"></div>
       </section>
 
@@ -235,6 +235,7 @@ export function adminPage(name: string): string {
                 <div class="segmented" id="mode" aria-label="Modo de acesso">
                   <button data-value="login" aria-pressed="true">Login</button>
                   <button data-value="channels" aria-pressed="false">Canais</button>
+                  <button data-value="both" aria-pressed="false">Ambos</button>
                 </div>
               </div>
             </div>
@@ -392,7 +393,7 @@ export function adminPage(name: string): string {
           if (!members.length) return "";
           return '<div class="cluster" style="margin-top:8px;gap:6px">' + members.map(function (m) {
             var n = esc(m.name || m.userId);
-            var url = m.userId ? "/admin/img/user/" + encodeURIComponent(m.userId) : "";
+            var url = m.avatar || (m.userId ? "/admin/img/user/" + encodeURIComponent(m.userId) : "");
             return '<span class="cluster" style="gap:5px;font-size:12px;' + (m.streamer ? "color:var(--danger);font-weight:600" : "color:var(--text-3)") + '" title="' + n + '">' +
               ui.thumb(url, m.name || m.userId, false, "sm") + n + (m.streamer ? " · no ar" : "") + "</span>";
           }).join("") + "</div>";
@@ -419,13 +420,15 @@ export function adminPage(name: string): string {
           ui.select($("#mode"), mode);
           $("#mode-detail").textContent = mode === "channels"
             ? "Todas as salas entram habilitadas — desligue as que não quiser. Quem está num canal habilitado pode transmitir (menos os banidos)."
+            : mode === "both"
+            ? "Canais + Login: pode transmitir quem está num canal habilitado OU quem foi liberado na lista de usuários (em qualquer canal). Banido num canal não transmite nele."
             : "Só quem foi liberado na lista de usuários pode transmitir.";
           var chip = $("#bot-chip");
           var ok = live.bot && live.voice;
           chip.className = "chip " + (ok ? "ok" : "warn");
           chip.textContent = !live.bot ? "bot não configurado"
             : live.voice ? "bot + voz conectados" : "bot ok · voz desconectada";
-          $("#groups-login-hint").hidden = mode === "channels";
+          $("#groups-login-hint").hidden = mode !== "login";
         }
 
         function renderBot() {
@@ -643,12 +646,12 @@ export function adminPage(name: string): string {
         // Modo de acesso: login (liberação manual) OU canais (todas as salas ligadas por padrão).
         $("#mode").addEventListener("change", async function (e) {
           var mode = e.detail && e.detail.value;
-          if (mode !== "login" && mode !== "channels") return;
+          if (mode !== "login" && mode !== "channels" && mode !== "both") return;
           try {
             var s = await post("/admin/settings", { authMode: mode });
             var msg;
-            if (mode !== "channels") msg = "Modo login ativo: liberação manual por usuário";
-            else if (!live.bot) msg = "Modo canais ativo — sem bot, adicione os canais pelos IDs";
+            if (mode === "login") msg = "Modo login ativo: liberação manual por usuário";
+            else if (!live.bot) msg = (mode === "both" ? "Modo canais + login" : "Modo canais") + " ativo — sem bot, adicione os canais pelos IDs";
             else if (s.seeded) msg = s.seeded.added ? s.seeded.added + " canal(is) novo(s) habilitado(s) · " + s.seeded.total + " no total" : s.seeded.total + " canais habilitados";
             else msg = "Modo canais ativo (não deu para sincronizar: " + (s.seededError || "erro") + ")";
             ui.toast(msg, "ok");

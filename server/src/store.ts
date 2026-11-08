@@ -188,11 +188,19 @@ class Store {
     }
 
     canStream(userId: string, channelId: string): boolean {
-        if (this.settings.authMode === "channels") {
-            const ch = this.channels.get(channelId);
-            return !!ch?.enabled && !ch.bans.includes(userId);
-        }
-        return !!this.users.get(userId)?.enabled;
+        const mode = this.settings.authMode;
+        const userOk = !!this.users.get(userId)?.enabled;
+        if (mode === "login") return userOk;
+        const ch = this.channels.get(channelId);
+        if (ch?.bans.includes(userId)) return false; // ban in a channel wins in both modes
+        const channelOk = !!ch?.enabled;
+        return mode === "both" ? userOk || channelOk : channelOk;
+    }
+
+    /** Does the access decision for this user depend on knowing the real voice channel? */
+    needsChannel(userId: string): boolean {
+        const mode = this.settings.authMode;
+        return mode === "channels" || (mode === "both" && !this.users.get(userId)?.enabled);
     }
 }
 
