@@ -15,11 +15,11 @@ function normalizeHost(host: string): string {
 
 function createWindow(): void {
     const win = new BrowserWindow({
-        width: 560,
+        width: 940,
         height: 680,
         resizable: false,
         title: "FRD GoLive",
-        backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0a12" : "#f4f3fa",
+        backgroundColor: nativeTheme.shouldUseDarkColors ? "#0b0d13" : "#f2f4f8",
         ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}),
         webPreferences: { preload: join(__dirname, "preload.js") },
     });

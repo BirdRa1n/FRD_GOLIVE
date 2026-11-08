@@ -6,6 +6,7 @@
 <title>FRD GoLive — Design system</title>
 <link rel="stylesheet" href="ui.css" />
 <script src="ui.js"></script>
+<script src="ui-canvas.js"></script>
 <style>
 
   .spec { display: grid; gap: 14px; }
@@ -36,13 +37,13 @@
 
 <main class="container page">
   <section class="stack" style="--gap:8px">
-    <span class="eyebrow">Fase 1 · ui.css + ui.js</span>
+    <span class="eyebrow">Bento · ui.css + ui.js + ui-canvas.js</span>
     <h1 class="large-title">Componentes <span class="gradient-text">FRD GoLive</span></h1>
-    <p class="subhead">Referência viva do hub, do login, do admin e do instalador. Tudo aqui usa só <span class="mono">/ui/ui.css</span> e <span class="mono">/ui/ui.js</span>, sem build. Troque o tema no topo.</p>
+    <p class="subhead">Referência viva do hub, do login, do admin e do instalador. Tudo aqui usa só <span class="mono">/ui/ui.css</span>, <span class="mono">/ui/ui.js</span> e <span class="mono">/ui/ui-canvas.js</span>, sem build. Troque o tema no topo.</p>
     <nav class="toc">
       <a class="chip accent" href="#cores">Cores</a><a class="chip accent" href="#tipografia">Tipografia</a><a class="chip accent" href="#botoes">Botões</a>
       <a class="chip accent" href="#listas">Listas</a><a class="chip accent" href="#cards">Cards</a><a class="chip accent" href="#controles">Controles</a>
-      <a class="chip accent" href="#dados">Dados</a><a class="chip accent" href="#feedback">Feedback</a><a class="chip accent" href="#icones">Ícones</a>
+      <a class="chip accent" href="#bento">Bento e gráficos</a><a class="chip accent" href="#dados">Dados</a><a class="chip accent" href="#feedback">Feedback</a><a class="chip accent" href="#icones">Ícones</a>
     </nav>
   </section>
 
@@ -50,14 +51,15 @@
     <header><h2 class="title">Cores</h2><p class="subhead">Tokens em <span class="mono">:root</span>, redefinidos no escuro. Componentes nunca usam cor literal.</p></header>
     <div class="swatches">
       <div class="swatch"><i style="background:var(--gradient)"></i><div><b>--gradient</b><code>g1 → g2 → g3</code></div></div>
-      <div class="swatch"><i style="background:var(--accent)"></i><div><b>--accent</b><code>#6C5CF5 / #9384FF</code></div></div>
+      <div class="swatch"><i style="background:var(--accent)"></i><div><b>--accent</b><code>#2F62FF / #4D7BFF</code></div></div>
       <div class="swatch"><i style="background:var(--blurple)"></i><div><b>--blurple</b><code>#5865F2</code></div></div>
-      <div class="swatch"><i style="background:var(--bg)"></i><div><b>--bg</b><code>#F4F3FA / #0B0A12</code></div></div>
-      <div class="swatch"><i style="background:var(--surface)"></i><div><b>--surface</b><code>#FFFFFF / #17151F</code></div></div>
+      <div class="swatch"><i style="background:var(--bg)"></i><div><b>--bg</b><code>#F2F4F8 / #0B0D13</code></div></div>
+      <div class="swatch"><i style="background:var(--surface)"></i><div><b>--surface</b><code>#FFFFFF / #141821</code></div></div>
       <div class="swatch"><i style="background:var(--fill-2)"></i><div><b>--fill-2</b><code>preenchimentos</code></div></div>
-      <div class="swatch"><i style="background:var(--ok)"></i><div><b>--ok</b><code>#1F9D55 / #3DD68C</code></div></div>
-      <div class="swatch"><i style="background:var(--warn)"></i><div><b>--warn</b><code>#C27C00 / #F5B43C</code></div></div>
-      <div class="swatch"><i style="background:var(--danger)"></i><div><b>--danger</b><code>#E0444B / #FF6369</code></div></div>
+      <div class="swatch"><i style="background:var(--ok)"></i><div><b>--ok</b><code>#12A06A / #34D399</code></div></div>
+      <div class="swatch"><i style="background:var(--warn)"></i><div><b>--warn</b><code>#C27A06 / #F5B544</code></div></div>
+      <div class="swatch"><i style="background:var(--live)"></i><div><b>--live</b><code>só “no ar” · #EF3B4B / #FF5463</code></div></div>
+      <div class="swatch"><i style="background:var(--danger)"></i><div><b>--danger</b><code>#E03A46 / #FF5C68</code></div></div>
     </div>
   </section>
 
@@ -155,6 +157,18 @@
     </div>
   </section>
 
+  <section class="spec" id="bento">
+    <header><h2 class="title">Bento e gráficos</h2><p class="subhead">Grade de 4 colunas (<span class="mono">.bento</span>) com blocos <span class="mono">.tile</span> de largura <span class="mono">.w2/.w3/.w4</span> e altura <span class="mono">.h2</span>. <span class="mono">.in</span> + <span class="mono">--i</span> faz a entrada em cascata. Os gráficos são <span class="mono">FRDCanvas.mount(canvas, tipo, dados)</span> e leem as cores dos tokens.</p></header>
+    <div class="bento">
+      <div class="tile w2 h2 in" style="--i:0"><p class="tile-title">liveMap <span>salas ao vivo</span></p><canvas class="chart" id="cv-demo-map" style="height:300px"></canvas></div>
+      <div class="tile accent in" style="--i:1"><p class="tile-title">.tile.accent</p><div class="big">3</div><div class="delta">em 3 salas</div></div>
+      <div class="tile in" style="--i:2"><p class="tile-title">gauge <span>ms</span></p><canvas class="chart" id="cv-demo-gauge" style="height:104px"></canvas></div>
+      <div class="tile w2 in" style="--i:3"><p class="tile-title">area <span>Mb/s</span></p><canvas class="chart" id="cv-demo-area" style="height:120px"></canvas></div>
+      <div class="tile w2 in" style="--i:4"><p class="tile-title">heat <span>minutos por hora</span></p><canvas class="chart" id="cv-demo-heat" style="height:110px"></canvas></div>
+      <div class="tile w2 in" style="--i:5"><p class="tile-title">bars <span>logs por hora</span></p><canvas class="chart" id="cv-demo-bars" style="height:110px"></canvas></div>
+    </div>
+  </section>
+
   <section class="spec" id="dados">
     <header><h2 class="title">Dados</h2><p class="subhead">Métricas com sparkline (<span class="mono">FRDUI.sparkline</span>), timeline e tabela.</p></header>
     <div class="grid-auto" style="--min:170px" id="metrics"></div>
@@ -244,6 +258,20 @@
     document.getElementById("metrics").innerHTML = metrics.map(function (m) {
       return '<div class="metric"><span class="metric-label">' + m[0] + '</span><span class="metric-value">' + m[1] + "</span>" + ui.sparkline(m[2]) + "</div>";
     }).join("");
+    var cv = window.FRDCanvas, now = Date.now(), hrs = [];
+    for (var i = 0; i < 24; i++) hrs.push(Math.floor(now / 3600000) * 3600000 - (23 - i) * 3600000);
+    cv.mount(document.getElementById("cv-demo-map"), "liveMap", { rooms: [
+      { label: "Daily", members: [{ streamer: true }, {}, {}] },
+      { label: "Pareamento", members: [{ streamer: true }, {}] },
+      { label: "Pipeline", members: [{ streamer: true }, {}, {}, {}] },
+    ] });
+    cv.mount(document.getElementById("cv-demo-gauge"), "gauge", { value: 24, max: 200, good: 80 });
+    cv.mount(document.getElementById("cv-demo-area"), "area", { values: hrs.map(function (_, i) { return 9000 + Math.sin(i / 3) * 2500 + i * 120; }) });
+    cv.mount(document.getElementById("cv-demo-heat"), "heat", { hours: hrs, rows: [
+      { label: "Daily · Engenharia", values: hrs.map(function (_, i) { return i > 8 && i < 19 ? 20 + (i * 7) % 40 : 0; }) },
+      { label: "Pipeline · Comercial", values: hrs.map(function (_, i) { return i > 9 && i < 18 ? 45 : 0; }) },
+    ] });
+    cv.mount(document.getElementById("cv-demo-bars"), "bars", { hours: hrs.map(function (t, i) { return { t: t, info: i > 8 && i < 20 ? 60 + i * 3 : 4, warn: i % 5 ? 1 : 8, error: i === 14 ? 5 : 0 }; }) });
     document.getElementById("icons").innerHTML = ui.icons.map(function (n) {
       return "<div>" + ui.icon(n) + n + "</div>";
     }).join("");

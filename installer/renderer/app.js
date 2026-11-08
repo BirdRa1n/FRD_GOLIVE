@@ -9,6 +9,16 @@ const applyBtn = $("apply");
 
 if (/Mac/i.test(navigator.platform)) document.body.classList.add("mac");
 
+// Conexão animada (seu computador ↔ servidor) e barra de passos: Servidor → Aplicar → Pronto.
+const linkCanvas = $("link");
+window.FRDCanvas.mount(linkCanvas, "link", { state: "idle" });
+function setLink(state) { window.FRDCanvas.set(linkCanvas, { state }); }
+const STEP_LABELS = ["Passo 1 de 3 · Servidor", "Passo 2 de 3 · Aplicar", "Passo 3 de 3 · Pronto"];
+function setStep(n) {
+    ["s1", "s2", "s3"].forEach((id, i) => $(id).classList.toggle("on", i < n));
+    $("step-label").textContent = STEP_LABELS[n - 1];
+}
+
 function currentHost() {
     let h = hostInput.value.trim().replace(/\/+$/, "");
     if (h && !/^https?:\/\//i.test(h)) h = "https://" + h;
@@ -31,6 +41,8 @@ function setCheck(state, title, detail) {
     $("check-title").textContent = title;
     $("check-detail").textContent = detail || "";
     $("check-acc").innerHTML = state === "loading" ? '<span class="spinner"></span>' : "";
+    setLink(state === "loading" ? "checking" : state);
+    setStep(state === "ok" ? 2 : 1);
 }
 
 function renderMode(p) {
@@ -163,6 +175,7 @@ applyBtn.addEventListener("click", async () => {
     applyBtn.setAttribute("aria-busy", "true");
     applyBtn.textContent = "Aplicando…";
     $("progress").hidden = false;
+    setLink("applying");
     say("Buscando a config no servidor e aplicando a modificação…");
     try {
         const r = await api.apply(host, logUploadOn());
@@ -174,8 +187,11 @@ applyBtn.addEventListener("click", async () => {
         $("open-hub").textContent = channels ? "Abrir o site" : "Abrir o site e pedir acesso";
         $("step-config").hidden = true;
         $("step-done").hidden = false;
+        setLink("done");
+        setStep(3);
         ui.toast("Modificação aplicada", "ok");
     } catch (e) {
+        setLink("err");
         say("Falha: " + (e && e.message ? e.message : e), "err");
     } finally {
         applyBtn.disabled = false;
@@ -190,4 +206,5 @@ $("restart").addEventListener("click", () => {
     $("step-done").hidden = true;
     $("step-config").hidden = false;
     say("");
+    checkServer();
 });

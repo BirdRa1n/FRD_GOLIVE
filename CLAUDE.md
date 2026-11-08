@@ -130,7 +130,11 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   was removed): `/admin/live` (rooms/who streams), `/admin/groups` (channels grouped by
   guild), `/admin/channels` (enabled/banned) and `/admin/settings` (mode). `channels`
   mode uses `DISCORD_BOT_TOKEN` to list guilds/channels and resolve names — see
-  [docs/DISCORD-OAUTH.md](docs/DISCORD-OAUTH.md) §7.
+  [docs/DISCORD-OAUTH.md](docs/DISCORD-OAUTH.md) §7. The charts read `/admin/stats`
+  (`server/src/stats.ts`, **in memory**): received kbps per member (the 5 s UDP stats
+  window), the **control WS** RTT (server `ws.ping()`/pong, not the UDP media path),
+  log lines per hour (re-seeded from today's/yesterday's files on boot) and minutes live
+  per channel per hour (lost on restart).
 - **Guild icons and user avatars** on the dashboard/installer come from the Discord CDN
   through `server/src/imageCache.ts` (fetched once, cached on disk, served by the hub at
   `/admin/img/{guild,user}/:id` and the public `/img/guild/:id`) — the browser never
@@ -185,12 +189,17 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
 
 ## Design system (hub/login/admin/installer UI)
 
-- Single source in `server/public/ui/` (`ui.css` + `ui.js`), **no build**. The hub serves
+- Single source in `server/public/ui/` (`ui.css` + `ui.js` + `ui-canvas.js`), **no build**. The hub serves
   it at `/ui/*` (with `?v=VERSION` on the links); live catalog of every component at `/ui/`.
 - The installer **copies** these files to `installer/renderer/ui/` on `npm run build`
   (`scripts/sync-ui.mjs`; destination gitignored). Do not edit the copy.
-- SwiftUI-like language: `.large-title`, `.group`/`.row` lists, `.card-hero` in a gradient,
-  `.segmented`, `.toggle[role=switch]`, `<dialog class="sheet">`, `FRDUI.toast/confirm`.
+- **Bento** language (light first, electric blue `--accent`, `--live` red only for "on air",
+  medium corners: button 11 · field 12 · block 20 · dialog 24): `.app-shell` + `.rail`
+  (admin), `.bento` grid of `.tile` (`.w2/.w3/.w4/.h2`, `.tile.accent`, `.big`), `.in` + `--i`
+  for the staggered entrance, plus `.large-title`, `.group`/`.row`, `.segmented`,
+  `.toggle[role=switch]`, `.choice-card[role=radio]`, `<dialog class="sheet">`, `FRDUI.toast/confirm`,
+  `FRDUI.countTo`. Charts: `FRDCanvas.mount(canvas, "liveMap"|"gauge"|"area"|"heat"|"bars"|"link", data)`
+  (one rAF loop, colors from the canvas' tokens, still frame with reduced motion).
   Avatars/icons: `FRDUI.thumb(url, name, square, cls)` (image with initials fallback).
   Icons: `<i data-icon="name">` (hydrated by ui.js) or `FRDUI.icon("name")`.
 - Theme: follows the system; `data-theme` on `<html>` forces light/dark (stored in

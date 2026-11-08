@@ -22,6 +22,7 @@ const shell = (title: string, body: string, opts: ShellOptions = {}) => `<!docty
 <title>${escapeHtml(title)}</title>
 <link rel="stylesheet" href="/ui/ui.css?v=${ASSET_V}"/>
 <script src="/ui/ui.js?v=${ASSET_V}"></script>
+<script src="/ui/ui-canvas.js?v=${ASSET_V}"></script>
 </head><body>
 ${opts.mesh ? `<div class="mesh" aria-hidden="true"></div>` : ""}
 ${opts.topbar === false ? "" : `<header class="topbar"><div class="container">
@@ -143,138 +144,175 @@ export function homePage(name: string, policy: Policy, isAdmin: boolean, authMod
 
 export function adminPage(name: string): string {
     return shell("FRD GoLive — Admin", `
-    <main class="container page">
-      <div class="spread">
-        <div class="stack" style="--gap:2px"><span class="eyebrow">Painel admin</span><h1 class="large-title">Dashboard</h1></div>
-        <span class="chip" id="updated"><span class="spinner" style="width:12px;height:12px"></span>carregando</span>
-      </div>
+    <div class="app-shell">
+      <nav class="rail" aria-label="Seções do painel">
+        <a class="logo" href="/" data-icon="logo" aria-label="Início"></a>
+        <button class="rail-btn" data-tab="overview" aria-current="page"><i data-icon="pulse"></i>Ao vivo<span class="badge" id="live-badge" hidden></span></button>
+        <button class="rail-btn" data-tab="groups"><i data-icon="grid"></i>Grupos</button>
+        <button class="rail-btn" data-tab="users"><i data-icon="users"></i>Pessoas<span class="badge" id="pending-badge" hidden></span></button>
+        <button class="rail-btn" data-tab="logs"><i data-icon="doc"></i>Logs</button>
+        <button class="rail-btn" data-tab="settings"><i data-icon="settings"></i>Ajustes</button>
+        <span class="rail-spacer"></span>
+        <a class="rail-btn rail-extra" href="/"><i data-icon="home"></i>Início</a>
+        <a class="rail-btn rail-extra" href="/logout"><i data-icon="logout"></i>Sair</a>
+      </nav>
 
-      <div class="segmented segmented-block" id="tabs" aria-label="Seções do painel">
-        <button data-value="overview" aria-pressed="true">Visão geral</button>
-        <button data-value="groups" aria-pressed="false">Grupos</button>
-        <button data-value="users" aria-pressed="false">Usuários</button>
-        <button data-value="logs" aria-pressed="false">Logs</button>
-        <button data-value="settings" aria-pressed="false">Configurações</button>
-      </div>
-
-      <section id="tab-overview" class="stack" style="--gap:18px">
-        <div class="grid-auto" style="--min:170px" id="metrics"></div>
-        <div>
-          <p class="section-title">Transmissões ativas</p>
-          <div class="group" id="tx"></div>
-        </div>
-        <div>
-          <p class="section-title">Salas ao vivo</p>
-          <div class="group" id="rooms"></div>
-        </div>
-        <p class="caption" id="sys" style="text-align:center"></p>
-      </section>
-
-      <section id="tab-groups" class="stack" style="--gap:14px" hidden>
-        <div class="spread" style="margin-left:2px">
-          <div class="cluster"><span class="chip" id="bot-chip">verificando bot</span></div>
+      <main class="app-main">
+        <div class="app-bar">
+          <div>
+            <h1 class="large-title" id="page-title">Ao vivo</h1>
+            <div class="subtitle" id="page-sub">Quem está transmitindo agora e como está o servidor</div>
+          </div>
           <div class="cluster">
-            <button class="btn btn-sm btn-plain" data-act="chan-sync"><i data-icon="refresh"></i>Sincronizar</button>
-            <button class="btn btn-sm" data-act="chan-add"><i data-icon="plus"></i>Adicionar canal</button>
+            <span class="chip" id="updated"><span class="spinner" style="width:12px;height:12px"></span>carregando</span>
+            ${themeSwitch}
+            <span class="avatar" title="${escapeHtml(name)}">${escapeHtml(initials(name))}</span>
           </div>
         </div>
-        <div class="notice" id="groups-login-hint" hidden><i data-icon="info"></i><span>O acesso está no modo <b>Login</b>: a gestão por grupos não decide quem transmite. Mude para o modo <b>Canais</b> ou <b>Ambos</b> em Configurações para habilitar grupos.</span></div>
-        <div class="stack" style="--gap:14px" id="groups"></div>
-      </section>
 
-      <section id="tab-users" class="stack" style="--gap:18px" hidden>
-        <div>
-          <p class="section-title">Pedidos pendentes</p>
-          <div class="group" id="pending"></div>
-        </div>
-        <div class="stack" style="--gap:6px">
-          <div class="spread" style="margin-left:14px">
-            <p class="section-title" style="margin:0">Usuários liberados</p>
-            <input class="field" id="q" type="search" placeholder="Buscar por nome ou ID" aria-label="Buscar usuários" style="max-width:260px;min-height:34px;padding-block:6px"/>
+        <section id="tab-overview" class="bento">
+          <div class="tile w2 h2 in" style="--i:0">
+            <p class="tile-title">Mapa ao vivo <span>a mídia passa pelo hub</span></p>
+            <canvas class="chart" id="cv-map" style="height:340px" role="img" aria-label="Mapa das salas ao vivo: hub no centro, salas ao redor, pessoas em volta de cada sala"></canvas>
           </div>
-          <div class="group" id="users"></div>
-        </div>
-      </section>
-
-      <section id="tab-logs" class="stack" style="--gap:14px" hidden>
-        <div class="cluster">
-          <button class="btn" id="logs-pause">Pausar armazenamento</button>
-          <button class="btn btn-destructive" id="logs-delete-all">Apagar todos os logs</button>
-        </div>
-        <div class="notice warn" id="logs-paused" hidden><i data-icon="alert"></i><span><b>Armazenamento pausado.</b> Os logs enviados pelos clientes são descartados e não voltam ao retomar.</span></div>
-        <div class="stack" style="--gap:6px">
-          <p class="section-title" style="margin-left:14px">Logs enviados pelos clientes</p>
-          <div class="group" id="logs-users"></div>
-        </div>
-        <div class="stack" id="logs-viewer" style="--gap:10px" hidden>
-          <div class="cluster">
-            <select class="field" id="logs-day" aria-label="Dia" style="max-width:220px"></select>
-            <select class="field" id="logs-level" aria-label="Nível" style="max-width:220px">
-              <option value="">Todos os níveis</option>
-              <option value="warn,error">Só avisos e erros</option>
-            </select>
-            <a class="btn" id="logs-download" download>Baixar</a>
-            <button class="btn btn-destructive" id="logs-delete">Apagar logs deste usuário</button>
+          <div class="tile accent in" style="--i:1">
+            <p class="tile-title">No ar agora</p>
+            <div class="big" id="m-live">0</div>
+            <div class="delta" id="m-live-sub">—</div>
           </div>
-          <p class="caption" id="logs-count"></p>
-          <pre class="mono caption" id="logs-text" style="margin:0;max-height:480px;overflow:auto;white-space:pre-wrap;word-break:break-word"></pre>
-        </div>
-      </section>
+          <div class="tile in" style="--i:2">
+            <p class="tile-title">Assistindo</p>
+            <div class="big" id="m-viewers">0</div>
+            <div class="delta" id="m-viewers-sub">—</div>
+          </div>
+          <div class="tile in" style="--i:3">
+            <p class="tile-title">Latência <span>conexão de controle</span></p>
+            <canvas class="chart" id="cv-gauge" style="height:104px" role="img" aria-label="Latência mediana da conexão de controle"></canvas>
+          </div>
+          <div class="tile in" style="--i:4">
+            <p class="tile-title">Banda recebida</p>
+            <div class="big"><span id="m-kbps">0</span><small>Mb/s</small></div>
+            <div class="delta" id="m-kbps-sub">—</div>
+          </div>
+          <div class="tile w2 in" style="--i:5">
+            <p class="tile-title">Bitrate das transmissões <span>última hora</span></p>
+            <canvas class="chart" id="cv-area" style="height:170px" role="img" aria-label="Bitrate total recebido na última hora"></canvas>
+          </div>
+          <div class="tile w2 in" style="--i:6">
+            <p class="tile-title">Transmissões <span id="tx-count"></span></p>
+            <div class="group" id="tx"></div>
+          </div>
+          <div class="tile w2 in" style="--i:7">
+            <p class="tile-title">Salas ao vivo</p>
+            <div class="group" id="rooms"></div>
+          </div>
+          <div class="tile w2 in" style="--i:8">
+            <p class="tile-title">Servidor</p>
+            <div class="group">
+              <div class="row"><span class="icon-tile neutral" data-icon="server"></span><div class="row-body"><div class="row-title">Processo</div><div class="row-detail" id="sys">—</div></div></div>
+              <div class="row"><span class="icon-tile neutral" data-icon="users"></span><div class="row-body"><div class="row-title">Conexões</div><div class="row-detail" id="sys-peers">—</div></div></div>
+            </div>
+          </div>
+        </section>
 
-      <section id="tab-settings" class="stack" style="--gap:18px" hidden>
-        <div class="stack" style="--gap:6px">
-          <p class="section-title" style="margin-left:14px">Autenticação</p>
-          <div class="group">
-            <div class="row">
-              <span class="icon-tile" data-icon="shield"></span>
-              <div class="row-body">
-                <div class="row-title">Quem pode transmitir</div>
-                <div class="row-detail" id="mode-detail">…</div>
+        <section id="tab-groups" class="stack" style="--gap:14px" hidden>
+          <div class="spread">
+            <div class="cluster"><span class="chip" id="bot-chip">verificando bot</span></div>
+            <div class="cluster">
+              <button class="btn btn-sm btn-plain" data-act="chan-sync"><i data-icon="refresh"></i>Sincronizar</button>
+              <button class="btn btn-sm btn-prominent" data-act="chan-add"><i data-icon="plus"></i>Adicionar canal</button>
+            </div>
+          </div>
+          <div class="notice" id="groups-login-hint" hidden><i data-icon="info"></i><span>O acesso está no modo <b>Login</b>: a gestão por grupos não decide quem transmite. Mude para o modo <b>Canais</b> ou <b>Ambos</b> em Ajustes para habilitar grupos.</span></div>
+          <div class="tile flat in">
+            <p class="tile-title">Atividade por canal <span>minutos com alguém no ar, últimas 24 h</span></p>
+            <canvas class="chart" id="cv-heat" style="height:96px" role="img" aria-label="Minutos com alguém transmitindo por canal e por hora"></canvas>
+          </div>
+          <div class="bento" id="groups"></div>
+        </section>
+
+        <section id="tab-users" class="bento" hidden>
+          <div class="tile w4 in" style="--i:0">
+            <p class="tile-title">Pedidos pendentes <span id="pending-count"></span></p>
+            <div class="group" id="pending"></div>
+          </div>
+          <div class="tile w4 in" style="--i:1">
+            <div class="spread" style="margin-bottom:10px">
+              <p class="tile-title" style="margin:0">Liberados pelo login</p>
+              <input class="field" id="q" type="search" placeholder="Buscar por nome ou ID" aria-label="Buscar usuários" style="max-width:260px;min-height:34px;padding-block:6px"/>
+            </div>
+            <div class="group" id="users"></div>
+          </div>
+        </section>
+
+        <section id="tab-logs" class="stack" style="--gap:14px" hidden>
+          <div class="notice warn" id="logs-paused" hidden><i data-icon="alert"></i><span><b>Armazenamento pausado.</b> Os logs enviados pelos clientes são descartados e não voltam ao retomar.</span></div>
+          <div class="tile flat in">
+            <p class="tile-title">Volume nas últimas 24 h <span>info · aviso · erro</span></p>
+            <canvas class="chart" id="cv-bars" style="height:130px" role="img" aria-label="Linhas de log recebidas por hora, por nível"></canvas>
+          </div>
+          <div class="bento">
+            <div class="tile in" style="--i:1">
+              <p class="tile-title">Pessoas</p>
+              <div class="group" id="logs-users"></div>
+              <div class="stack" style="--gap:6px;margin-top:26px">
+                <button class="btn btn-sm" id="logs-pause">Pausar armazenamento</button>
+                <button class="btn btn-sm btn-destructive" id="logs-delete-all">Apagar todos os logs</button>
               </div>
-              <div class="row-accessory">
-                <div class="segmented" id="mode" aria-label="Modo de acesso">
-                  <button data-value="login" aria-pressed="true">Login</button>
-                  <button data-value="channels" aria-pressed="false">Canais</button>
-                  <button data-value="both" aria-pressed="false">Ambos</button>
+            </div>
+            <div class="tile w3 in" style="--i:2">
+              <div class="empty" id="logs-empty"><i data-icon="doc"></i><b>Escolha uma pessoa</b><span>Os logs do dia aparecem aqui.</span></div>
+              <div class="stack" id="logs-viewer" style="--gap:10px" hidden>
+                <div class="spread">
+                  <p class="tile-title" style="margin:0" id="logs-who">—</p>
+                  <div class="cluster">
+                    <select class="field" id="logs-day" aria-label="Dia" style="width:auto;min-height:34px;padding-block:5px"></select>
+                    <select class="field" id="logs-level" aria-label="Nível" style="width:auto;min-height:34px;padding-block:5px">
+                      <option value="">Todos os níveis</option>
+                      <option value="warn,error">Só avisos e erros</option>
+                    </select>
+                    <a class="btn btn-sm" id="logs-download" download>Baixar</a>
+                    <button class="btn btn-sm btn-destructive" id="logs-delete">Apagar</button>
+                  </div>
                 </div>
+                <p class="caption" id="logs-count" style="margin:0"></p>
+                <pre class="term" id="logs-text"></pre>
               </div>
             </div>
-            <div class="row">
-              <span class="icon-tile neutral" data-icon="discord"></span>
-              <div class="row-body"><div class="row-title">Login com Discord</div><div class="row-detail" id="oauth-detail">…</div></div>
-              <div class="row-accessory"><span class="chip" id="oauth-chip">—</span></div>
-            </div>
           </div>
-        </div>
+        </section>
 
-        <div class="stack" style="--gap:6px">
-          <p class="section-title" style="margin-left:14px">Bot do Discord</p>
-          <div class="group">
-            <div class="row">
-              <span class="icon-tile gradient" data-icon="bot"></span>
-              <div class="row-body"><div class="row-title">Status do bot</div><div class="row-detail" id="bot-detail">…</div></div>
-              <div class="row-accessory"><span class="chip" id="bot-status">—</span></div>
+        <section id="tab-settings" class="bento" hidden>
+          <div class="tile w4 in" style="--i:0">
+            <p class="tile-title">Quem pode transmitir</p>
+            <div class="choice" role="radiogroup" id="mode" aria-label="Modo de acesso">
+              <button class="choice-card" role="radio" data-value="login" aria-checked="true"><b>Login</b><span>Só quem foi liberado na lista de pessoas.</span></button>
+              <button class="choice-card" role="radio" data-value="channels" aria-checked="false"><b>Canais</b><span>Quem está num canal habilitado e não banido.</span></button>
+              <button class="choice-card" role="radio" data-value="both" aria-checked="false"><b>Ambos</b><span>Liberado na lista ou num canal habilitado. Banimento vence.</span></button>
             </div>
-            <a class="row" id="bot-invite-row" href="#" target="_blank" rel="noopener" hidden>
-              <span class="icon-tile" data-icon="link"></span>
-              <div class="row-body"><div class="row-title">Convidar / gerenciar o bot</div><div class="row-detail">Adiciona o bot a um servidor do Discord com as permissões de voz.</div></div>
-              <span class="row-accessory chevron"></span>
-            </a>
+            <p class="caption" id="mode-detail" style="margin:12px 0 0">…</p>
           </div>
-        </div>
-
-        <div class="stack" style="--gap:6px">
-          <p class="section-title" style="margin-left:14px">Administração</p>
-          <div class="group">
-            <div class="row">
-              <span class="icon-tile neutral" data-icon="users"></span>
-              <div class="row-body"><div class="row-title">Admins do painel</div><div class="row-detail" id="admin-detail">definidos em ADMIN_DISCORD_IDS</div></div>
-              <div class="row-accessory"><span class="chip" id="admin-chip">—</span></div>
+          <div class="tile w2 in" style="--i:1">
+            <p class="tile-title">Bot do Discord <span class="chip" id="bot-status">—</span></p>
+            <div class="group">
+              <div class="row"><span class="icon-tile gradient" data-icon="bot"></span><div class="row-body"><div class="row-title">Status</div><div class="row-detail" id="bot-detail">…</div></div></div>
+              <a class="row" id="bot-invite-row" href="#" target="_blank" rel="noopener" hidden>
+                <span class="icon-tile" data-icon="link"></span>
+                <div class="row-body"><div class="row-title">Convidar / gerenciar o bot</div><div class="row-detail">Adiciona o bot a um servidor do Discord com as permissões de voz.</div></div>
+                <span class="row-accessory chevron"></span>
+              </a>
             </div>
           </div>
-        </div>
-      </section>
-    </main>
+          <div class="tile w2 in" style="--i:2">
+            <p class="tile-title">Painel</p>
+            <div class="group">
+              <div class="row"><span class="icon-tile neutral" data-icon="discord"></span><div class="row-body"><div class="row-title">Login com Discord</div><div class="row-detail" id="oauth-detail">…</div></div><div class="row-accessory"><span class="chip" id="oauth-chip">—</span></div></div>
+              <div class="row"><span class="icon-tile neutral" data-icon="users"></span><div class="row-body"><div class="row-title">Admins do painel</div><div class="row-detail" id="admin-detail">definidos em ADMIN_DISCORD_IDS</div></div><div class="row-accessory"><span class="chip" id="admin-chip">—</span></div></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
 
     <dialog class="sheet" id="quota" aria-labelledby="quota-title">
       <div class="sheet-header"><h2 class="title" id="quota-title">Liberar</h2><button class="btn btn-icon btn-plain" data-sheet-close aria-label="Fechar"><i data-icon="x"></i></button></div>
@@ -297,7 +335,7 @@ export function adminPage(name: string): string {
     <dialog class="sheet" id="addchan" aria-labelledby="addchan-title">
       <div class="sheet-header"><h2 class="title" id="addchan-title">Adicionar canal</h2><button class="btn btn-icon btn-plain" data-sheet-close aria-label="Fechar"><i data-icon="x"></i></button></div>
       <div class="sheet-body">
-        <div class="notice" id="ac-hint"><i data-icon="info"></i><span>Escolha um servidor onde o bot está e um canal de voz. Ele entra <b>habilitado</b>: todo mundo nele pode transmitir (menos os banidos) — desligue o toggle da linha se não quiser.</span></div>
+        <div class="notice" id="ac-hint"><i data-icon="info"></i><span>Escolha um servidor onde o bot está e um canal de voz. Ele entra <b>habilitado</b>: todo mundo nele pode transmitir (menos os banidos). Desligue o toggle da linha se não quiser.</span></div>
         <div id="ac-bot">
           <div class="label">Servidor
             <select class="field" id="ac-guild"><option value="">Carregando…</option></select>
@@ -307,7 +345,7 @@ export function adminPage(name: string): string {
           </div>
         </div>
         <div id="ac-manual" hidden>
-          <div class="notice warn"><i data-icon="alert"></i><span>O bot não está configurado (<span class="mono">DISCORD_BOT_TOKEN</span>). Adicione pelo ID — os nomes são preenchidos quando o bot entrar.</span></div>
+          <div class="notice warn"><i data-icon="alert"></i><span>O bot não está configurado (<span class="mono">DISCORD_BOT_TOKEN</span>). Adicione pelo ID. Os nomes são preenchidos quando o bot entrar.</span></div>
           <div class="label">ID do servidor (guild)
             <input class="field mono" id="ac-gid" placeholder="123456789012345678"/>
           </div>
@@ -333,10 +371,9 @@ export function adminPage(name: string): string {
 
     <script>
       (function () {
-        var ui = window.FRDUI, esc = ui.escapeHtml;
+        var ui = window.FRDUI, cv = window.FRDCanvas, esc = ui.escapeHtml;
         var $ = function (s) { return document.querySelector(s); };
-        var history = { tx: [], peers: [], rooms: [] };
-        var users = [], transmissions = [], groups = [], bot = {};
+        var users = [], transmissions = [], groups = [], bot = {}, stats = null;
         var live = { rooms: [], settings: { authMode: "login" }, bot: false };
         var editing = null, membersChannel = null;
 
@@ -344,7 +381,6 @@ export function adminPage(name: string): string {
         function post(u, body) {
           return j(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
         }
-        function push(arr, v) { arr.push(v); if (arr.length > 30) arr.shift(); }
         function selected(seg) { var b = seg.querySelector('button[aria-pressed="true"]'); return b ? Number(b.dataset.value) : 0; }
         function nearest(seg, v) {
           var opts = Array.prototype.map.call(seg.querySelectorAll("button"), function (b) { return Number(b.dataset.value); });
@@ -363,30 +399,37 @@ export function adminPage(name: string): string {
         function empty(icon, title, sub) {
           return '<div class="empty"><i data-icon="' + icon + '"></i><b>' + title + "</b>" + (sub ? "<span>" + sub + "</span>" : "") + "</div>";
         }
+        function mbps(kbps) { return (kbps || 0) / 1000; }
+        function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
 
-        function metric(label, value, series) {
-          return '<div class="metric"><span class="metric-label">' + label + '</span><span class="metric-value">' + value + "</span>" + ui.sparkline(series) + "</div>";
-        }
-
-        function renderTx() {
-          $("#tx").innerHTML = transmissions.length ? transmissions.map(function (t) {
-            var since = t.since ? ui.duration((Date.now() - t.since) / 1000) : "—";
-            return '<div class="row">' + avatar(t.name, t.userId) +
-              '<div class="row-body"><div class="row-title">' + esc(t.name) + ' <span class="chip live">AO VIVO</span></div>' +
-              '<div class="row-detail"><i data-icon="' + (t.kind === "camera" ? "camera" : "monitor") + '"></i> ' + (t.kind === "camera" ? "Câmera" : "Tela") + ' · sala <span class="mono">' + esc(t.room) + "</span></div></div>" +
-              '<span class="row-accessory mono num">' + since + "</span></div>";
-          }).join("") : empty("live", "Nenhuma transmissão agora", "Quando alguém começar, aparece aqui.");
-        }
+        // --- Canvas ---
+        cv.mount($("#cv-map"), "liveMap", { rooms: [] });
+        cv.mount($("#cv-gauge"), "gauge", { value: null, max: 200, good: 80 });
+        cv.mount($("#cv-area"), "area", { values: [] });
+        cv.mount($("#cv-heat"), "heat", { rows: [] });
+        cv.mount($("#cv-bars"), "bars", { hours: [] });
 
         /** Transmissores de todas as salas — fonte: /admin/live (estado real do /dstream). */
         function flatStreamers() {
           var out = [];
           live.rooms.forEach(function (r) {
+            var viewers = r.members.filter(function (m) { return !m.streamer; }).length;
             r.members.forEach(function (m) {
-              if (m.streamer) out.push({ userId: m.userId, name: m.name || m.userId, room: m.channelName || r.label || r.guildName || r.roomId, since: m.since || 0 });
+              if (m.streamer) out.push({ userId: m.userId, name: m.name || m.userId, avatar: m.avatar, room: m.channelName || r.label || r.guildName || r.roomId, guild: r.guildName || "", since: m.since || 0, kbps: m.kbps || 0, viewers: viewers });
             });
           });
           return out;
+        }
+
+        function renderTx() {
+          $("#tx-count").textContent = transmissions.length ? plural(transmissions.length, "ativa", "ativas") : "";
+          $("#tx").innerHTML = transmissions.length ? transmissions.map(function (t) {
+            var since = t.since ? ui.duration((Date.now() - t.since) / 1000) : "—";
+            return '<div class="row">' + ui.thumb(t.avatar || "/admin/img/user/" + encodeURIComponent(t.userId), t.name) +
+              '<div class="row-body"><div class="row-title">' + esc(t.name) + '</div>' +
+              '<div class="row-detail">' + esc(t.room) + (t.guild ? " · " + esc(t.guild) : "") + " · " + plural(t.viewers, "assistindo", "assistindo") + " · " + mbps(t.kbps).toFixed(1).replace(".", ",") + " Mb/s</div></div>" +
+              '<span class="row-accessory"><span class="chip live mono num">' + since + "</span></span></div>";
+          }).join("") : empty("live", "Ninguém transmitindo agora", "Quando alguém começar, aparece aqui.");
         }
 
         function peopleStrip(members) {
@@ -394,7 +437,7 @@ export function adminPage(name: string): string {
           return '<div class="cluster" style="margin-top:8px;gap:6px">' + members.map(function (m) {
             var n = esc(m.name || m.userId);
             var url = m.avatar || (m.userId ? "/admin/img/user/" + encodeURIComponent(m.userId) : "");
-            return '<span class="cluster" style="gap:5px;font-size:12px;' + (m.streamer ? "color:var(--danger);font-weight:600" : "color:var(--text-3)") + '" title="' + n + '">' +
+            return '<span class="cluster" style="gap:5px;font-size:12px;' + (m.streamer ? "color:var(--live);font-weight:600" : "color:var(--text-3)") + '" title="' + n + '">' +
               ui.thumb(url, m.name || m.userId, false, "sm") + n + (m.streamer ? " · no ar" : "") + "</span>";
           }).join("") + "</div>";
         }
@@ -402,12 +445,10 @@ export function adminPage(name: string): string {
         function renderRooms() {
           $("#rooms").innerHTML = live.rooms.length ? live.rooms.map(function (r) {
             var title = r.label || r.guildName || r.roomId;
-            var detail = r.label
-              ? 'canal <span class="mono">' + esc(r.channelId || "") + "</span> · " + esc(r.guildName || r.guildId || "")
-              : 'sala <span class="mono">' + esc(r.roomId) + "</span>";
+            var detail = r.label ? esc(r.guildName || r.guildId || "") : 'sala <span class="mono">' + esc(r.roomId) + "</span>";
             return '<div class="row">' + guildThumb(r) +
               '<div class="row-body"><div class="row-title">' + esc(title) +
-              ' <span class="chip' + (r.streamers ? " danger" : "") + '">' + r.streamers + " transmitindo</span>" +
+              (r.streamers ? ' <span class="chip live">' + r.streamers + " no ar</span>" : "") +
               ' <span class="chip">' + r.viewers + " assistindo</span></div>" +
               '<div class="row-detail">' + detail + "</div>" +
               peopleStrip(r.members) +
@@ -415,14 +456,53 @@ export function adminPage(name: string): string {
           }).join("") : empty("live", "Nenhuma sala agora", "Quando alguém entrar numa call, aparece aqui.");
         }
 
+        function renderOverview(m) {
+          var viewers = live.rooms.reduce(function (n, r) { return n + r.viewers; }, 0);
+          var liveRooms = live.rooms.filter(function (r) { return r.streamers; }).length;
+          ui.countTo($("#m-live"), transmissions.length);
+          $("#m-live-sub").textContent = transmissions.length ? "em " + plural(liveRooms, "sala", "salas") : "ninguém transmitindo";
+          ui.countTo($("#m-viewers"), viewers);
+          $("#m-viewers-sub").textContent = plural(m.peers, "conexão", "conexões") + " em " + plural(m.rooms, "sala", "salas");
+          var badge = $("#live-badge"); badge.hidden = !transmissions.length; badge.textContent = transmissions.length;
+
+          var media = stats && stats.media;
+          var kbps = media ? media.kbps : 0;
+          ui.countTo($("#m-kbps"), mbps(kbps), 1);
+          var peak = media && media.samples.length ? Math.max.apply(null, media.samples.map(function (s) { return s.kbps; })) : 0;
+          $("#m-kbps-sub").textContent = peak ? "pico de " + mbps(peak).toFixed(1).replace(".", ",") + " Mb/s na última hora" : "sem transmissão na última hora";
+
+          cv.set($("#cv-map"), {
+            rooms: live.rooms.map(function (r) {
+              return { label: r.label || r.guildName || r.roomId, members: r.members.map(function (x) { return { name: x.name || x.userId, streamer: x.streamer }; }) };
+            }),
+          });
+          cv.set($("#cv-gauge"), { value: media && typeof media.rttMs === "number" ? media.rttMs : null, max: 200, good: 80 });
+          cv.set($("#cv-area"), { values: media ? media.samples.map(function (s) { return s.kbps; }) : [], empty: "Coletando dados (uma amostra a cada 5 s)…" });
+
+          $("#sys").textContent = "CPU " + m.cpuLoad[0].toFixed(2) + " / " + m.cpus + " · memória " + (m.memory.usedPct * 100).toFixed(0) + "% · no ar há " + ui.duration(m.uptime);
+          $("#sys-peers").textContent = plural(m.peers, "conexão de mídia", "conexões de mídia") + " · " + plural(m.rooms, "sala", "salas");
+        }
+
+        function renderActivity() {
+          if (!stats) return;
+          var act = stats.activity, rows = Object.keys(act.channels).map(function (id) {
+            var c = findChannel(id);
+            return { label: c ? (c.channelName || id) + (c.guildName ? " · " + c.guildName : "") : id, values: act.channels[id] };
+          }).sort(function (a, b) { return b.values.reduce(function (s, v) { return s + v; }, 0) - a.values.reduce(function (s, v) { return s + v; }, 0); }).slice(0, 12);
+          $("#cv-heat").style.height = Math.max(96, rows.length * 30 + 22) + "px";
+          cv.set($("#cv-heat"), { hours: act.hours, rows: rows, empty: "Sem transmissões nas últimas 24 h (desde que o servidor ligou)" });
+          cv.set($("#cv-bars"), { hours: stats.logs });
+        }
+
         function renderMode() {
           var mode = (live.settings && live.settings.authMode) || "login";
-          ui.select($("#mode"), mode);
+          $("#mode").querySelectorAll(".choice-card").forEach(function (c) { c.setAttribute("aria-checked", String(c.dataset.value === mode)); });
+          $("#mode").dataset.current = mode;
           $("#mode-detail").textContent = mode === "channels"
-            ? "Todas as salas entram habilitadas — desligue as que não quiser. Quem está num canal habilitado pode transmitir (menos os banidos)."
+            ? "Todas as salas entram habilitadas. Desligue as que não quiser em Grupos. Quem está num canal habilitado pode transmitir, menos os banidos."
             : mode === "both"
-            ? "Canais + Login: pode transmitir quem está num canal habilitado OU quem foi liberado na lista de usuários (em qualquer canal). Banido num canal não transmite nele."
-            : "Só quem foi liberado na lista de usuários pode transmitir.";
+            ? "Pode transmitir quem está num canal habilitado OU quem foi liberado na lista de pessoas (em qualquer canal). Banido num canal não transmite nele."
+            : "Só quem foi liberado na lista de pessoas pode transmitir.";
           var chip = $("#bot-chip");
           var ok = live.bot && live.voice;
           chip.className = "chip " + (ok ? "ok" : "warn");
@@ -437,19 +517,18 @@ export function adminPage(name: string): string {
           oc.className = "chip " + (oauthOk ? "ok" : "warn");
           oc.textContent = oauthOk ? "configurado" : "ausente";
           $("#oauth-detail").textContent = oauthOk
-            ? "Usuários entram com a conta do Discord para pedir acesso."
+            ? "As pessoas entram com a conta do Discord para pedir acesso."
             : "Defina DISCORD_CLIENT_ID / SECRET / REDIRECT_URI para habilitar o login.";
 
           var gw = bot.gateway || {};
           var bs = $("#bot-status");
-          var state = !bot.configured ? "warn" : gw.connected ? "ok" : "warn";
-          bs.className = "chip " + state;
+          bs.className = "chip " + (!bot.configured ? "warn" : gw.connected ? "ok" : "warn");
           bs.textContent = !bot.configured ? "não configurado" : gw.connected ? "conectado" : "desconectado";
           $("#bot-detail").textContent = !bot.configured
             ? "Defina DISCORD_BOT_TOKEN para listar servidores e resolver canais/nomes."
             : gw.connected
               ? (gw.guilds || 0) + " servidor(es) · " + (gw.voices || 0) + " em voz"
-              : "Token definido, mas o gateway não conectou" + (gw.error ? " (" + esc(gw.error) + ")" : "") + ".";
+              : "Token definido, mas o gateway não conectou" + (gw.error ? " (" + gw.error + ")" : "") + ".";
 
           var row = $("#bot-invite-row");
           if (bot.invite) { row.href = bot.invite; row.hidden = false; } else { row.hidden = true; }
@@ -460,34 +539,33 @@ export function adminPage(name: string): string {
         }
 
         function channelRow(c) {
-          var live = c.liveMembers || [];
-          return '<div class="row"><span class="icon-tile' + (c.enabled ? " gradient" : " neutral") + '" data-icon="mic"></span>' +
+          var inCall = c.liveMembers || [];
+          return '<div class="row"><span class="icon-tile' + (c.enabled ? "" : " neutral") + '" data-icon="mic"></span>' +
             '<div class="row-body"><div class="row-title">' + esc(c.channelName || c.channelId) +
-            (c.enabled ? ' <span class="chip ok">habilitado</span>' : ' <span class="chip warn">desabilitado</span>') +
-            (c.streamers ? ' <span class="chip danger">' + c.streamers + " no ar</span>" : "") +
+            (c.streamers ? ' <span class="chip live">' + c.streamers + " no ar</span>" : "") +
             (c.bans.length ? ' <span class="chip danger">' + c.bans.length + " banido(s)</span>" : "") +
             "</div>" +
-            '<div class="row-detail"><span class="mono">' + esc(c.channelId) + "</span>" +
-            (live.length ? " · " + live.length + " na sala" : c.seen.length ? " · " + c.seen.length + " visto(s)" : "") + "</div>" +
-            peopleStrip(live) + "</div>" +
+            '<div class="row-detail">' + (c.enabled ? "habilitado" : "desabilitado") +
+            (inCall.length ? " · " + inCall.length + " na sala" : c.seen.length ? " · " + c.seen.length + " visto(s)" : "") + "</div>" +
+            peopleStrip(inCall) + "</div>" +
             '<div class="row-accessory">' +
-            '<button class="toggle" role="switch" aria-checked="' + String(Boolean(c.enabled)) + '" data-act="chan-toggle" data-id="' + esc(c.channelId) + '" aria-label="Habilitar transmissão neste canal" title="Habilitar transmissão"></button>' +
+            '<button class="toggle" role="switch" aria-checked="' + String(Boolean(c.enabled)) + '" data-act="chan-toggle" data-id="' + esc(c.channelId) + '" aria-label="Habilitar transmissão em ' + esc(c.channelName || c.channelId) + '" title="Habilitar transmissão"></button>' +
             '<button class="btn btn-sm" data-act="chan-members" data-id="' + esc(c.channelId) + '">Membros</button>' +
-            '<button class="btn btn-destructive btn-sm" data-act="chan-remove" data-id="' + esc(c.channelId) + '">Remover</button>' +
+            '<button class="btn btn-icon btn-sm btn-plain" data-act="chan-remove" data-id="' + esc(c.channelId) + '" aria-label="Remover canal" title="Remover canal"><i data-icon="x"></i></button>' +
             "</div></div>";
         }
 
         function renderGroups() {
           if (!groups.length) {
-            $("#groups").innerHTML = '<div class="group">' + empty("users", "Nenhum grupo configurado", "Sincronize com o bot ou adicione um canal — ou entre numa call e ele aparece aqui.") + "</div>";
+            $("#groups").innerHTML = '<div class="tile w4 flat">' + empty("users", "Nenhum grupo configurado", "Sincronize com o bot ou adicione um canal. Quem entrar numa call também aparece aqui.") + "</div>";
             return;
           }
-          $("#groups").innerHTML = groups.map(function (g) {
+          $("#groups").innerHTML = groups.map(function (g, i) {
             var enabled = g.channels.filter(function (c) { return c.enabled; }).length;
-            return '<div class="card" style="gap:12px;padding:16px">' +
-              '<div class="cluster" style="gap:12px">' + guildThumb(g, "xl") +
-              '<div class="row-body"><div class="row-title">' + esc(g.guildName || g.guildId) +
-              (g.botPresent ? ' <span class="chip ok">bot presente</span>' : ' <span class="chip warn">bot fora</span>') + "</div>" +
+            return '<div class="tile ' + (groups.length === 1 ? "w4" : "w2") + '">' +
+              '<div class="cluster" style="gap:12px;margin-bottom:6px">' + guildThumb(g, "xl") +
+              '<div class="row-body"><div class="row-title" style="font-size:15.5px">' + esc(g.guildName || g.guildId) +
+              (g.botPresent ? "" : ' <span class="chip warn">bot fora</span>') + "</div>" +
               '<div class="row-detail">' + g.channels.length + " canal(is) · " + enabled + " habilitado(s)</div></div></div>" +
               '<div class="group">' + g.channels.map(channelRow).join("") + "</div></div>";
           }).join("");
@@ -524,6 +602,8 @@ export function adminPage(name: string): string {
           var q = $("#q").value.trim().toLowerCase();
           var pending = users.filter(function (u) { return !u.enabled; });
           var enabled = users.filter(function (u) { return u.enabled && (!q || u.name.toLowerCase().indexOf(q) >= 0 || u.id.indexOf(q) >= 0); });
+          $("#pending-count").textContent = pending.length ? String(pending.length) : "";
+          var badge = $("#pending-badge"); badge.hidden = !pending.length; badge.textContent = pending.length;
 
           $("#pending").innerHTML = pending.length ? pending.map(function (u) {
             return '<div class="row">' + avatar(u.name, u.id) +
@@ -534,11 +614,11 @@ export function adminPage(name: string): string {
 
           $("#users").innerHTML = enabled.length ? enabled.map(function (u) {
             return '<div class="row">' + avatar(u.name, u.id) +
-              '<div class="row-body"><div class="row-title">' + esc(u.name) + ' <span class="chip ok">liberado</span></div>' +
-              '<div class="row-detail"><span class="mono">' + esc(u.id) + "</span> · " + u.maxHeight + "p · " + u.maxFps + " fps" + (u.enabledAt ? " · desde " + ui.relativeTime(u.enabledAt) : "") + "</div></div>" +
+              '<div class="row-body"><div class="row-title">' + esc(u.name) + ' <span class="chip">' + u.maxHeight + "p · " + u.maxFps + " fps</span></div>" +
+              '<div class="row-detail"><span class="mono">' + esc(u.id) + "</span>" + (u.enabledAt ? " · liberado " + ui.relativeTime(u.enabledAt) : "") + "</div></div>" +
               '<div class="row-accessory"><button class="btn btn-sm" data-act="edit" data-id="' + esc(u.id) + '">Editar</button>' +
               '<button class="btn btn-destructive btn-sm" data-act="revoke" data-id="' + esc(u.id) + '">Revogar</button></div></div>';
-          }).join("") : empty("users", q ? "Ninguém encontrado" : "Nenhum usuário liberado ainda");
+          }).join("") : empty("users", q ? "Ninguém encontrado" : "Ninguém liberado ainda");
         }
 
         async function load() {
@@ -548,23 +628,22 @@ export function adminPage(name: string): string {
             live = await j("/admin/live");
             groups = await j("/admin/groups");
             bot = await j("/admin/bot");
+            stats = await j("/admin/stats").catch(function () { return null; });
             transmissions = flatStreamers();
-            push(history.tx, transmissions.length); push(history.peers, m.peers); push(history.rooms, live.rooms.length);
-            $("#metrics").innerHTML =
-              metric("Transmissões", transmissions.length, history.tx) +
-              metric("Salas", live.rooms.length + ' <span class="caption">ao vivo</span>', history.rooms) +
-              metric("Conectados", m.peers + ' <span class="caption">em ' + m.rooms + (m.rooms === 1 ? " sala" : " salas") + "</span>", history.peers);
-            $("#sys").textContent = "CPU " + m.cpuLoad[0].toFixed(2) + " / " + m.cpus + " · memória " + (m.memory.usedPct * 100).toFixed(0) + "% · uptime " + ui.duration(m.uptime);
+            renderOverview(m);
             renderTx();
             renderRooms();
             renderMode();
             renderGroups();
+            renderActivity();
             renderBot();
             if (membersChannel && $("#members").open) renderMembers();
             renderUsers();
-            $("#updated").innerHTML = '<span class="dot text-ok"></span>ao vivo · uptime ' + ui.duration(m.uptime);
+            $("#updated").className = "chip ok";
+            $("#updated").innerHTML = '<span class="dot"></span>ao vivo';
           } catch (e) {
-            $("#updated").innerHTML = '<span class="dot text-danger"></span>sem conexão';
+            $("#updated").className = "chip danger";
+            $("#updated").innerHTML = '<span class="dot"></span>sem conexão';
             console.error(e);
           }
         }
@@ -611,7 +690,7 @@ export function adminPage(name: string): string {
           }
 
           var u = users.find(function (x) { return x.id === b.dataset.id; }); if (!u) return;
-          if (b.dataset.act === "revoke") {
+          if (act === "revoke") {
             var ok = await ui.confirm({ title: "Revogar acesso de " + u.name + "?", message: "A pessoa deixa de conseguir transmitir e assistir na hora.", confirmLabel: "Revogar", destructive: true });
             if (!ok) return;
             try { await setEnabled(u.id, false); ui.toast("Acesso de " + u.name + " revogado", "danger"); load(); }
@@ -619,9 +698,9 @@ export function adminPage(name: string): string {
             return;
           }
           editing = u;
-          $("#quota-title").textContent = (b.dataset.act === "edit" ? "Editar " : "Liberar ") + u.name;
+          $("#quota-title").textContent = (act === "edit" ? "Editar " : "Liberar ") + u.name;
           $("#quota-sub").textContent = "Limites aplicados à transmissão desta pessoa.";
-          $("#quota-save").textContent = b.dataset.act === "edit" ? "Salvar" : "Liberar";
+          $("#quota-save").textContent = act === "edit" ? "Salvar" : "Liberar";
           nearest($("#q-height"), u.maxHeight || 1080);
           nearest($("#q-fps"), u.maxFps || 30);
           ui.openSheet("#quota");
@@ -634,7 +713,7 @@ export function adminPage(name: string): string {
           var enabled = sw.getAttribute("aria-checked") === "true";
           try {
             await post("/admin/channels/" + encodeURIComponent(sw.dataset.id) + "/enable", { enabled: enabled });
-            ui.toast(enabled ? "Canal habilitado — os membros podem transmitir" : "Canal desabilitado", enabled ? "ok" : "danger");
+            ui.toast(enabled ? "Canal habilitado: os membros podem transmitir" : "Canal desabilitado", enabled ? "ok" : "danger");
             groups = await j("/admin/groups");
             renderGroups();
           } catch (err) {
@@ -643,15 +722,16 @@ export function adminPage(name: string): string {
           }
         });
 
-        // Modo de acesso: login (liberação manual) OU canais (todas as salas ligadas por padrão).
+        // Modo de acesso: cartões (role=radio); o ui.js marca o cartão e dispara "change" no grupo.
         $("#mode").addEventListener("change", async function (e) {
           var mode = e.detail && e.detail.value;
           if (mode !== "login" && mode !== "channels" && mode !== "both") return;
+          if (mode === $("#mode").dataset.current) return;
           try {
             var s = await post("/admin/settings", { authMode: mode });
             var msg;
-            if (mode === "login") msg = "Modo login ativo: liberação manual por usuário";
-            else if (!live.bot) msg = (mode === "both" ? "Modo canais + login" : "Modo canais") + " ativo — sem bot, adicione os canais pelos IDs";
+            if (mode === "login") msg = "Modo login ativo: liberação manual por pessoa";
+            else if (!live.bot) msg = (mode === "both" ? "Modo ambos" : "Modo canais") + " ativo. Sem bot, adicione os canais pelos IDs";
             else if (s.seeded) msg = s.seeded.added ? s.seeded.added + " canal(is) novo(s) habilitado(s) · " + s.seeded.total + " no total" : s.seeded.total + " canais habilitados";
             else msg = "Modo canais ativo (não deu para sincronizar: " + (s.seededError || "erro") + ")";
             ui.toast(msg, "ok");
@@ -744,14 +824,35 @@ export function adminPage(name: string): string {
 
         $("#q").addEventListener("input", renderUsers);
 
-        // Abas: mostra só a seção escolhida (segmented dispara "change").
-        var panels = { overview: "#tab-overview", groups: "#tab-groups", users: "#tab-users", logs: "#tab-logs", settings: "#tab-settings" };
-        $("#tabs").addEventListener("change", function (e) {
-          var v = e.detail && e.detail.value; if (!panels[v]) return;
-          Object.keys(panels).forEach(function (k) { $(panels[k]).hidden = k !== v; });
+        // --- Navegação pelo trilho (com #hash para dar para favoritar/compartilhar a aba) ---
+        var TABS = {
+          overview: ["Ao vivo", "Quem está transmitindo agora e como está o servidor"],
+          groups: ["Grupos", "Canais de voz por servidor do Discord"],
+          users: ["Pessoas", "Pedidos de acesso e quem foi liberado pelo login"],
+          logs: ["Logs", "Enviados pelos clientes a cada 5 minutos"],
+          settings: ["Ajustes", "Modo de acesso, bot e login"],
+        };
+        function showTab(v, push) {
+          if (!TABS[v]) v = "overview";
+          Object.keys(TABS).forEach(function (k) { $("#tab-" + k).hidden = k !== v; });
+          document.querySelectorAll(".rail-btn[data-tab]").forEach(function (b) {
+            if (b.dataset.tab === v) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+          });
+          $("#page-title").textContent = TABS[v][0];
+          $("#page-sub").textContent = TABS[v][1];
+          var sec = $("#tab-" + v);
+          // reinicia a cascata de entrada e as animações dos gráficos da aba
+          sec.querySelectorAll(".in").forEach(function (el) { el.style.animation = "none"; void el.offsetWidth; el.style.animation = ""; });
+          cv.replay(sec);
           if (v === "logs") loadLogUsers();
+          if (push) { try { history.replaceState(null, "", "#" + v); } catch (err) { location.hash = v; } }
+        }
+        document.querySelectorAll(".rail-btn[data-tab]").forEach(function (b) {
+          b.addEventListener("click", function () { showTab(b.dataset.tab, true); });
         });
+        window.addEventListener("hashchange", function () { showTab(location.hash.slice(1)); });
 
+        // --- Logs ---
         var logUsers = [], logUser = null;
         function fmtBytes(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.ceil(n / 1024) + " KB"; }
         var logsPaused = false;
@@ -759,18 +860,22 @@ export function adminPage(name: string): string {
           $("#logs-paused").hidden = !logsPaused;
           $("#logs-pause").textContent = logsPaused ? "Retomar armazenamento" : "Pausar armazenamento";
         }
+        function showViewer(on) { $("#logs-viewer").hidden = !on; $("#logs-empty").hidden = on; }
         async function loadLogUsers() {
           try { logsPaused = Boolean((await j("/admin/settings")).clientLogsPaused); renderLogsPaused(); logUsers = await j("/admin/logs"); } catch (err) { ui.toast("Falha ao listar logs: " + err.message, "danger"); return; }
           $("#logs-users").innerHTML = logUsers.length ? logUsers.map(function (u) {
-            return '<div class="row" role="button" tabindex="0" data-log-user="' + esc(u.userId) + '" style="cursor:pointer">' + ui.thumb(u.avatar, u.name || u.userId) +
-              '<div class="row-body"><div class="row-title">' + esc(u.name || u.userId) + '</div><div class="row-detail">' + fmtBytes(u.bytes) + " · " + u.days.length + " dia(s) · último envio " + esc(new Date(u.lastAt).toLocaleString()) + "</div></div></div>";
-          }).join("") : '<div class="row"><div class="row-body"><div class="row-detail">Nenhum log recebido ainda.</div></div></div>';
-          if (logUser && !logUsers.some(function (u) { return u.userId === logUser.userId; })) { logUser = null; $("#logs-viewer").hidden = true; }
+            var cur = logUser && logUser.userId === u.userId;
+            return '<button class="row" data-log-user="' + esc(u.userId) + '"' + (cur ? ' style="background:var(--accent-soft)"' : "") + ">" + ui.thumb(u.avatar, u.name || u.userId) +
+              '<div class="row-body"><div class="row-title">' + esc(u.name || u.userId) + '</div><div class="row-detail">' + fmtBytes(u.bytes) + " · " + u.days.length + " dia(s) · " + ui.relativeTime(u.lastAt) + "</div></div></button>";
+          }).join("") : empty("doc", "Nenhum log recebido ainda");
+          if (logUser && !logUsers.some(function (u) { return u.userId === logUser.userId; })) { logUser = null; showViewer(false); }
         }
         function openLogUser(id) {
           logUser = logUsers.find(function (u) { return u.userId === id; }); if (!logUser) return;
+          $("#logs-who").textContent = logUser.name || logUser.userId;
           $("#logs-day").innerHTML = logUser.days.map(function (d) { return '<option value="' + esc(d.day) + '">' + esc(d.day) + " (" + fmtBytes(d.bytes) + ")</option>"; }).join("");
-          $("#logs-viewer").hidden = false;
+          showViewer(true);
+          document.querySelectorAll("[data-log-user]").forEach(function (r) { r.style.background = r.dataset.logUser === id ? "var(--accent-soft)" : ""; });
           loadLogDay();
         }
         async function loadLogDay() {
@@ -780,11 +885,13 @@ export function adminPage(name: string): string {
           try {
             var r = await j(base + "?tail=1000&level=" + encodeURIComponent($("#logs-level").value));
             $("#logs-count").textContent = "Mostrando " + r.entries.length + " de " + r.total + " linhas";
-            $("#logs-text").textContent = r.entries.map(function (e) { return new Date(e.t).toISOString() + " " + e.l + " " + e.s + " " + e.m; }).join("\\n");
+            $("#logs-text").innerHTML = r.entries.map(function (e) {
+              var line = esc(new Date(e.t).toISOString() + " " + e.l + " " + e.s + " " + e.m);
+              return e.l === "error" ? '<span class="e">' + line + "</span>" : e.l === "warn" ? '<span class="w">' + line + "</span>" : line;
+            }).join("\\n");
           } catch (err) { ui.toast("Falha ao ler o log: " + err.message, "danger"); }
         }
         $("#logs-users").addEventListener("click", function (e) { var r = e.target.closest("[data-log-user]"); if (r) openLogUser(r.dataset.logUser); });
-        $("#logs-users").addEventListener("keydown", function (e) { var r = e.target.closest("[data-log-user]"); if (r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openLogUser(r.dataset.logUser); } });
         $("#logs-day").addEventListener("change", loadLogDay);
         $("#logs-level").addEventListener("change", loadLogDay);
         $("#logs-pause").addEventListener("click", async function () {
@@ -795,7 +902,7 @@ export function adminPage(name: string): string {
         });
         $("#logs-delete-all").addEventListener("click", async function () {
           if (!(await ui.confirm({ title: "Apagar todos os logs?", message: "Os logs de todos os usuários são apagados do servidor. Isso não pode ser desfeito.", confirmLabel: "Apagar tudo", destructive: true }))) return;
-          try { await j("/admin/logs", { method: "DELETE" }); logUser = null; $("#logs-viewer").hidden = true; ui.toast("Logs apagados", "danger"); loadLogUsers(); }
+          try { await j("/admin/logs", { method: "DELETE" }); logUser = null; showViewer(false); ui.toast("Logs apagados", "danger"); loadLogUsers(); }
           catch (err) { ui.toast("Falha ao apagar: " + err.message, "danger"); }
         });
         $("#logs-delete").addEventListener("click", async function () {
@@ -804,10 +911,11 @@ export function adminPage(name: string): string {
           catch (err) { ui.toast("Falha ao apagar: " + err.message, "danger"); }
         });
 
+        showTab(location.hash.slice(1));
         load(); setInterval(load, 4000);
         setInterval(renderTx, 1000); // relógio das durações
       })();
-    </script>`, { actions: `<a class="btn btn-sm btn-plain" href="/">Início</a>${userActions(name)}` });
+    </script>`, { topbar: false });
 }
 
 function initials(name: string): string {

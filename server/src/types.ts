@@ -104,6 +104,10 @@ export interface LiveMember {
     channelId?: string;
     channelName?: string;
     guildId?: string;
+    /** kbps que o servidor recebe desta pessoa (transmissão ou só controle/voz). */
+    kbps?: number;
+    /** RTT do WS de controle (ping/pong), em ms. */
+    rttMs?: number;
 }
 
 export interface Group {
