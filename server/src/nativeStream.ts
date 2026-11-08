@@ -543,19 +543,32 @@ function resolveLater(m: Member, userId: string, sessionId: string, fallbackChan
         if (!loc && tries < 10 && gatewayEnabled()) return; // janela de ~20s
         clearInterval(timer);
         if (m.ws.readyState !== WebSocket.OPEN) return;
-        if (loc) applyChannel(m, loc.guildId, loc.channelId);
-        else applyChannel(m, fallbackGuildId, fallbackChannelId);
+        if (loc) applyChannel(m, loc.guildId, loc.channelId, true);
+        else if (requiresResolvedChannel()) {
+            log(`derrubado (canal não identificado pelo bot): ${m.userId} sala efêmera ${fallbackChannelId}`);
+            leave(m);
+            m.ws.close(4004, "Authentication failed.");
+        } else applyChannel(m, fallbackGuildId, fallbackChannelId, false);
     }, 2000);
     timer.unref();
 }
 
-function applyChannel(m: Member, guildId: string, channelId: string): void {
+/**
+ * In "channels" mode the only trustworthy channel is the one the bot gateway sees the
+ * user in: the IDENTIFY ids are ephemeral (per session), so they must never be
+ * registered as channels nor grant access.
+ */
+function requiresResolvedChannel(): boolean {
+    return NATIVE_STREAM_ALLOW_ANY !== "1" && store.getSettings().authMode === "channels";
+}
+
+function applyChannel(m: Member, guildId: string, channelId: string, resolved: boolean): void {
     if (m.channelId !== channelId || m.guildId !== guildId) {
         log(`canal corrigido via gateway: ${m.userId} ${m.channelId ?? "-"} → ${channelId}`);
         m.channelId = channelId;
         m.guildId = guildId;
     }
-    if (store.getSettings().authMode === "channels" && !store.getChannel(channelId)) {
+    if (resolved && store.getSettings().authMode === "channels" && !store.getChannel(channelId)) {
         store.upsertChannel({ guildId, guildName: "", channelId, channelName: "", enabled: true });
         void fillChannelNames(guildId, channelId);
     } else {
@@ -584,9 +597,15 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
     const pending = !loc && gatewayEnabled();                        // gateway no ar, call ainda não chegou
     const provisional = pending && store.getSettings().authMode === "channels";
 
+    if (!loc && !pending && requiresResolvedChannel()) {
+        log(`recusado (modo canais sem o bot gateway no ar — não dá para saber o canal real): ${userId}`);
+        ws.close(4004, "Authentication failed.");
+        return null;
+    }
+
     if (pending) {
         log(`canal de ${userId} ainda não resolvido pelo gateway`);
-    } else if (store.getSettings().authMode === "channels" && channelId && !store.getChannel(channelId)) {
+    } else if (loc && store.getSettings().authMode === "channels" && !store.getChannel(channelId)) {
         store.upsertChannel({ guildId, guildName: "", channelId, channelName: "", enabled: true });
         void fillChannelNames(guildId, channelId); // nomes chegam em segundo plano
     } else if (channelId) {
