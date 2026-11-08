@@ -104,9 +104,13 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   accepts peers that pass `store.canStream(userId, channelId)` — `login` mode (user
   enabled in the hub) or `channels` mode (`store.getSettings().authMode`: channel
   enabled **and** not banned). In `channels` mode the default is **allowed**: turning
-  the mode on seeds **all** of the bot's (enabled) rooms, and an unknown channel is
-  auto-discovered **enabled** — the admin only turns off the exceptions in the
-  dashboard (unless `NATIVE_STREAM_ALLOW_ANY=1`, test only). Disabling/banning a
+  the mode on seeds **all** of the bot's (enabled) rooms, and a new room the **bot
+  gateway** sees the user in is auto-discovered **enabled** — the admin only turns off
+  the exceptions in the dashboard (unless `NATIVE_STREAM_ALLOW_ANY=1`, test only).
+  If the gateway cannot resolve the real channel (DM/group call, guild without the bot,
+  gateway down) the stream is **refused** (4004) — the ephemeral IDENTIFY ids are never
+  registered as channels nor grant access (they used to, flooding the dashboard with
+  "bot fora" phantom groups). Disabling/banning a
   channel calls `closeMembersInChannel()` and drops **whoever is already live** (4004).
 - **The real channel comes from the bot gateway** (`server/src/botGateway.ts`, intents
   GUILDS|GUILD_VOICE_STATES): the media IDENTIFY carries **ephemeral**

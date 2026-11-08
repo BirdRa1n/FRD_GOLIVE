@@ -110,9 +110,10 @@ banned members), without enabling people one by one.
 5. In `/admin`, under **Who can stream**, choose **Channels**: immediately **all voice
    channels of the bot's guilds become enabled** and you only **turn off** the ones you
    do not want (per-row toggle). **Sync with the bot** pulls new channels; **Add
-   channel** includes a specific one (or paste the IDs, if there is no bot). Channels of
-   guilds without the bot show up on their own when someone tries to stream — **already
-   enabled**.
+   channel** includes a specific one (or paste the IDs, if there is no bot). New voice
+   channels of the bot's guilds show up on their own when someone streams there —
+   **already enabled**. Streams the bot cannot place in a real channel (DM/group calls,
+   guilds without the bot, gateway down) are **refused** in this mode.
 
 > Only the admin configures the bot — members do not need a hub login to stream in
 > channels mode (the check happens on `/dstream`).
