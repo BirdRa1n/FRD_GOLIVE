@@ -16,6 +16,12 @@ const log = (...a: unknown[]) => console.log("[botgw]", ...a);
 const byUser = new Map<string, VoiceLoc>();   // userId → call atual (uma por pessoa)
 const bySession = new Map<string, VoiceLoc>(); // session_id → a mesma (é a chave do IDENTIFY)
 const guildNames = new Map<string, string>();
+const members = new Map<string, MemberInfo>(); // `${guildId}:${userId}` → nome/avatar atuais
+
+export interface MemberInfo { name?: string; avatar?: string; }
+type VoiceListener = (userId: string, sessionId: string, loc: { guildId: string; channelId: string; } | undefined) => void;
+const voiceListeners: VoiceListener[] = [];
+const MEMBERS_MAX = 5_000;
 
 let ws: WebSocket | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -43,6 +49,30 @@ export function voiceLocation(userId: string, sessionId: string): { guildId: str
     const bySess = sessionId ? bySession.get(sessionId) : undefined;
     if (bySess && bySess.userId === userId) return bySess;
     return byUser.get(userId);
+}
+
+/** Name (nick › global name › username) and avatar hash the gateway last saw for a member. */
+export function memberInfo(guildId: string, userId: string): MemberInfo | undefined {
+    return members.get(`${guildId}:${userId}`);
+}
+
+/** Avatar hash seen for this user in any guild (user avatars are global). */
+export function userAvatarHash(userId: string): string | undefined {
+    for (const [k, v] of members) if (k.endsWith(`:${userId}`) && v.avatar) return v.avatar;
+    return undefined;
+}
+
+/** Called on every voice state change (join / move / leave) after the maps are updated. */
+export function onVoiceStateChange(fn: VoiceListener): void {
+    voiceListeners.push(fn);
+}
+
+function putMember(guildId: string, m: any): void {
+    const u = m?.user;
+    if (!guildId || !u?.id) return;
+    const name = m.nick || u.global_name || u.username || undefined;
+    if (members.size >= MEMBERS_MAX && !members.has(`${guildId}:${u.id}`)) members.clear();
+    members.set(`${guildId}:${String(u.id)}`, { name, avatar: u.avatar ?? undefined });
 }
 
 export function startBotGateway(): void {
@@ -143,6 +173,7 @@ function dispatch(t: string, d: any): void {
     if (t === "GUILD_CREATE") {
         if (d?.id) {
             if (d.name) guildNames.set(String(d.id), String(d.name));
+            for (const mem of d.members ?? []) putMember(String(d.id), mem); // inclui quem está em voz
             for (const vs of d.voice_states ?? []) putVoiceState(vs, String(d.id)); // snapshot de quem já está em voz
         }
         return;
@@ -154,7 +185,18 @@ function dispatch(t: string, d: any): void {
         for (const [u, loc] of byUser) if (loc.guildId === gid) { byUser.delete(u); bySession.delete(loc.sessionId); }
         return;
     }
-    if (t === "VOICE_STATE_UPDATE") putVoiceState(d, String(d?.guild_id ?? ""));
+    if (t === "GUILD_MEMBER_UPDATE") { putMember(String(d?.guild_id ?? ""), d); return; }
+    if (t === "VOICE_STATE_UPDATE") {
+        const gid = String(d?.guild_id ?? "");
+        if (d?.member) putMember(gid, d.member);
+        putVoiceState(d, gid);
+        const userId = String(d?.user_id ?? "");
+        const sessionId = String(d?.session_id ?? "");
+        const loc = d?.channel_id && gid ? { guildId: gid, channelId: String(d.channel_id) } : undefined;
+        for (const fn of voiceListeners) {
+            try { fn(userId, sessionId, loc); } catch (e) { log("listener de voz falhou:", e); }
+        }
+    }
 }
 
 function putVoiceState(vs: any, guildIdFallback: string): void {

@@ -3,7 +3,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import express from "express";
 
-import { botGatewayState, startBotGateway } from "./botGateway.js";
+import { botGatewayState, memberInfo, startBotGateway, userAvatarHash } from "./botGateway.js";
 import { clientLogsEnabled, ingest, listUsers, readDay, removeAll, removeUser, startClientLogSweeper } from "./clientLogs.js";
 import * as discord from "./discord.js";
 import { adminPage, errorPage, homePage, loginPage } from "./hub.js";
@@ -87,7 +87,7 @@ app.get("/img/guild/:id", async (req, res) => {
 });
 
 app.get("/groups", async (req, res) => {
-    if (store.getSettings().authMode !== "channels") return res.json([]);
+    if (store.getSettings().authMode === "login") return res.json([]);
     const host = req.headers.host ?? `localhost:${PORT}`;
     const proto = req.headers["x-forwarded-proto"] === "https" || req.secure ? "https" : "http";
     const byGuild = new Map<string, PublicGroup>();
@@ -196,9 +196,9 @@ async function syncChannelsFromBot(): Promise<{ added: number; total: number; gu
 
 app.post("/admin/settings", admin, async (req, res) => {
     const mode = req.body?.authMode as AuthMode;
-    if (mode !== "login" && mode !== "channels") return res.status(400).json({ error: "authMode inválido" });
+    if (mode !== "login" && mode !== "channels" && mode !== "both") return res.status(400).json({ error: "authMode inválido" });
     const settings = store.setAuthMode(mode);
-    if (mode !== "channels") return res.json(settings);
+    if (mode === "login") return res.json(settings);
     try { res.json({ ...settings, seeded: await syncChannelsFromBot() }); }
     catch (e) { res.json({ ...settings, seededError: (e as Error).message }); } // bot fora do ar: o modo muda mesmo assim
 });
@@ -211,10 +211,11 @@ app.get("/admin/img/guild/:id", admin, async (req, res) => {
     res.end(buf);
 });
 app.get("/admin/img/user/:id", admin, async (req, res) => {
-    const buf = await cachedImage(discord.userAvatarUrl(req.params.id, await discord.userAvatar(req.params.id)));
+    const hash = userAvatarHash(req.params.id) ?? await discord.userAvatar(req.params.id);
+    const buf = await cachedImage(discord.userAvatarUrl(req.params.id, hash));
     if (!buf) return res.sendStatus(404);
     res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("Cache-Control", "private, max-age=600");
     res.end(buf);
 });
 
@@ -234,8 +235,12 @@ app.get("/admin/groups", admin, async (_req, res) => {
     for (const r of rooms) {
         for (const m of r.members) {
             if (!m.channelId) continue;
+            // One entry per PERSON: a user streaming and also watching someone else has
+            // one /dstream connection per stream room — merge them (streamer wins).
             const arr = liveByChannel.get(m.channelId) ?? [];
-            arr.push(m);
+            const same = arr.find(x => x.userId === m.userId);
+            if (!same) arr.push({ ...m });
+            else if (m.streamer && !same.streamer) Object.assign(same, { streamer: true, since: m.since });
             liveByChannel.set(m.channelId, arr);
         }
     }
@@ -334,12 +339,14 @@ async function enrichRoom(r: ReturnType<typeof getLiveState>[number]): Promise<L
     const guildName = configured || await guildNameOf(guildId);
     const members: LiveMember[] = await Promise.all(r.members.map(async m => {
         const ch = m.channelId ? store.getChannel(m.channelId) : undefined;
-        let name = ch?.seen.find(s => s.userId === m.userId)?.name;
-        if (!name) {
-            name = await nameOf(guildId, m.userId);
-            if (name && m.channelId) store.rememberName(m.channelId, m.userId, name);
-        }
-        return { userId: m.userId, name, avatar: `/admin/img/user/${m.userId}`, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined, guildId: m.guildId };
+        // Fresh name from the bot gateway first (updates when the nick changes), then the
+        // stored one, then the REST API. Whatever wins is written back to "seen".
+        const info = memberInfo(m.guildId ?? guildId, m.userId);
+        let name = info?.name ?? ch?.seen.find(s => s.userId === m.userId)?.name;
+        if (!name) name = await nameOf(guildId, m.userId);
+        if (name && m.channelId) store.rememberName(m.channelId, m.userId, name);
+        const avatar = `/admin/img/user/${m.userId}${info?.avatar ? `?h=${info.avatar}` : ""}`; // hash muda → navegador busca a nova
+        return { userId: m.userId, name, avatar, streamer: m.streamer, since: m.since, channelId: m.channelId, channelName: ch?.channelName || undefined, guildId: m.guildId };
     }));
     const channelId = members.find(m => !!m.channelId)?.channelId;
     const channelName = members.find(m => !!m.channelName)?.channelName;

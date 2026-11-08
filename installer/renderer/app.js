@@ -37,10 +37,10 @@ function renderMode(p) {
     const box = $("mode-box");
     if (!p || !p.ok) { box.hidden = true; $("groups-box").hidden = true; return; }
     box.hidden = false;
-    const channels = p.authMode === "channels";
+    const channels = p.authMode === "channels" || p.authMode === "both";
     $("mode-icon").className = "icon-tile " + (channels ? "gradient" : "");
     $("mode-icon").innerHTML = ui.icon(channels ? "users" : "discord");
-    $("mode-title").textContent = channels ? "Acesso por grupos permitidos" : "Login do Discord";
+    $("mode-title").textContent = p.authMode === "both" ? "Grupos permitidos ou login" : channels ? "Acesso por grupos permitidos" : "Login do Discord";
     $("mode-detail").textContent = channels
         ? "Você transmite em qualquer canal de voz habilitado pelo admin — sem pedir acesso."
         : p.oauth
@@ -167,7 +167,7 @@ applyBtn.addEventListener("click", async () => {
     try {
         const r = await api.apply(host, logUploadOn());
         $("done-msg").textContent = `Servidor ${r.domain} · transporte ${r.transport}. Reinicie o Discord se ele estiver aberto.`;
-        const channels = lastProbe && lastProbe.authMode === "channels";
+        const channels = lastProbe && (lastProbe.authMode === "channels" || lastProbe.authMode === "both");
         $("done-caption").textContent = channels
             ? "Entre numa call de voz num grupo habilitado e use os botões de tela do Discord."
             : "Entre no site para pedir acesso. Quando o admin liberar, o Discord liga as funções sozinho.";

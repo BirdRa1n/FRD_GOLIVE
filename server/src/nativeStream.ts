@@ -10,7 +10,7 @@ import {
     encodeServerFrame, externalSenderPackage, parseClientFrame, splitCommitWelcome,
     withTransitionId, type DaveProposalOp, type ExternalSenderKey,
 } from "./dave.js";
-import { gatewayEnabled, voiceLocation } from "./botGateway.js";
+import { gatewayEnabled, onVoiceStateChange, voiceLocation } from "./botGateway.js";
 import { botConfigured, resolveChannelNames } from "./discord.js";
 import { store } from "./store.js";
 import { parseHeaderExtensions, TwccRecorder } from "./twcc.js";
@@ -83,6 +83,7 @@ interface Member {
     daveKeyPackage?: Buffer;
     channelId?: string;
     guildId?: string;
+    sessionId?: string;
     daveChannelId?: bigint;
     daveProposalsSent?: boolean;
     daveJoined?: boolean;
@@ -544,7 +545,7 @@ function resolveLater(m: Member, userId: string, sessionId: string, fallbackChan
         clearInterval(timer);
         if (m.ws.readyState !== WebSocket.OPEN) return;
         if (loc) applyChannel(m, loc.guildId, loc.channelId, true);
-        else if (requiresResolvedChannel()) {
+        else if (requiresResolvedChannel(m.userId)) {
             log(`derrubado (canal não identificado pelo bot): ${m.userId} sala efêmera ${fallbackChannelId}`);
             leave(m);
             m.ws.close(4004, "Authentication failed.");
@@ -554,13 +555,31 @@ function resolveLater(m: Member, userId: string, sessionId: string, fallbackChan
 }
 
 /**
- * In "channels" mode the only trustworthy channel is the one the bot gateway sees the
+ * When access depends on the channel ("channels" mode, or "both" for a user that is not
+ * granted in the hub) the only trustworthy channel is the one the bot gateway sees the
  * user in: the IDENTIFY ids are ephemeral (per session), so they must never be
  * registered as channels nor grant access.
  */
-function requiresResolvedChannel(): boolean {
-    return NATIVE_STREAM_ALLOW_ANY !== "1" && store.getSettings().authMode === "channels";
+function requiresResolvedChannel(userId: string): boolean {
+    return NATIVE_STREAM_ALLOW_ANY !== "1" && store.needsChannel(userId);
 }
+
+const usesChannels = () => store.getSettings().authMode !== "login";
+
+/**
+ * Bot gateway saw a voice state change: keep every live connection of that user on the
+ * channel they are actually in (they may move rooms mid-stream) and re-check access.
+ */
+function onVoiceMove(userId: string, sessionId: string, loc: { guildId: string; channelId: string; } | undefined): void {
+    if (!loc) return; // left the call: Discord ends the stream connection itself
+    for (const room of rooms.values()) {
+        const m = room.members.get(userId);
+        if (!m || (m.sessionId && sessionId && m.sessionId !== sessionId)) continue;
+        if (m.channelId === loc.channelId && m.guildId === loc.guildId) continue;
+        if (m.ws.readyState === WebSocket.OPEN) applyChannel(m, loc.guildId, loc.channelId, true);
+    }
+}
+onVoiceStateChange(onVoiceMove);
 
 function applyChannel(m: Member, guildId: string, channelId: string, resolved: boolean): void {
     if (m.channelId !== channelId || m.guildId !== guildId) {
@@ -568,7 +587,7 @@ function applyChannel(m: Member, guildId: string, channelId: string, resolved: b
         m.channelId = channelId;
         m.guildId = guildId;
     }
-    if (resolved && store.getSettings().authMode === "channels" && !store.getChannel(channelId)) {
+    if (resolved && usesChannels() && !store.getChannel(channelId)) {
         store.upsertChannel({ guildId, guildName: "", channelId, channelName: "", enabled: true });
         void fillChannelNames(guildId, channelId);
     } else {
@@ -595,9 +614,9 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
     const guildId = loc?.guildId ?? roomId;
     const channelId = loc?.channelId ?? mediaChannelId;
     const pending = !loc && gatewayEnabled();                        // gateway no ar, call ainda não chegou
-    const provisional = pending && store.getSettings().authMode === "channels";
+    const provisional = pending && requiresResolvedChannel(userId);
 
-    if (!loc && !pending && requiresResolvedChannel()) {
+    if (!loc && !pending && requiresResolvedChannel(userId)) {
         log(`recusado (modo canais sem o bot gateway no ar — não dá para saber o canal real): ${userId}`);
         ws.close(4004, "Authentication failed.");
         return null;
@@ -605,7 +624,7 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
 
     if (pending) {
         log(`canal de ${userId} ainda não resolvido pelo gateway`);
-    } else if (loc && store.getSettings().authMode === "channels" && !store.getChannel(channelId)) {
+    } else if (loc && usesChannels() && !store.getChannel(channelId)) {
         store.upsertChannel({ guildId, guildName: "", channelId, channelName: "", enabled: true });
         void fillChannelNames(guildId, channelId); // nomes chegam em segundo plano
     } else if (channelId) {
@@ -645,6 +664,7 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
     room.members.set(userId, m);
     m.channelId = channelId;
     m.guildId = guildId;
+    m.sessionId = sessionId || undefined;
     try { m.daveChannelId = BigInt(mediaChannelId || "0"); } catch { /* channel_id inválido */ }
     if (pending) resolveLater(m, userId, sessionId, channelId, guildId);
     log(`identify ${userId} na sala ${roomId} → canal ${channelId}${loc ? "" : " (efêmero do IDENTIFY)"} (${room.members.size} na sala) streams=${JSON.stringify(d?.streams)} dave=${d?.max_dave_protocol_version}`);

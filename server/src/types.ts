@@ -57,7 +57,8 @@ export interface ActiveTransmission {
     since: number;
 }
 
-export type AuthMode = "login" | "channels";
+/** login = per-user grant · channels = enabled voice channels · both = either one. */
+export type AuthMode = "login" | "channels" | "both";
 
 export interface ServerSettings {
     authMode: AuthMode;
