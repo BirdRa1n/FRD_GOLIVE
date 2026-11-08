@@ -6,9 +6,24 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Heap do Node abaixo do teto do container: o GC trabalha antes do OOM killer.
+      NODE_OPTIONS: "--max-old-space-size=${FRD_NODE_HEAP_MB:-256}"
     ports:
       - "${PORT:-8090}:8090"
       # mídia do Go Live nativo (vídeo+áudio privados) — UDP
       - "${NATIVE_STREAM_UDP_PORT:-7883}:${NATIVE_STREAM_UDP_PORT:-7883}/udp"
     volumes:
       - ./data:/app/data
+    # Limites para não travar VPS pequenas (ex.: 1 GB sem swap): se estourar, só o
+    # container é morto e reiniciado — o SSH e o resto da máquina continuam de pé.
+    mem_limit: ${FRD_MEM_LIMIT:-384m}
+    memswap_limit: ${FRD_MEM_LIMIT:-384m}
+    cpus: ${FRD_CPUS:-1.5}
+    pids_limit: 256
+    # Log do container com rotação (o padrão do Docker cresce sem limite).
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
