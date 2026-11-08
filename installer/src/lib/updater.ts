@@ -11,7 +11,7 @@ export type UpdateState =
     | { state: "manual"; version: string; url: string; }
     | { state: "error"; message: string; };
 
-const RELEASES_URL = "https://github.com/your-org/your-repo/releases/latest";
+const RELEASES_URL = "https://github.com/BirdRa1n/FRD_GOLIVE/releases/latest";
 
 let win: BrowserWindow | null = null;
 let last: UpdateState = { state: "disabled" };

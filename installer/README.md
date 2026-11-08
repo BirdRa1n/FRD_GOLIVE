@@ -74,13 +74,23 @@ package it):
   produced on Windows (NSIS).
 - **Publish** uses the GitHub CLI (`gh auth login` first) and uploads everything from
   `release/` to the `v<package.json version>` release of the configured repository
-  (set `FRD_RELEASE_REPO=<org>/<repo>` or pass `--repo <org>/<repo>`). Mac and Windows
+  (default `BirdRa1n/FRD_GOLIVE`; set `FRD_RELEASE_REPO=<org>/<repo>` or pass
+  `--repo <org>/<repo>`, and change `publish` in `electron-builder.yml` plus
+  `RELEASES_URL` in `src/lib/updater.ts` to match). Mac and Windows
   can publish at different times: the first creates the release, the second just
   attaches the files. `--draft` creates a draft (auto-update ignores drafts until
   published).
 
 A new-version flow: `build-app --bump patch` → test → commit/push `package.json` →
 `publish-release` (on each OS).
+
+**App icon:** the source is `build/icon.svg`; `build/icon.png` (1024×1024) is committed
+and electron-builder turns it into the `.icns`/`.ico`. After editing the SVG, regenerate
+the PNG with `npx electron scripts/render-icon.cjs` (in `installer/`).
+
+**No pnpm / Node 25+ without corepack:** `build-vencord-dist.mjs` needs `pnpm` on the PATH
+(the version in Vencord's `packageManager`). Install it with `npm i -g pnpm` or into any
+folder (`npm i --prefix <dir> pnpm`) and prepend `<dir>/node_modules/.bin` to `PATH`.
 
 ### Auto-update (electron-updater)
 
