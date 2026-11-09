@@ -126,6 +126,16 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   the dashboard refreshes them. `/admin/groups` merges a user's connections (one per
   stream room: streaming + watching) into one person per channel. No token → gateway off → the
   IDENTIFY id is used. `DISCORD_GATEWAY_URL` points at a fake gateway (local test).
+- **Control WS blips must not end the stream**: Discord answers a dropped `/dstream`
+  socket with op7 RESUME. The server keeps the member (room, SSRCs, key, DAVE leaf) for
+  `NATIVE_STREAM_RESUME_GRACE_MS` (15 s) after any non-1000 close, replays the sequenced
+  frames after `seq_ack` (per-member outbox) and answers op9 RESUMED; UDP media keeps
+  flowing meanwhile. It used to close 4006, so every tunnel/proxy hiccup killed the Go
+  Live. A socket with 4 missed pongs (20 s) is terminated as a zombie (then waits RESUME);
+  leaving the call (bot gateway) drops a detached member at once.
+- **UDP buffers**: `NATIVE_STREAM_UDP_BUFFER_KB` (4096) — capped by the host's
+  `net.core.rmem_max`; see `docs/RELAY-UDP.md` §2b. A streamer with no UDP for 5 s logs
+  `SEM mídia UDP` (and `mídia voltou após Xs`).
 - **Live dashboard comes from `nativeStream.getLiveState()`** (the old `/signaling` WS
   was removed): `/admin/live` (rooms/who streams), `/admin/groups` (channels grouped by
   guild), `/admin/channels` (enabled/banned) and `/admin/settings` (mode). `channels`
