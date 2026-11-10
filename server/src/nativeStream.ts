@@ -29,6 +29,8 @@ const {
     NATIVE_STREAM_SESSION_OVERRIDE = "",
     NATIVE_STREAM_DAVE = "0",
     NATIVE_STREAM_NO_VIDEO = "0",
+    NATIVE_STREAM_RESUME_GRACE_MS = "15000",
+    NATIVE_STREAM_UDP_BUFFER_KB = "4096",
 } = process.env;
 
 const DAVE_ON = NATIVE_STREAM_DAVE === "1";
@@ -41,10 +43,17 @@ const HEARTBEAT_INTERVAL = 13750;
 const MODE = "aead_aes256_gcm_rtpsize";
 const FULL_HD_PIXELS = 1920 * 1080;
 const STATS_INTERVAL_MS = 5000;
+/** How long a member whose control WS dropped stays in the room waiting for op7 RESUME. */
+const RESUME_GRACE_MS = Math.max(0, Number(NATIVE_STREAM_RESUME_GRACE_MS) || 0);
+/** Sequenced frames kept per member to replay on RESUME (everything after the client's seq_ack). */
+const OUTBOX_MAX = 512;
+/** Stats rounds (5 s each) without a WS pong before the control socket is treated as dead. */
+const ZOMBIE_MISSED_PONGS = 4;
+const UDP_BUFFER_BYTES = Math.max(0, Number(NATIVE_STREAM_UDP_BUFFER_KB) || 0) * 1024;
 
 const OP = {
     IDENTIFY: 0, SELECT_PROTOCOL: 1, READY: 2, HEARTBEAT: 3, SESSION_DESCRIPTION: 4,
-    SPEAKING: 5, HEARTBEAT_ACK: 6, RESUME: 7, HELLO: 8, CLIENTS_CONNECT: 11, VIDEO: 12,
+    SPEAKING: 5, HEARTBEAT_ACK: 6, RESUME: 7, HELLO: 8, RESUMED: 9, CLIENTS_CONNECT: 11, VIDEO: 12,
     CLIENT_DISCONNECT: 13, MEDIA_SINK_WANTS: 15, VOICE_BACKEND_VERSION: 16, CLIENT_FLAGS: 18,
     CLIENT_PLATFORM: 20,
     PREPARE_TRANSITION: 21, EXECUTE_TRANSITION: 22, TRANSITION_READY: 23, PREPARE_EPOCH: 24,
@@ -64,6 +73,16 @@ interface UdpStats { packets: number; bytes: number; byPt: Record<string, number
 interface Member {
     ws: WebSocket;
     userId: string;
+    /** Stream token from IDENTIFY: op7 RESUME must present the same one. */
+    token?: string;
+    /** Sequenced frames already sent (replayed on RESUME after the client's seq_ack). */
+    outbox: { seq: number; data: string | Buffer; }[];
+    /** Set while the control WS is down and we wait for a RESUME (media keeps flowing over UDP). */
+    detachedAt?: number;
+    graceTimer?: ReturnType<typeof setTimeout>;
+    missedPongs: number;
+    /** Streamer stopped sending UDP media (logged once per silence). */
+    silentSince?: number;
     room: Room;
     audioSsrc: number;
     videoSsrc: number;
@@ -171,16 +190,87 @@ export function handleNativeStreamUpgrade(req: IncomingMessage, socket: Duplex, 
     wss.handleUpgrade(req, socket, head, ws => onConnection(ws, req));
 }
 
+function pushOutbox(m: Member, seq: number, data: string | Buffer): void {
+    m.outbox.push({ seq, data });
+    if (m.outbox.length > OUTBOX_MAX) m.outbox.splice(0, m.outbox.length - OUTBOX_MAX);
+}
+
+/**
+ * Sequenced ops are numbered and kept in the member's outbox even while its WS is down,
+ * so a RESUME replays exactly what the client missed (as Discord's voice server does).
+ */
 function send(ws: WebSocket, op: number, d: unknown, m?: Member): void {
-    if (ws.readyState !== WebSocket.OPEN) return;
     const msg: Record<string, unknown> = { op, d };
-    if (m && SEQ_OPS.has(op)) msg.seq = m.seq++;
+    if (m && SEQ_OPS.has(op)) {
+        msg.seq = m.seq++;
+        const data = JSON.stringify(msg);
+        pushOutbox(m, msg.seq as number, data);
+        if (ws.readyState === WebSocket.OPEN) ws.send(data);
+        return;
+    }
+    if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(msg));
 }
 
 function sendDave(m: Member, op: number, payload: Uint8Array): void {
-    if (m.ws.readyState !== WebSocket.OPEN) return;
-    m.ws.send(encodeServerFrame(m.seq++, op, payload));
+    const seq = m.seq++;
+    const frame = encodeServerFrame(seq, op, payload);
+    pushOutbox(m, seq, frame);
+    if (m.ws.readyState === WebSocket.OPEN) m.ws.send(frame);
+}
+
+const inRoom = (m: Member) => m.room.members.get(m.userId) === m;
+
+/**
+ * Control WS dropped without a clean close (tunnel/proxy blip, network switch, zombie
+ * socket): keep the member — room slot, SSRCs, key, DAVE leaf — for RESUME_GRACE_MS so
+ * the client's op7 RESUME can pick it up. Before this, every blip ended the Go Live.
+ */
+function detach(m: Member, code: number): void {
+    if (!inRoom(m) || m.detachedAt) return;
+    m.detachedAt = Date.now();
+    log(`WS de ${m.userId} caiu (${code}) — aguardando RESUME por ${RESUME_GRACE_MS}ms (mídia UDP segue)`);
+    m.graceTimer = setTimeout(() => {
+        m.graceTimer = undefined;
+        if (!inRoom(m) || !m.detachedAt) return;
+        log(`sem RESUME de ${m.userId} em ${RESUME_GRACE_MS}ms — sai da sala`);
+        leave(m);
+    }, RESUME_GRACE_MS);
+}
+
+function resume(ws: WebSocket, d: any): Member | null {
+    const serverId = String(d?.server_id ?? "");
+    const sessionId = String(d?.session_id ?? "");
+    const token = String(d?.token ?? "");
+    const room = rooms.get(serverId);
+    const m = token && room
+        ? [...room.members.values()].find(o => o.token === token && (!sessionId || !o.sessionId || o.sessionId === sessionId))
+        : undefined;
+    if (!m) {
+        log(`RESUME recusado (sessão desconhecida/expirada) sala ${serverId || "-"}`);
+        return null;
+    }
+    const ack = Number(d?.seq_ack);
+    const hasAck = d?.seq_ack !== undefined && d?.seq_ack !== null && Number.isFinite(ack);
+    if (hasAck && m.outbox.length && m.outbox[0].seq > ack + 1) {
+        log(`RESUME de ${m.userId} recusado: seq_ack ${ack} anterior ao que ainda está guardado (${m.outbox[0].seq})`);
+        return null;
+    }
+    const replay = hasAck ? m.outbox.filter(x => x.seq > ack) : [];
+    const old = m.ws;
+    m.ws = ws;
+    if (m.graceTimer) { clearTimeout(m.graceTimer); m.graceTimer = undefined; }
+    const away = m.detachedAt ? Date.now() - m.detachedAt : 0;
+    m.detachedAt = undefined;
+    m.missedPongs = 0;
+    m.pingAt = undefined;
+    if (old !== ws && old.readyState !== WebSocket.CLOSED) old.terminate();
+    ws.send(JSON.stringify({ op: OP.RESUMED, d: null }));
+    for (const x of replay) ws.send(x.data);
+    log(`RESUME ${m.userId} na sala ${serverId} após ${away}ms — ${replay.length} frame(s) reenviado(s) (seq_ack ${hasAck ? ack : "-"})`);
+    if (m.streamer) sendWants(m);
+    requestKeyframe(m.room);
+    return m;
 }
 
 function sendExternalSender(m: Member): void {
@@ -489,22 +579,49 @@ function onConnection(ws: WebSocket, req: IncomingMessage): void {
             void identify(ws, msg.d).then(m => {
                 const q = backlog;
                 backlog = null;
-                if (ws.readyState !== WebSocket.OPEN) return;
+                if (ws.readyState !== WebSocket.OPEN) {
+                    if (m) leave(m); // fechou enquanto o canal resolvia: não deixa membro fantasma na sala
+                    return;
+                }
                 member = m;
                 if (m && q) for (const x of q) onMessage(m, x.op, x.d);
             });
             return;
         }
-        if (msg.op === OP.HEARTBEAT) { send(ws, OP.HEARTBEAT_ACK, { t: msg.d?.t }); return; }
-        if (msg.op === OP.RESUME) { ws.close(4006, "Session no longer valid."); return; }
+        if (msg.op === OP.HEARTBEAT) {
+            send(ws, OP.HEARTBEAT_ACK, { t: msg.d?.t });
+            const ack = Number(msg.d?.seq_ack);
+            if (member && member.ws === ws && Number.isFinite(ack)) {
+                const keep = member.outbox.findIndex(x => x.seq > ack);
+                member.outbox.splice(0, keep < 0 ? member.outbox.length : keep);
+            }
+            return;
+        }
+        if (msg.op === OP.RESUME) {
+            const m = backlog ? null : resume(ws, msg.d);
+            if (m) member = m;
+            else ws.close(4006, "Session no longer valid.");
+            return;
+        }
         if (backlog) { backlog.push({ op: msg.op, d: msg.d }); return; } // identify ainda resolvendo
         if (!member) { ws.close(4003, "Not authenticated."); return; }
         onMessage(member, msg.op, msg.d);
     });
 
+    ws.on("pong", () => {
+        const m = member;
+        if (!m || m.ws !== ws) return;
+        m.missedPongs = 0;
+        if (m.pingAt) { m.rttMs = Date.now() - m.pingAt; m.pingAt = undefined; }
+    });
+
     ws.on("close", (code, reason) => {
-        if (member) leave(member);
-        log("fechou", member?.userId ?? "-", code, reason.toString());
+        const m = member;
+        log("fechou", m?.userId ?? "-", code, reason.toString());
+        if (!m || m.ws !== ws || !inRoom(m)) return; // já saiu, foi substituído ou retomado em outro WS
+        // 1000 = o cliente encerrou de propósito; o resto (1006 do túnel, zumbi…) pode voltar via RESUME.
+        if (code === 1000 || RESUME_GRACE_MS <= 0) leave(m);
+        else detach(m, code);
     });
 }
 
@@ -549,7 +666,7 @@ function resolveLater(m: Member, userId: string, sessionId: string, fallbackChan
         const loc = voiceLocation(userId, sessionId);
         if (!loc && tries < 10 && gatewayEnabled()) return; // janela de ~20s
         clearInterval(timer);
-        if (m.ws.readyState !== WebSocket.OPEN) return;
+        if (!inRoom(m)) return;
         if (loc) applyChannel(m, loc.guildId, loc.channelId, true);
         else if (requiresResolvedChannel(m.userId)) {
             log(`derrubado (canal não identificado pelo bot): ${m.userId} sala efêmera ${fallbackChannelId}`);
@@ -577,12 +694,23 @@ const usesChannels = () => store.getSettings().authMode !== "login";
  * channel they are actually in (they may move rooms mid-stream) and re-check access.
  */
 function onVoiceMove(userId: string, sessionId: string, loc: { guildId: string; channelId: string; } | undefined): void {
-    if (!loc) return; // left the call: Discord ends the stream connection itself
+    if (!loc) {
+        // Left the call: Discord ends the stream connection itself — don't wait for a
+        // RESUME that will never come from a connection that was already down.
+        for (const room of [...rooms.values()]) {
+            const m = room.members.get(userId);
+            if (m?.detachedAt && (!m.sessionId || !sessionId || m.sessionId === sessionId)) {
+                log(`${userId} saiu da call com o WS caído — sai da sala sem esperar RESUME`);
+                leave(m);
+            }
+        }
+        return;
+    }
     for (const room of rooms.values()) {
         const m = room.members.get(userId);
         if (!m || (m.sessionId && sessionId && m.sessionId !== sessionId)) continue;
         if (m.channelId === loc.channelId && m.guildId === loc.guildId) continue;
-        if (m.ws.readyState === WebSocket.OPEN) applyChannel(m, loc.guildId, loc.channelId, true);
+        if (inRoom(m)) applyChannel(m, loc.guildId, loc.channelId, true);
     }
 }
 onVoiceStateChange(onVoiceMove);
@@ -652,6 +780,7 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
     if (DAVE_ON) room.dave ??= createExternalSender();
     const prev = room.members.get(userId);
     if (prev) {
+        if (prev.graceTimer) { clearTimeout(prev.graceTimer); prev.graceTimer = undefined; }
         prev.ws.close(4005, "Replaced.");
         room.members.delete(userId);
         for (const a of prev.addrs) byAddr.delete(a);
@@ -666,11 +795,11 @@ async function identify(ws: WebSocket, d: any): Promise<Member | null> {
         twcc: new TwccRecorder(),
         twccExtId: NATIVE_STREAM_TWCC_EXT_ID ? Number(NATIVE_STREAM_TWCC_EXT_ID) : undefined,
         extProbe: { packets: 0, len2: new Map(), seen: new Map() },
+        token: typeof d?.token === "string" && d.token ? d.token : undefined,
+        outbox: [],
+        missedPongs: 0,
     };
     room.members.set(userId, m);
-    ws.on("pong", () => {
-        if (m.pingAt) { m.rttMs = Date.now() - m.pingAt; m.pingAt = undefined; }
-    });
     m.channelId = channelId;
     m.guildId = guildId;
     m.sessionId = sessionId || undefined;
@@ -770,9 +899,6 @@ function onMessage(m: Member, op: number, d: any): void {
             daveInvalidCommitWelcome(m, d);
             break;
 
-        case OP.RESUME:
-            m.ws.close(4006, "Session no longer valid."); // sem resume no PoC → cliente refaz o identify
-            break;
 
         default:
             log(`op ${op} de ${m.userId} (não tratado)`, JSON.stringify(d)?.slice(0, 300));
@@ -830,6 +956,7 @@ function peers(m: Member): Member[] {
 
 function leave(m: Member): void {
     const { room } = m;
+    if (m.graceTimer) { clearTimeout(m.graceTimer); m.graceTimer = undefined; }
     if (room.members.get(m.userId) !== m) return;
     room.members.delete(m.userId);
     for (const a of m.addrs) byAddr.delete(a);
@@ -841,7 +968,13 @@ function leave(m: Member): void {
     if (!room.members.size) rooms.delete(room.id);
 }
 
-const udp = createSocket("udp4");
+// Bigger kernel buffers: a 1080p keyframe arrives as a burst of hundreds of packets and,
+// with the ~208 KB Linux default, any event-loop hiccup (GC, disk write) overflows the
+// socket → lost video packets → frozen picture until the next keyframe.
+const udp = createSocket({
+    type: "udp4",
+    ...(UDP_BUFFER_BYTES ? { recvBufferSize: UDP_BUFFER_BYTES, sendBufferSize: UDP_BUFFER_BYTES } : {}),
+});
 
 function findBySsrc(ssrc: number): Member | undefined {
     for (const room of rooms.values()) {
@@ -1122,10 +1255,27 @@ setInterval(() => {
                 totalKbps += m.kbps;
                 if (m.channelId) liveChannels.push(m.channelId);
             }
-            if (m.pingAt) m.rttMs = undefined; // o último ping ficou sem pong
-            if (m.rttMs !== undefined) rtts.push(m.rttMs);
-            m.pingAt = Date.now();
-            try { m.ws.ping(); } catch { /* socket fechando */ }
+            if (!m.detachedAt) {
+                if (m.pingAt) { // o último ping ficou sem pong
+                    m.rttMs = undefined;
+                    if (++m.missedPongs >= ZOMBIE_MISSED_PONGS) {
+                        log(`WS de ${m.userId} sem pong há ${m.missedPongs * STATS_INTERVAL_MS / 1000}s — derrubando o socket zumbi (aguarda RESUME)`);
+                        m.ws.terminate();
+                    }
+                }
+                if (m.rttMs !== undefined) rtts.push(m.rttMs);
+                m.pingAt = Date.now();
+                try { m.ws.ping(); } catch { /* socket fechando */ }
+            }
+            if (m.streamer && m.video?.video_ssrc) {
+                if (!m.stats.packets && !m.silentSince) {
+                    m.silentSince = Date.now();
+                    log(`udp ${m.userId} (transmite): SEM mídia UDP nos últimos ${STATS_INTERVAL_MS / 1000}s${m.detachedAt ? " (WS caído)" : ""}`);
+                } else if (m.stats.packets && m.silentSince) {
+                    log(`udp ${m.userId} (transmite): mídia voltou após ${Math.round((Date.now() - m.silentSince) / 1000)}s`);
+                    m.silentSince = undefined;
+                }
+            }
             if (!m.stats.packets) continue;
             const kbps = m.kbps;
             log(`udp ${m.userId}${m.streamer ? " (transmite)" : ""}: ${m.stats.packets} pkts ${kbps} kbps repassados=${m.stats.forwarded} ${JSON.stringify(m.stats.byPt)}`);
@@ -1138,5 +1288,14 @@ setInterval(() => {
 }, STATS_INTERVAL_MS).unref();
 
 export function startNativeStreamUdp(): void {
-    udp.bind(UDP_PORT, () => log(`UDP ouvindo em ${UDP_PORT} (anunciado como ${NATIVE_STREAM_PUBLIC_IP}:${UDP_PORT}), WS em ${NATIVE_STREAM_PATH}`));
+    udp.bind(UDP_PORT, () => {
+        log(`UDP ouvindo em ${UDP_PORT} (anunciado como ${NATIVE_STREAM_PUBLIC_IP}:${UDP_PORT}), WS em ${NATIVE_STREAM_PATH}`);
+        try {
+            const rcv = udp.getRecvBufferSize();
+            const snd = udp.getSendBufferSize();
+            // Linux reports double the value set; below the request = capped by net.core.rmem_max/wmem_max.
+            const capped = UDP_BUFFER_BYTES && rcv < UDP_BUFFER_BYTES;
+            log(`UDP buffers: recv ${Math.round(rcv / 1024)} KB, send ${Math.round(snd / 1024)} KB${capped ? ` — abaixo dos ${UDP_BUFFER_BYTES / 1024} KB pedidos: suba net.core.rmem_max/wmem_max no host (docs/RELAY-UDP.md)` : ""}`);
+        } catch { /* plataforma sem getsockopt */ }
+    });
 }

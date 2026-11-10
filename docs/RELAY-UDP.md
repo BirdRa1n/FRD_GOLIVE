@@ -72,6 +72,21 @@ In your **VPS provider's** firewall/security list, **open inbound UDP `<port>`**
 home server, make sure the media listener exposes `<port>/udp` (the docker-compose does)
 and the local firewall accepts it from `wg0`.
 
+## 2b. UDP socket buffers (home server)
+
+A 1080p keyframe arrives as a burst of hundreds of packets. With the ~208 KB Linux
+default socket buffer, any event-loop hiccup overflows it → lost video packets → frozen
+picture until the next keyframe. The server asks for `NATIVE_STREAM_UDP_BUFFER_KB`
+(default 4096) but the kernel caps it at `net.core.rmem_max`/`wmem_max` (a host-wide
+setting, not per container). Raise it on the **home server** (the one running Docker):
+
+```bash
+printf 'net.core.rmem_max=8388608\nnet.core.wmem_max=8388608\n' | sudo tee /etc/sysctl.d/99-frd-udp.conf
+sudo sysctl --system
+```
+The boot log shows the effective size (`[dstream] UDP buffers: recv … KB`) and warns when
+it was capped.
+
 ## 3. Verify
 
 With an active stream, on the home server:
