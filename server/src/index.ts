@@ -31,7 +31,7 @@ const {
     PORT = "8090",
     ADMIN_TOKEN = "",
     PUBLIC_SIGNALING_URL = "", // ex.: wss://signaling.seu.com
-    VERSION = "2.0.0",
+    VERSION = "2.0.8",
 } = process.env;
 
 if (!ADMIN_TOKEN) console.warn("[v2] ADMIN_TOKEN vazio — endpoints de admin desprotegidos!");
@@ -166,7 +166,7 @@ app.get("/admin", (req, res) => {
     res.type("html").send(adminPage(s!.name));
 });
 
-function admin(req: express.Request, res: express.Response, next: express.NextFunction): void {
+function admin(req: express.Request<any>, res: express.Response, next: express.NextFunction): void {
     const tokenOk = Boolean(ADMIN_TOKEN) && req.headers["x-admin-token"] === ADMIN_TOKEN;
     if (tokenOk || isAdmin(getSession(req))) return next();
     res.status(403).json({ error: "não autorizado" });

@@ -1,8 +1,8 @@
 {
   "name": "frd-golive-installer",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "private": true,
-  "description": "Instalador FRD GoLive — aplica a modificação no Discord (Mac/Windows).",
+  "description": "Instalador FRD GoLive — aplica a modificação no Discord (Mac/Windows/Linux).",
   "main": "dist/main.js",
   "scripts": {
     "build": "node scripts/sync-ui.mjs && tsc && esbuild src/preload.ts --bundle --platform=node --external:electron --outfile=dist/preload.js",
@@ -14,17 +14,17 @@
     "sync-ui": "node scripts/sync-ui.mjs"
   },
   "devDependencies": {
-    "@types/node": "^22.5.0",
-    "electron": "^32.0.0",
-    "electron-builder": "^25.0.0",
-    "esbuild": "^0.24.0",
-    "typescript": "^5.6.0"
+    "@types/node": "^22.20.5",
+    "electron": "^45.3.1",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
   },
   "allowScripts": {
-    "electron@32.3.3": true,
-    "esbuild@0.24.2": true
+    "electron@45.3.1": true,
+    "esbuild@0.28.2": true
   },
   "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.11"
   }
 }
