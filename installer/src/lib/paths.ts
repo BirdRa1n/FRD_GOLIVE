@@ -13,7 +13,9 @@ export function bundledDistDir(): string {
 }
 
 export function installerCliName(): string {
-    return process.platform === "win32" ? "VencordInstallerCli.exe" : "VencordInstallerCli-darwin";
+    if (process.platform === "win32") return "VencordInstallerCli.exe";
+    if (process.platform === "linux") return "VencordInstallerCli-linux";
+    return "VencordInstallerCli-darwin";
 }
 
 export function installerCliUrl(): string {

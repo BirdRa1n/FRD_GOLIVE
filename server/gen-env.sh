@@ -46,7 +46,7 @@ DEFAULT_MAX_HEIGHT=1080
 DEFAULT_MAX_FPS=30
 
 DB_FILE=/app/data/users.json
-VERSION=2.0.0
+VERSION=2.0.8
 
 # --- Go Live NATIVO pelo servidor privado (server/src/nativeStream.ts) — o caminho de mídia ---
 # Preencha em produção. NATIVE_STREAM_PUBLIC_IP = IP público por onde a mídia (UDP) entra

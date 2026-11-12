@@ -126,7 +126,7 @@ server.tool(
 server.tool(
     "discord_dispatch",
     'Despacha uma ação FluxDispatcher no Discord. Ex.: {"type":"STREAM_WATCH","guildId":...}. Só para experimentos dirigidos.',
-    { action: z.record(z.unknown()).describe('a ação, ex.: {"type":"ALGUMA_ACAO", ...}') },
+    { action: z.record(z.string(), z.unknown()).describe('a ação, ex.: {"type":"ALGUMA_ACAO", ...}') },
     call("discord_dispatch", 15_000),
 );
 

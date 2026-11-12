@@ -44,6 +44,19 @@ win:
     - target: nsis
       arch: [x64]
 
+# Linux: AppImage é o que o auto-update atualiza (latest-linux.yml); o .deb é
+# para quem prefere instalar pelo gerenciador de pacotes (sem auto-update).
+linux:
+  icon: build/icon.png
+  category: Utility
+  maintainer: BirdRa1n <BirdRa1n@users.noreply.github.com>
+  synopsis: Instalador do FRD GoLive para o Discord
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

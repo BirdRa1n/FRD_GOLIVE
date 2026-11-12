@@ -88,11 +88,9 @@ function main() {
         run("git", ["clone", "--depth", "1", VENCORD_REPO, VENCORD_DIR]);
     }
 
-    // 2. Dependências (inclui a do plugin).
+    // 2. Dependências (o plugin não tem dependências próprias).
     log("Instalando dependências do Vencord (pnpm install)…");
     pnpmRun(["install", "--frozen-lockfile=false"], VENCORD_DIR);
-    log("Adicionando livekit-client (dependência do plugin)…");
-    pnpmRun(["add", "livekit-client"], VENCORD_DIR);
 
     // 3. Copiar o plugin (client/src → src/userplugins/frdGoLive). COPIAR, não symlink.
     const pluginDir = join(VENCORD_DIR, "src", "userplugins", "frdGoLive");

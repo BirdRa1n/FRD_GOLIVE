@@ -38,7 +38,7 @@ client/            Vencord userplugin (TS/React) — lean: redirect + diagnostic
     diagBridge.ts        MCP bridge (renderer) — live diagnostics (see docs/MCP-DIAG.md)
     native.ts            NATIVE module (main process): desktopCapturer + MCP bridge IPC
     types.ts             pure types (NativeSource) — ✔ typecheckable in isolation
-installer/         graphical installer (Electron, Mac/Win) — applies the mod to Discord
+installer/         graphical installer (Electron, Mac/Win/Linux) — applies the mod to Discord
   src/             main/preload (IPC), lib/ (config, inject, paths, store)
   renderer/        installer UI (uses the design system; renderer/ui/ is copied at build)
 server/            hub/auth/admin/config + native Go Live media (Node, Docker)
@@ -230,7 +230,11 @@ already built with the plugin — gitignored, generated in CI). See `installer/R
 - The host is **remembered** across updates (`lib/store.ts` in Electron userData); the UI
   shows server status + latency and adapts to the server's auth mode, listing the enabled
   groups (with icons) in channels mode.
-- **Build/release:** `installer/scripts/build-app.sh` (Mac: .app/.dmg/.zip, ad-hoc without a
+- **Release CI:** pushing a `v*` tag runs `.github/workflows/release.yml` — builds
+  `vencord-dist` once, packages Windows x64, macOS arm64, macOS x64 (separate runners)
+  and Linux x64 (AppImage + deb), merges the per-arch `latest-mac.yml` with `yq` and
+  publishes the GitHub release. The version comes from the tag.
+- **Build/release (local):** `installer/scripts/build-app.sh` (Mac: .app/.dmg/.zip, ad-hoc without a
   Developer ID via `after-pack.cjs`) and `build-app.bat` (Windows: .exe NSIS);
   `publish-release.{sh,bat}` upload `release/` with `gh` to the `v<version>` release.
 - **Auto-update:** `electron-updater` with the GitHub provider (`publish` in
