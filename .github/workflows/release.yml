@@ -1,0 +1,188 @@
+# Release do instalador: ao criar uma tag v* (ex.: v2.0.8), compila em paralelo
+# para Windows (x64), macOS Apple Silicon (arm64), macOS Intel (x64) e Linux (x64)
+# e publica tudo na release do GitHub — de onde o auto-update (electron-updater) lê.
+#
+#   git tag v2.0.8 && git push origin v2.0.8
+#
+# A versão do app vem da tag (o package.json é ajustado no CI se estiver diferente).
+# macOS: assina com Developer ID se os secrets CSC_LINK/CSC_KEY_PASSWORD existirem;
+# senão faz assinatura ad-hoc (scripts/after-pack.cjs).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  # O bundle do Vencord com o plugin é só JS (igual em toda plataforma):
+  # compila uma vez e todos os jobs empacotam o mesmo.
+  vencord:
+    name: Vencord + plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Habilitar pnpm (corepack)
+        run: corepack enable
+
+      - name: Compilar vencord-dist
+        working-directory: installer
+        env:
+          FRD_BUILD_DIR: ${{ runner.temp }}/frd-build
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: node scripts/build-vencord-dist.mjs
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vencord-dist
+          path: installer/vencord-dist
+          if-no-files-found: error
+          retention-days: 3
+
+  build:
+    name: ${{ matrix.name }}
+    needs: vencord
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            id: win-x64
+            os: windows-latest
+            args: --win nsis --x64
+          - name: macOS arm64
+            id: mac-arm64
+            os: macos-latest
+            args: --mac dmg zip --arm64
+          - name: macOS x64
+            id: mac-x64
+            os: macos-26-intel
+            args: --mac dmg zip --x64
+          - name: Linux x64
+            id: linux-x64
+            os: ubuntu-latest
+            args: --linux AppImage deb --x64
+    defaults:
+      run:
+        shell: bash
+        working-directory: installer
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: installer/package-lock.json
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: vencord-dist
+          path: installer/vencord-dist
+
+      - name: Versão a partir da tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p 'require("./package.json").version')"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::warning::package.json está em $PKG_VERSION, a tag é $GITHUB_REF_NAME — usando $TAG_VERSION"
+            npm version "$TAG_VERSION" --no-git-tag-version --allow-same-version
+          fi
+
+      - name: Instalar dependências
+        run: npm ci --no-audit --no-fund
+
+      - name: Compilar (TypeScript + design system)
+        run: npm run build
+
+      - name: Assinatura do macOS
+        if: runner.os == 'macOS'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            echo "Developer ID configurado — o app será assinado."
+          else
+            echo "::notice::Sem Developer ID (secret CSC_LINK): assinatura ad-hoc."
+            echo "FRD_ADHOC_SIGN=1" >> "$GITHUB_ENV"
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "EXTRA_ARGS=-c.mac.identity=null" >> "$GITHUB_ENV"
+          fi
+
+      - name: Empacotar
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: npx electron-builder ${{ matrix.args }} ${EXTRA_ARGS:-} --publish never
+
+      # Os dois jobs do macOS geram um latest-mac.yml cada (só com a própria
+      # arquitetura): renomeia para juntar no job de release.
+      - name: Separar o latest-mac.yml por arquitetura
+        if: runner.os == 'macOS'
+        run: mv release/latest-mac.yml "release/latest-mac-${{ matrix.id }}.yml"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.id }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            installer/release/*.exe
+            installer/release/*.dmg
+            installer/release/*.zip
+            installer/release/*.AppImage
+            installer/release/*.deb
+            installer/release/*.blockmap
+            installer/release/latest*.yml
+
+  release:
+    name: Publicar release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      # electron-updater (macOS) escolhe o arquivo da arquitetura da máquina dentro
+      # de `files` — então um único latest-mac.yml com as duas arquiteturas.
+      - name: Juntar latest-mac.yml (arm64 + x64)
+        working-directory: release
+        run: |
+          yq -i '.files += load("latest-mac-mac-x64.yml").files' latest-mac-mac-arm64.yml
+          mv latest-mac-mac-arm64.yml latest-mac.yml
+          rm latest-mac-mac-x64.yml
+          cat latest-mac.yml
+          ls -la
+
+      - name: Criar/atualizar a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          FLAGS=()
+          case "$TAG" in *-*) FLAGS+=(--prerelease) ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* --verify-tag --generate-notes \
+              --title "FRD GoLive ${TAG#v}" ${FLAGS[@]+"${FLAGS[@]}"}
+          fi

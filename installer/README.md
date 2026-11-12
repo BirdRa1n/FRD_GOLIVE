@@ -1,4 +1,4 @@
-# FRD GoLive installer (Electron, Mac/Windows)
+# FRD GoLive installer (Electron, Mac/Windows/Linux)
 
 A graphical app that **applies the modification to Discord** without a terminal: the
 user enters their own server host, it pulls the config from that host, writes the
@@ -56,7 +56,25 @@ npm run start:full      # build:vencord + start, in one step
 npm run dist            # build:vencord + packages .dmg (mac) / .exe (win)
 ```
 
-## Build the app (.app / .exe) and publish a release
+## Build the app (.app / .exe / .AppImage) and publish a release
+
+### CI (recommended): push a tag
+
+`.github/workflows/release.yml` runs on every `v*` tag. It builds `vencord-dist` once,
+then packages **in parallel, each on its own runner**: Windows x64 (NSIS `.exe`), macOS
+arm64 and macOS x64 (`.dmg` + `.zip`, separate jobs) and Linux x64 (`.AppImage` + `.deb`).
+A final job merges the two `latest-mac.yml` files (one per arch) and creates/updates the
+GitHub release with everything — which is what auto-update reads.
+
+```bash
+git tag v2.0.8 && git push origin v2.0.8
+```
+
+The app version comes from the tag (the CI adjusts `package.json` with a warning if they
+differ — keep them in sync). Tags with a `-` (e.g. `v2.1.0-beta.1`) become prereleases.
+macOS is ad-hoc signed unless the `CSC_LINK`/`CSC_KEY_PASSWORD` secrets hold a Developer ID.
+
+### Locally
 
 Ready-made scripts (run `npm install`, build Vencord with the plugin, the app, and
 package it):

@@ -10,7 +10,7 @@ export function ensureBundledDist(): void {
     if (!existsSync(src) || readdirSync(src).length === 0) {
         throw new Error(
             app.isPackaged
-                ? "Bundle do Vencord ausente neste app. Reinstale a partir do .dmg/.exe oficial."
+                ? "Bundle do Vencord ausente neste app. Reinstale a partir do .dmg/.exe/.AppImage oficial."
                 : "vencord-dist ausente. Gere o bundle: `npm run build:vencord` "
                   + "(ou aponte FRD_VENCORD_DIST para um Vencord/dist já compilado).",
         );
