@@ -26,5 +26,6 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.11"
-  }
+  },
+  "homepage": "https://github.com/BirdRa1n/FRD_GOLIVE"
 }
