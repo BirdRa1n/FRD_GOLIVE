@@ -465,13 +465,13 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
         const room = m.room;
         if (!room.dave || m.daveChannelId === undefined) return;
         if (!room.daveCommitter) {
+            // Committer fundador: não recebe mais um op27 vazio (o discord_voice atual não
+            // faz commit de proposta vazia). O grupo nasce no commit do 1º Add de outro membro.
             room.daveCommitter = m; room.daveEpoch = 0; room.daveTransition = 0;
             room.daveBootstrapped = false;
             room.daveNextLeaf = 0; room.daveFreeLeaves = [];
-            if (!m.daveProposalsSent) {
-                m.daveProposalsSent = true;
-                enqueueDaveProposal(room, { kind: "bootstrap", chId: m.daveChannelId });
-            }
+            m.daveProposalsSent = true;
+            log(`DAVE committer fundador → ${m.userId} (aguardando o 1º membro para propor o Add)`);
         } else if (!m.daveJoined && (m !== room.daveCommitter || room.daveBootstrapped)) {
             if (room.daveInFlight?.kind === "add" && room.daveInFlight.member === m) return;
             if ((room.daveQueue ?? []).some(p => p.kind === "add" && p.member === m)) return;
@@ -505,8 +505,10 @@ function handleDaveBinary(m: Member, op: number, payload: Buffer): void {
             return; // mantém a "porta" aberta esperando o commit válido deste epoch
         }
         if (room.daveInFlightTimer) { clearTimeout(room.daveInFlightTimer); room.daveInFlightTimer = undefined; }
-        if (m.daveJoined || (m === room.daveCommitter && flight.kind === "bootstrap")) m.daveJoined = true;
+        const founding = m === room.daveCommitter && !room.daveBootstrapped;
+        if (m.daveJoined || founding) m.daveJoined = true;
         else log(`DAVE op28 de ${m.userId} fora do grupo — repassa sem marcá-lo como membro`);
+        if (founding && flight.kind !== "bootstrap" && m.daveLeaf === undefined) m.daveLeaf = allocDaveLeaf(room);
         const { commit, welcome } = splitCommitWelcome(payload);
         const tid = room.daveTransition ?? 0;
         const op29 = withTransitionId(tid, commit);
