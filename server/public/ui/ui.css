@@ -777,6 +777,12 @@ dialog.sheet.sheet-wide { width: min(880px, calc(100vw - 32px)); }
 .tile.w3 { grid-column: span 3; }
 .tile.w4 { grid-column: 1 / -1; }
 .tile.h2 { grid-row: span 2; align-self: stretch; }
+/* .bento.even: tiles of a row share its height (dashboards). Title on top, the metric /
+   chart settles at the bottom and canvases grow to fill the spare height. */
+.bento.even { align-items: stretch; }
+.bento.even > .tile { display: flex; flex-direction: column; }
+.bento.even > .tile > .big, .bento.even > .tile > .chart:only-of-type { margin-top: auto; }
+.bento.even > .tile.w2 > .chart, .bento.even > .tile.w3 > .chart, .bento.even > .tile.w4 > .chart { flex: 1 0 auto; }
 .tile .group { border: 0; border-radius: 0; background: none; margin: 0 -16px -16px; }
 .tile .row { padding-inline: 16px; }
 .tile.accent { background: var(--accent); border-color: transparent; color: var(--on-color); box-shadow: var(--glow); }
