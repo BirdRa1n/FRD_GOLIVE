@@ -170,7 +170,7 @@ export function adminPage(name: string): string {
           </div>
         </div>
 
-        <section id="tab-overview" class="bento">
+        <section id="tab-overview" class="bento even">
           <div class="tile w2 h2 in" style="--i:0">
             <p class="tile-title">Mapa ao vivo <span>a mídia passa pelo hub</span></p>
             <canvas class="chart" id="cv-map" style="height:340px" role="img" aria-label="Mapa das salas ao vivo: hub no centro, salas ao redor, pessoas em volta de cada sala"></canvas>
