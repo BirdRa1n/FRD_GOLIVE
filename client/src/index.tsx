@@ -5,7 +5,8 @@ import { startDiagBridge, stopDiagBridge } from "./diagBridge";
 import { disableLogCollector, startLogCollector, stopLogCollector } from "./logCollector";
 import { isNativeStreamConnection, setNativeStreamEndpoint } from "./probe/nativeStreamRedirect";
 import { startStreamProbe, stopStreamProbe } from "./probe/streamProbe";
-import { onLogUploadChange, settings } from "./settings";
+import { onLogUploadChange, onUpdateCheckChange, settings } from "./settings";
+import { startUpdateCheck, stopUpdateCheck } from "./updateCheck";
 
 function applyLogUpload(on: boolean): void {
     if (on) {
@@ -47,6 +48,12 @@ export default definePlugin({
 
     start() {
         onLogUploadChange(applyLogUpload);
+        onUpdateCheckChange(on => on ? startUpdateCheck() : stopUpdateCheck());
+        try {
+            if (settings.store.updateCheck) startUpdateCheck();
+        } catch (e) {
+            console.error("[FRD GoLive] falha ao iniciar a verificação de atualização:", e);
+        }
         // Antes da sonda e da ponte MCP: o console delas também entra nos logs.
         // Uma falha no diagnóstico não pode impedir o redirecionamento: sem ele, a tela iria para o Discord.
         try {
@@ -74,6 +81,7 @@ export default definePlugin({
     },
 
     stop() {
+        stopUpdateCheck();
         stopStreamProbe();
         stopDiagBridge();
         stopLogCollector();

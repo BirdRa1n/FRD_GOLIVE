@@ -149,6 +149,12 @@ curl -s http://localhost:8090/config   # nativeStreamEndpoint (host/dstream) + m
   through `server/src/imageCache.ts` (fetched once, cached on disk, served by the hub at
   `/admin/img/{guild,user}/:id` and the public `/img/guild/:id`) — the browser never
   hits Discord directly. The UI falls back to initials when there is no image.
+- **Update notice** (`client/src/updateCheck.tsx` → `native.ts` `releasesFetch`): the plugin
+  compares `FRD_VERSION` (`client/src/version.ts`, rewritten in the plugin copy by
+  `build-vencord-dist.mjs` from the CI tag / `FRD_VERSION` env / `installer/package.json`)
+  with the non-draft, non-prerelease GitHub releases and shows the newer releases' markdown
+  changelogs (Discord `Parser`) + a notice bar. Keep `version.ts` equal to
+  `installer/package.json` when bumping. Release notes are what users read: write them well.
 - **Client logs** (`client/src/logCollector.ts` → `native.ts` → `server/src/clientLogs.ts`):
   on by default (`logUpload`), sent every 5 min, opt-out warns the user. `data:` URIs must
   stay scrubbed: they carry the screen thumbnail. See [docs/CLIENT-LOGS.md](docs/CLIENT-LOGS.md).

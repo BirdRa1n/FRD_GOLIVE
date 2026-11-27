@@ -7,7 +7,8 @@ import { homedir, release } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-import type { LogEntry, NativeSource } from "./types";
+import type { LogEntry, NativeSource, ReleaseCheck, ReleaseInfo } from "./types";
+import { FRD_REPO, FRD_VERSION } from "./version";
 
 const IS_WIN = process.platform === "win32";
 const OWN_AUDIO_EXCLUDED_DEVICE = "loopbackWithoutChrome";
@@ -390,4 +391,44 @@ export async function logsDisable(_: IpcMainInvokeEvent): Promise<void> {
     if (logTimer) clearInterval(logTimer);
     logTimer = null;
     await rm(LOG_DIR, { recursive: true, force: true });
+}
+
+// Releases do projeto no GitHub — buscado no main process (o CSP do Discord bloqueia
+// api.github.com no renderer). Só leitura, sem token: 60 req/h por IP, o renderer
+// consulta poucas vezes por dia.
+const RELEASES_API = `https://api.github.com/repos/${FRD_REPO}/releases?per_page=30`;
+const RELEASE_BODY_MAX = 20_000;
+
+export async function releasesFetch(_: IpcMainInvokeEvent): Promise<ReleaseCheck> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    try {
+        const res = await fetch(RELEASES_API, {
+            headers: {
+                accept: "application/vnd.github+json",
+                "user-agent": `FRD-GoLive/${FRD_VERSION}`,
+                "x-github-api-version": "2022-11-28",
+            },
+            signal: controller.signal,
+        });
+        if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+        const list = await res.json() as Array<Record<string, unknown>>;
+        if (!Array.isArray(list)) return { ok: false, error: "resposta inesperada" };
+        const releases: ReleaseInfo[] = list
+            .filter(r => !r.draft && !r.prerelease && typeof r.tag_name === "string")
+            .map(r => ({
+                tag: String(r.tag_name),
+                name: String(r.name || r.tag_name),
+                body: String(r.body ?? "").slice(0, RELEASE_BODY_MAX),
+                url: typeof r.html_url === "string" && r.html_url.startsWith("https://github.com/")
+                    ? r.html_url
+                    : `https://github.com/${FRD_REPO}/releases`,
+                publishedAt: String(r.published_at ?? ""),
+            }));
+        return { ok: true, releases };
+    } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+        clearTimeout(timer);
+    }
 }
