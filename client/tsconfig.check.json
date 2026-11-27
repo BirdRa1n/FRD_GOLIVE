@@ -12,6 +12,7 @@
   },
   "include": [
     "src/types.ts",
-    "src/logScrub.ts"
+    "src/logScrub.ts",
+    "src/version.ts"
   ]
 }

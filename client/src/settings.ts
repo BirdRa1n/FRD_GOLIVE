@@ -7,7 +7,19 @@ export function onLogUploadChange(fn: (on: boolean) => void): void {
     logUploadListener = fn;
 }
 
+let updateCheckListener: ((on: boolean) => void) | null = null;
+
+export function onUpdateCheckChange(fn: (on: boolean) => void): void {
+    updateCheckListener = fn;
+}
+
 export const settings = definePluginSettings({
+    updateCheck: {
+        type: OptionType.BOOLEAN,
+        description: "Avisar quando sair uma versão nova do FRD GoLive (consulta as releases do projeto no GitHub ao abrir o Discord e a cada 6 horas) e mostrar o que mudou.",
+        default: true,
+        onChange: (on: boolean) => updateCheckListener?.(on),
+    },
     logUpload: {
         type: OptionType.BOOLEAN,
         description: "Enviar os logs do Discord (console, conexão e estatísticas de mídia, sem tokens) para o servidor dos admins a cada 5 minutos. Desligar impossibilita a gente de achar eventuais erros.",

@@ -9,9 +9,10 @@
 // Uso:  node scripts/build-vencord-dist.mjs
 // Env:  FRD_BUILD_DIR  diretório de trabalho (default: ~/.frd-golive/build)
 //       VENCORD_REPO   repositório do Vencord (default: upstream oficial)
+//       FRD_VERSION    versão embutida no plugin (default: a tag do CI ou o package.json)
 
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -98,6 +99,17 @@ function main() {
     rmSync(pluginDir, { recursive: true, force: true });
     mkdirSync(dirname(pluginDir), { recursive: true });
     cpSync(CLIENT_SRC, pluginDir, { recursive: true });
+
+    // 3b. Versão embutida no plugin (o aviso de atualização compara com as releases).
+    //     Tag do CI (v2.1.0) > FRD_VERSION > installer/package.json.
+    const tag = (process.env.GITHUB_REF_TYPE === "tag" && process.env.GITHUB_REF_NAME) || "";
+    const version = (process.env.FRD_VERSION || tag || JSON.parse(readFileSync(join(INSTALLER_DIR, "package.json"), "utf8")).version)
+        .replace(/^v/, "");
+    if (!/^\d+\.\d+\.\d+([-+][\w.-]+)?$/.test(version)) die(`versão inválida para o plugin: "${version}"`);
+    const versionFile = join(pluginDir, "version.ts");
+    writeFileSync(versionFile, readFileSync(versionFile, "utf8")
+        .replace(/export const FRD_VERSION = "[^"]*";/, `export const FRD_VERSION = ${JSON.stringify(version)};`));
+    log(`Versão do plugin: ${version}`);
 
     // 4. Build.
     log("Compilando o Vencord com o plugin (pnpm build)…");

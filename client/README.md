@@ -19,7 +19,9 @@ src/
 │   ├── nativeStreamRedirect.ts    # redirects native Go Live to /dstream + unlocks DAVE downgrade
 │   └── streamProbe.ts             # read-only protocol probe (diagnostics)
 ├── diagBridge.ts                  # MCP bridge (renderer) — live diagnostics (see docs/MCP-DIAG.md)
-├── native.ts                      # NATIVE module (main process): desktopCapturer + MCP bridge IPC
+├── updateCheck.tsx                # "new FRD version" notice + release changelogs (GitHub releases)
+├── native.ts                      # NATIVE module (main process): desktopCapturer + MCP bridge IPC + releases fetch
+├── version.ts                     # FRD_VERSION (stamped by the build) + compareVersions — ✔ pure
 └── types.ts                       # pure types (NativeSource) — ✔ typecheckable in isolation
 ```
 
@@ -41,6 +43,13 @@ inside the Vencord build.
 3. The native `discord_voice` module sends the RTP (video + audio) to the server; the
    audio is E2EE (DAVE v1) when `nativeStreamDave` is on.
 4. The censored native video buttons are unlocked via an experiment override.
+
+**Update notice:** with `updateCheck` on (default), the plugin reads the project's GitHub
+releases (from the main process — Discord's CSP blocks `api.github.com` in the renderer)
+20 s after start and every 6 h. If a release is newer than `FRD_VERSION`, it shows a modal
+with the markdown changelogs of every newer release plus a notice bar with a download
+button. `FRD_VERSION` is stamped by `installer/scripts/build-vencord-dist.mjs` (CI tag →
+`FRD_VERSION` env → `installer/package.json`).
 
 Who can stream is decided on the server (`/dstream`): a user enabled in the hub, or
 anyone in an enabled channel (channels mode).
